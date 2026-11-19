@@ -1,0 +1,129 @@
+/* Local fonts only. No CDN. Fallbacks are system serif/sans. */
+@font-face{font-family:"Cormorant Garamond";src:url("../fonts/CormorantGaramond-Variable.ttf") format("truetype");font-weight:300 700;font-style:normal;font-display:swap;}
+@font-face{font-family:"Cormorant Garamond";src:url("../fonts/CormorantGaramond-Italic-Variable.ttf") format("truetype");font-weight:300 700;font-style:italic;font-display:swap;}
+@font-face{font-family:Jost;src:url("../fonts/Jost-Variable.ttf") format("truetype");font-weight:400 600;font-style:normal;font-display:swap;}
+@font-face{font-family:Jost;src:url("../fonts/Jost-Italic-Variable.ttf") format("truetype");font-weight:400 600;font-style:italic;font-display:swap;}
+@font-face{font-family:Fraunces;src:url("../fonts/Fraunces-Variable.ttf") format("truetype");font-weight:300 700;font-style:normal;font-display:swap;}
+@font-face{font-family:Fraunces;src:url("../fonts/Fraunces-Italic-Variable.ttf") format("truetype");font-weight:300 700;font-style:italic;font-display:swap;}
+@font-face{font-family:"Nunito Sans";src:url("../fonts/NunitoSans-Variable.ttf") format("truetype");font-weight:400 700;font-style:normal;font-display:swap;}
+@font-face{font-family:"Nunito Sans";src:url("../fonts/NunitoSans-Italic-Variable.ttf") format("truetype");font-weight:400 700;font-style:italic;font-display:swap;}
+@font-face{font-family:Marcellus;src:url("../fonts/Marcellus-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face{font-family:Archivo;src:url("../fonts/Archivo-Variable.ttf") format("truetype");font-weight:400 600;font-style:normal;font-display:swap;}
+@font-face{font-family:Archivo;src:url("../fonts/Archivo-Italic-Variable.ttf") format("truetype");font-weight:400 600;font-style:italic;font-display:swap;}
+
+/*
+  Theme tokens from /workspace/brizza-work/brand/07-moodboards/MOODBOARDS.md (DRAFT).
+  Body-text pairs are limited to combinations documented as WCAG 2.1 AA (≥4.5:1).
+  Accent metals are never used for small text.
+*/
+
+:root,
+[data-theme="02"]{
+  --bg:#DCCDB8;
+  --paper:#F1EAE0;
+  --field:#E8DFD2;
+  --ink:#4A3328;
+  --muted:#6A5243;
+  --line:#A89580;
+  --sidebar:#4A3328;
+  --sidebar-text:#F1EAE0;
+  --sidebar-muted:#DCCDB8;
+  --nav-hover:#5C4336;
+  --primary:#4A3328;
+  --primary-text:#F1EAE0;
+  --accent:#9A7457;
+  --good-bg:#E8DFD2;
+  --good-fg:#4A3328;
+  --warn-bg:#E4D3C4;
+  --warn-fg:#4A3328;
+  --alert-bg:#E8D4CC;
+  --alert-fg:#4A3328;
+  --notice-bg:#E8DFD2;
+  --notice-fg:#4A3328;
+  --optional-bg:#F1EAE0;
+  --optional-line:#9A7457;
+  --shadow:0 8px 28px #4A33281A;
+  --font-display:Fraunces, "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --font-text:"Nunito Sans", "Segoe UI", system-ui, sans-serif;
+  --display-settings:"SOFT" 100, "WONK" 0, "opsz" 36;
+  --radius:20px;
+  --radius-sm:14px;
+  --radius-pill:999px;
+  --heading-transform:none;
+  --heading-tracking:-0.02em;
+  --sidebar-radius:0 24px 24px 0;
+}
+
+[data-theme="01"]{
+  --bg:#F4F0E9;
+  --paper:#FBF8F3;
+  --field:#F4F0E9;
+  --ink:#352820;
+  --muted:#6E6055;
+  --line:#B8AA9B;
+  --sidebar:#352820;
+  --sidebar-text:#F4F0E9;
+  --sidebar-muted:#E7D7CC;
+  --nav-hover:#4A382C;
+  --primary:#352820;
+  --primary-text:#F4F0E9;
+  --accent:#A78A5E;
+  --good-bg:#E7D7CC;
+  --good-fg:#352820;
+  --warn-bg:#EDE0D4;
+  --warn-fg:#352820;
+  --alert-bg:#E8D4CC;
+  --alert-fg:#352820;
+  --notice-bg:#E7D7CC;
+  --notice-fg:#352820;
+  --optional-bg:#FBF8F3;
+  --optional-line:#A78A5E;
+  --shadow:0 6px 22px #35282014;
+  --font-display:"Cormorant Garamond", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --font-text:Jost, "Segoe UI", system-ui, sans-serif;
+  --display-settings:"wght" 500;
+  --radius:10px;
+  --radius-sm:8px;
+  --radius-pill:999px;
+  --heading-transform:none;
+  --heading-tracking:-0.02em;
+  --sidebar-radius:0;
+}
+
+[data-theme="03"]{
+  --bg:#F3F1EC;
+  --paper:#FFFCF8;
+  --field:#F3F1EC;
+  --ink:#352820;
+  --muted:#5F574D;
+  --line:#C8C0B4;
+  --sidebar:#352820;
+  --sidebar-text:#F3F1EC;
+  --sidebar-muted:#C8C0B4;
+  --nav-hover:#4A382C;
+  --primary:#352820;
+  --primary-text:#F3F1EC;
+  --accent:#8C7346;
+  --good-bg:#E8E4DC;
+  --good-fg:#352820;
+  --warn-bg:#E8E0D4;
+  --warn-fg:#352820;
+  --alert-bg:#E8D8D0;
+  --alert-fg:#352820;
+  --notice-bg:#E8E4DC;
+  --notice-fg:#352820;
+  --optional-bg:#FFFCF8;
+  --optional-line:#8C7346;
+  --shadow:none;
+  --font-display:Marcellus, "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --font-text:Archivo, "Segoe UI", system-ui, sans-serif;
+  --display-settings:"wght" 400;
+  --radius:0;
+  --radius-sm:0;
+  --radius-pill:0;
+  --heading-transform:uppercase;
+  --heading-tracking:0.12em;
+  --sidebar-radius:0;
+}
+
+/* Documented AA body-text pairs used in the UI (checked in tools/check_contrast.py and at runtime). */

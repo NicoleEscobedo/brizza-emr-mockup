@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="02">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <title>Brizza Clinic | EMR mockup</title>
+  <link rel="stylesheet" href="assets/css/themes.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+  <div id="app-root"></div>
+  <div class="modal-back" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modalTitle">Dialog</h2>
+        <button class="btn small" type="button" id="modalClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot">
+        <button class="btn" type="button" id="modalCancel">Cancel</button>
+        <button class="btn primary" type="button" id="modalSave">Save</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

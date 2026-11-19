@@ -233,3 +233,25 @@ a{color:var(--ink)}
 .admin-table input,.admin-table select{width:100%}
 .note-btn{display:block;width:100%;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:0 0 10px}
 .note-btn:hover,.note-btn:focus-visible{border-color:var(--ink)}
+
+.audit-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--ink);vertical-align:middle;border-radius:4px;text-decoration:none;flex:0 0 auto}
+.audit-icon:hover,.audit-icon:focus-visible{background:var(--field);outline:2px solid var(--ink);outline-offset:1px}
+.audit-icon-svg{display:block}
+.status-dot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-right:6px;box-shadow:0 0 0 1px #35282033}
+.status-dd{font-size:12px;max-width:160px;padding:4px 6px}
+.status-legend{margin-top:6px}
+.paperwork-badge{margin-top:8px;border:1px solid var(--line);background:var(--field);cursor:pointer}
+.paperwork-badge.on{background:var(--notice-bg)}
+.wait-gold{background:#E8C547;color:#352820;padding:1px 6px;border-radius:4px;font-weight:700}
+.advance-sm{font-size:11px;padding:3px 8px;border:1px solid var(--line);background:var(--paper);border-radius:var(--radius-sm);font-weight:600}
+.advance-sm.btn{padding:3px 8px;font-size:11px}
+.suite-name{font-family:var(--font-display);font-size:22px;text-align:center;margin:4px 0 0;letter-spacing:var(--heading-tracking)}
+.suite-svc{text-align:center;color:var(--muted);margin:0 0 8px;font-size:12px}
+.suite-card{text-align:center}
+.suite-card .room-card{text-align:left}
+.suite-zones{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.suite-zone{border:1px dashed var(--line);border-radius:var(--radius-sm);padding:10px 6px;font-size:12px;font-weight:600;text-align:center;background:var(--field)}
+.suite-zone.drop-on{outline:2px solid var(--accent);background:var(--notice-bg)}
+.cal-event{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px}
+.cal-event .status-dd{max-width:100%;font-size:11px}
+.event{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

@@ -16,7 +16,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 12. **Brand and logo.** The runtime theme is 01 Quiet Atelier (DRAFT, not a finalized identity). Lapis Conservatory and Architectural Classic were retired to `_superseded/`. Wordmarks are type tests, not logos.
 13. **Fiscal calendar, weekly cutoff, and reporting audiences** remain open in the reporting architecture (out of scope here).
 
-14. **Rooming status vs appointment status.** The rooming-manager statuses (Checked in (front desk), Completing paperwork, Ready, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) are not mapped in the sources to the approved appointment-status catalog. This mockup stores rooming status as its own field and does not change appointment status when a rooming status is advanced or corrected.
+14. **Rooming status vs appointment status (superseded in this mockup).** Round 5 uses one merged visit-status field for the schedule and the rooming board. Official mapping and the earlier independent appointment / consultation / treatment status design remain a database question (see 23).
 15. **Admin schedule blocks.** Scheduling Standards mention blocked availability, but they do not define an Admin block type, the reason list used here (Meeting, Rep meeting, Lunch, Personal, OFF), whether a block prevents booking, or who may create or override a block beyond the already-sourced provider request rules.
 
 16. **Rooming suites and the Room field.** Suite 1 (Aesthetics) and Suites 2 and 3 (Injectables) are a prototype layout. V1 documents do not approve this suite catalog, occupancy rules (this mockup allows one patient per suite), or how the Room field relates to appointment room and rooming status.
@@ -32,3 +32,5 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 21. **Friendly confirmation names and type catalog.** Confirmation names were not provided, so the mockup uses the plain type name labeled draft. Whether the nine types and the reason length overrides (Mini Facial, Hydrafacial, Toxin Touch-up, Wax reasons without overrides) are the official catalog remains open.
 
 22. **Medical-history snapshots on clinical notes.** Storing a snapshot at signing and highlighting later changes is a prototype behavior, not an approved Records rule.
+
+23. **Merged visit-status list.** The list (Scheduled, Confirmed, Checked in, No-show, Canceled, Ready for clinical, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update. Payment and invoice status stay independent.

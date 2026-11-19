@@ -1,7 +1,7 @@
 /* Brizza Clinic EMR mockup — synthetic data only. */
 (function () {
   "use strict";
-  // Round 4 — Quotes, appointment types, 12-hour times, Quiet Atelier only.
+  // Round 5 — Ready for clinical, merged visit status, wait-gold timer.
 
   function fmtTime(t) {
     if (!t) return "";
@@ -174,15 +174,23 @@
     store.audit.push(ev);
     return ev;
   }
-  function historyLinks(type, id, fallback) {
+  const AUDIT_SVG = '<svg class="audit-icon-svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3.5" y="2.5" width="9" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.5h4M6 9h4M6 11.5h2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  function auditIcon(href) {
+    if (!href) return "";
+    return '<a class="audit-icon" href="' + href + '" title="Audit log" aria-label="Audit log">' + AUDIT_SVG + "</a>";
+  }
+  function auditIconFor(type, id) {
     const evs = auditsFor(type, id);
-    if (!evs.length) return fallback ? esc(fallback) : "";
-    return evs.map((e) => '<a class="audit-link" href="' + hashFor({ page: "audit", auditId: e.id }) + '">' + esc(e.action) + "</a>").join(" · ");
+    if (!evs.length) return "";
+    return auditIcon(hashFor({ page: "audit", auditId: evs[evs.length - 1].id }));
+  }
+  function historyLinks(type, id, fallback) {
+    return auditIconFor(type, id);
   }
   function timelineHtml(type, id) {
     const evs = auditsFor(type, id);
-    if (!evs.length) return '<div class="row-sub">No history</div>';
-    return evs.map((e) => '<div class="event"><div class="event-date">' + esc(e.when) + '</div><a class="audit-link" href="' + hashFor({ page: "audit", auditId: e.id }) + '">' + esc(e.action) + "</a></div>").join("");
+    if (!evs.length) return '<div class="empty">No audit events</div>';
+    return evs.map((e) => '<div class="event"><div class="event-date">' + esc(e.when) + "</div>" + auditIcon(hashFor({ page: "audit", auditId: e.id })) + '<span class="event-action">' + esc(e.action) + "</span></div>").join("");
   }
   function registrationItems(p) {
     const r = (p && p.registration) || {};
@@ -265,19 +273,19 @@
   const apptsFor = (p) => store.appointments.filter((a) => a.patientId === p.id);
   const invoiceForAppt = (a) => (a.invoiceId ? invoice(a.invoiceId) : null);
 
-  const ACTIVE = new Set(["Scheduled", "Confirmed", "Checked In", "In Progress"]);
-  const NEEDS_REASON = new Set(["Confirmed", "Checked In", "In Progress", "Completed"]);
+  const ACTIVE = new Set(["Scheduled", "Confirmed", "Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"]);
+  const NEEDS_REASON = new Set(["Confirmed", "Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"]);
 
   function nextAppt(p) {
     return apptsFor(p).filter((a) => ACTIVE.has(a.status) && a.date >= BRIZZA.SAMPLE_DAY)
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0] || null;
   }
   function lastAppt(p) {
-    return apptsFor(p).filter((a) => a.status === "Completed")
+    return apptsFor(p).filter((a) => a.status === "Checked out")
       .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))[0] || null;
   }
   function isNewPatient(p) {
-    return !apptsFor(p).some((a) => a.status === "Completed") && !(p.treatments && p.treatments.length);
+    return !apptsFor(p).some((a) => a.status === "Checked out") && !(p.treatments && p.treatments.length);
   }
   function reasonText(a) {
     return (a.reasons && a.reasons.length) ? a.reasons.join(", ") : "No reason selected";
@@ -425,7 +433,7 @@
 
   function badge(status) {
     const warn = ["Scheduled", "Inactive", "Issued", "Draft", "Partially Paid", "Overdue"].indexOf(status) >= 0;
-    const alert = ["Canceled", "No-Show", "Voided", "Discharged/Closed", "Not yet recorded", "Needs prep"].indexOf(status) >= 0;
+    const alert = ["Canceled", "No-show", "No-Show", "Voided", "Discharged/Closed", "Not yet recorded", "Needs prep"].indexOf(status) >= 0;
     const cls = alert ? "alert" : warn ? "warn" : "good";
     return '<span class="badge ' + cls + '">' + esc(status) + "</span>";
   }
@@ -550,7 +558,7 @@
         <label class="sr-only" for="pstatus">Patient status</label>
         <select id="pstatus" data-set-status="${p.id}">${BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select>
         <div class="notice">One centralized chart. Patient number is immutable and never reused.</div>
-        ${auditsFor("Patient", p.id).length ? '<h3 class="section-title">Audit trail</h3><div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" : ""}
+        ${auditsFor("Patient", p.id).length ? '<h3 class="section-title">' + auditIconFor("Patient", p.id) + ' Audit log</h3><div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" : ""}
         </div></div>`;
     } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
@@ -593,7 +601,7 @@
         ${openQ("Draft templates – Open question. Injectables and Aesthetician Consult / Follow-up / Procedure templates are not taken from the SOPs or V1 documents (Open question 17).")}
         ${p.notes.map((n) => '<button class="note-btn" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '"><strong>' + esc(n.type || "Note") + "</strong> " + badge(n.status || "Draft") + (n.locked ? ' <span class="badge">Locked</span>' : "") + (n.historySnapshot ? ' <span class="badge">History snapshot</span>' : "") + ' <span class="row-sub" style="float:right">' + esc(fmtDate(n.date)) + '</span><div class="row-sub">' + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</div><p>" + esc(n.text) + "</p></button>").join("") || '<div class="empty">No clinical notes</div>'}`;
     }
-    return body + '<div class="row-sub" style="margin-top:18px">Audit trail · ' + esc(TABS[state.tab] || state.tab) + " · Latest activity retained</div>";
+    return body + '<div class="row-sub" style="margin-top:18px">' + auditIconFor("Patient", p.id) + " · " + esc(TABS[state.tab] || state.tab) + "</div>";
   }
 
   function renderPatients() {
@@ -652,17 +660,25 @@
 
 
   let roomingTimer = null;
+  function nowMs() { return (BRIZZA.now ? BRIZZA.now() : Date.now()); }
   function minutesInStatus(since) {
-    return Math.max(0, Math.floor((Date.now() - Number(since || Date.now())) / 60000));
+    return Math.max(0, Math.floor((nowMs() - Number(since || nowMs())) / 60000));
   }
   function minutesLabel(since) {
     return minutesInStatus(since) + " min";
   }
+  function timerClass(since) {
+    return "room-mins" + (minutesInStatus(since) >= 15 ? " wait-gold" : "");
+  }
   function updateRoomingMins() {
     $$("[data-room-mins]").forEach((el) => {
-      el.textContent = minutesLabel(el.getAttribute("data-room-mins"));
+      const since = el.getAttribute("data-room-mins");
+      el.textContent = minutesLabel(since);
+      el.className = timerClass(since);
     });
   }
+  BRIZZA.updateRoomingMins = updateRoomingMins;
+  BRIZZA.now = BRIZZA.now || (function () { return Date.now(); });
   function startRoomingTick() {
     if (roomingTimer) clearInterval(roomingTimer);
     updateRoomingMins();
@@ -696,35 +712,144 @@
     return '<div class="cal-block"><span class="t">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + "</span>Admin · " + esc(b.reason) + " · " + esc(b.staff) + "</div>";
   }
   function nextRoomingStatus(status) {
-    const list = BRIZZA.ROOMING_STATUSES;
+    const list = BRIZZA.ROOMING_BOARD_STATUSES || BRIZZA.ROOMING_STATUSES || [];
     const i = list.indexOf(status);
     if (i < 0 || i >= list.length - 1) return null;
     return list[i + 1];
+  }
+  function isBoardStatus(s) {
+    return (BRIZZA.ROOMING_BOARD_STATUSES || []).indexOf(s) >= 0;
+  }
+  function visitStatuses() { return BRIZZA.VISIT_STATUSES || BRIZZA.appointmentStatuses || []; }
+  function statusDot(status) {
+    const color = (BRIZZA.STATUS_DOTS || {})[status] || "#6E6055";
+    return '<span class="status-dot" style="background:' + color + '" title="' + esc(status) + '" aria-label="' + esc(status) + '"></span>';
+  }
+  function statusLegend() {
+    const items = (BRIZZA.ROOMING_BOARD_STATUSES || []).map((s) =>
+      '<span class="legend-item">' + statusDot(s) + " " + esc(s) + "</span>"
+    ).join("");
+    return '<div class="legend status-legend" aria-label="Back-of-house status">' + items + "</div>";
+  }
+  function statusSelect(a, idSuffix) {
+    const id = "visit-status-" + a.id + (idSuffix ? "-" + idSuffix : "");
+    return '<label class="sr-only" for="' + id + '">Visit status</label><select id="' + id + '" class="status-dd" data-visit-status="' + esc(a.id) + '">' +
+      visitStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+  }
+  function paperworkBadge(a) {
+    if (a.status !== "Checked in") return "";
+    const on = !!a.paperwork;
+    return '<button class="badge paperwork-badge' + (on ? " on" : "") + '" type="button" data-toggle-paperwork="' + esc(a.id) + '" aria-pressed="' + (on ? "true" : "false") + '">Completing paperwork</button>';
+  }
+  function bindStatusStops() {
+    $$(".status-dd, [data-toggle-paperwork], .audit-icon").forEach((el) => {
+      el.addEventListener("click", function (e) { e.stopPropagation(); });
+      el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+    });
+  }
+  function roomingRecFor(a) {
+    return (store.rooming || []).find((r) => r.appointmentId === a.id && r.date === a.date);
+  }
+  function ensureRooming(a) {
+    store.rooming = store.rooming || [];
+    let rec = roomingRecFor(a);
+    if (!rec) {
+      rec = { id: nextId("RM-", store.rooming), appointmentId: a.id, patientId: a.patientId, date: a.date, status: a.status, statusSince: a.statusSince || nowMs(), suiteId: a.suiteId || null, suiteSince: a.suiteSince || null };
+      store.rooming.push(rec);
+    }
+    rec.status = a.status;
+    rec.statusSince = a.statusSince;
+    rec.suiteId = a.suiteId || rec.suiteId || null;
+    rec.suiteSince = a.suiteSince || rec.suiteSince || null;
+    rec.patientId = a.patientId;
+    return rec;
+  }
+  function setVisitStatus(appointmentId, next, opts) {
+    opts = opts || {};
+    const a = appt(appointmentId);
+    if (!a || !next || a.status === next) {
+      if (a && opts.suiteId !== undefined && a.status === next) return setAppointmentSuite(appointmentId, opts.suiteId, next);
+      return;
+    }
+    if (visitStatuses().indexOf(next) < 0 && next !== "Rescheduled") return;
+    const before = a.status;
+    a.status = next;
+    a.statusSince = nowMs();
+    a.history = a.history || [];
+    a.history.push(before + " → " + next + " · " + nowET());
+    const changes = [{ field: "status", before: before, after: next }];
+    if (isBoardStatus(next)) {
+      if (opts.suiteId) {
+        const taken = occupantInSuite(opts.suiteId, a.date, a.id);
+        if (taken) { toast("That suite is occupied"); a.status = before; a.history.pop(); return; }
+        const prevSuite = a.suiteId || "—";
+        a.suiteId = opts.suiteId;
+        a.suiteSince = nowMs();
+        if (prevSuite !== opts.suiteId) changes.push({ field: "suite", before: prevSuite, after: opts.suiteId });
+      }
+      ensureRooming(a);
+    }
+    addAudit({
+      who: actingName(),
+      role: state.actingRole,
+      action: before + " → " + next,
+      recordType: "Appointment",
+      recordId: a.id,
+      recordPath: isBoardStatus(next) || isBoardStatus(before)
+        ? { page: "rooming", date: a.date }
+        : { page: "schedule", date: a.date, appointmentId: a.id, view: state.scheduleView, calMode: state.calMode },
+      changes: changes
+    });
+    toast("Status: " + next);
+    if (!opts.silent) render();
+  }
+  function setAppointmentSuite(appointmentId, suiteId, withStatus) {
+    const a = appt(appointmentId);
+    if (!a) return;
+    const nextSuite = suiteId || null;
+    if (nextSuite) {
+      const taken = occupantInSuite(nextSuite, a.date, a.id);
+      if (taken) { toast("That suite is occupied"); return; }
+    }
+    const beforeSuite = a.suiteId || "—";
+    const beforeStatus = a.status;
+    const changes = [];
+    if ((a.suiteId || null) !== nextSuite) {
+      a.suiteId = nextSuite;
+      a.suiteSince = nextSuite ? nowMs() : null;
+      changes.push({ field: "suite", before: beforeSuite, after: nextSuite || "—" });
+    }
+    if (withStatus && withStatus !== a.status) {
+      a.status = withStatus;
+      a.statusSince = nowMs();
+      a.history = a.history || [];
+      a.history.push(beforeStatus + " → " + withStatus + " · " + nowET());
+      changes.push({ field: "status", before: beforeStatus, after: withStatus });
+    }
+    if (!changes.length) return;
+    if (isBoardStatus(a.status)) ensureRooming(a);
+    else ensureRooming(a);
+    const rec = roomingRecFor(a);
+    if (rec) { rec.suiteId = a.suiteId; rec.suiteSince = a.suiteSince; rec.status = a.status; rec.statusSince = a.statusSince; }
+    addAudit({
+      who: actingName(),
+      role: state.actingRole,
+      action: withStatus && withStatus !== beforeStatus ? (beforeStatus + " → " + withStatus) : "Updated room assignment",
+      recordType: "Appointment",
+      recordId: a.id,
+      recordPath: { page: "rooming", date: a.date },
+      changes: changes
+    });
+    toast(withStatus && withStatus !== beforeStatus ? ("Status: " + withStatus) : (nextSuite ? "Moved to suite" : "Removed from suite"));
+    render();
   }
   function actingName() {
     return "Alex Morgan";
   }
   function setRoomingStatus(id, next) {
-    const rec = (store.rooming || []).find((r) => r.id === id);
-    if (!rec || !next || rec.status === next) return;
-    if (BRIZZA.ROOMING_STATUSES.indexOf(next) < 0) return;
-    const before = rec.status;
-    rec.status = next;
-    rec.statusSince = Date.now();
-    addAudit({
-      who: actingName(),
-      role: state.actingRole,
-      action: "Updated rooming status · " + rec.appointmentId,
-      recordType: "Rooming",
-      recordId: rec.id,
-      recordPath: { page: "rooming", date: rec.date },
-      changes: [
-        { field: "rooming status", before: before, after: next },
-        { field: "appointment", before: rec.appointmentId, after: rec.appointmentId }
-      ]
-    });
-    toast("Rooming status: " + next);
-    render();
+    const rec = (store.rooming || []).find((r) => r.id === id || r.appointmentId === id);
+    const apptId = rec ? rec.appointmentId : id;
+    setVisitStatus(apptId, next);
   }
 
   function isClinicalRole(role) {
@@ -785,33 +910,14 @@
     return '<label class="sr-only" for="actingRole">Acting as</label><select id="actingRole" aria-label="Acting as">' +
       BRIZZA.ROLES.map((r) => "<option" + (state.actingRole === r ? " selected" : "") + ">" + esc(r) + "</option>").join("") + "</select>";
   }
-  function occupantInSuite(suiteId, date, exceptId) {
-    return (store.rooming || []).find((r) => r.date === date && r.suiteId === suiteId && r.id !== exceptId);
+  function occupantInSuite(suiteId, date, exceptAppointmentId) {
+    return store.appointments.find((a) => a.date === date && a.suiteId === suiteId && a.id !== exceptAppointmentId && a.status !== "Canceled" && a.status !== "Rescheduled")
+      || (store.rooming || []).find((r) => r.date === date && r.suiteId === suiteId && r.appointmentId !== exceptAppointmentId);
   }
-  function setRoomingSuite(id, suiteId) {
-    const rec = (store.rooming || []).find((r) => r.id === id);
-    if (!rec) return;
-    const next = suiteId || null;
-    if ((rec.suiteId || null) === next) return;
-    if (next) {
-      const taken = occupantInSuite(next, rec.date, rec.id);
-      if (taken) { toast("That suite is occupied"); return; }
-    }
-    const before = rec.suiteId || "—";
-    rec.suiteId = next;
-    rec.suiteSince = next ? Date.now() : null;
-    const after = next || "—";
-    addAudit({
-      who: actingName(),
-      role: state.actingRole,
-      action: "Updated room assignment · " + rec.appointmentId,
-      recordType: "Rooming",
-      recordId: rec.id,
-      recordPath: { page: "rooming", date: rec.date },
-      changes: [{ field: "suite", before: before, after: after }]
-    });
-    toast(next ? "Moved to " + ((BRIZZA.SUITES.find((s) => s.id === next) || {}).name || next) : "Removed from suite");
-    render();
+  function setRoomingSuite(id, suiteId, roleStatus) {
+    const rec = (store.rooming || []).find((r) => r.id === id || r.appointmentId === id);
+    const apptId = rec ? rec.appointmentId : id;
+    setAppointmentSuite(apptId, suiteId || null, roleStatus);
   }
   function bindRoomingDrag() {
     $$("[data-rooming]").forEach((el) => {
@@ -833,8 +939,13 @@
         });
       });
     }
-    zone("[data-drop-status]", function (id, el) { setRoomingStatus(id, el.getAttribute("data-drop-status")); });
-    zone("[data-drop-suite]", function (id, el) { setRoomingSuite(id, el.getAttribute("data-drop-suite") || null); });
+    zone("[data-drop-status]", function (id, el) { setVisitStatus(id, el.getAttribute("data-drop-status")); });
+    zone("[data-drop-role]", function (id, el) {
+      const suiteId = el.getAttribute("data-drop-suite");
+      const role = el.getAttribute("data-drop-role");
+      setAppointmentSuite(id, suiteId, role);
+    });
+    zone("[data-drop-suite][data-unassign]", function (id) { setAppointmentSuite(id, null); });
   }
   function fieldOptions(field) {
     if (field.optionsRef === "consultingFor") return BRIZZA.consultingFor || [];
@@ -986,12 +1097,9 @@
   function renderRooming() {
     const date = state.roomingDate || todayET();
     state.roomingDate = date;
-    const records = (store.rooming || []).filter((r) => r.date === date)
-      .sort((a, b) => {
-        const aa = appt(a.appointmentId);
-        const ba = appt(b.appointmentId);
-        return ((aa && aa.time) || "").localeCompare((ba && ba.time) || "");
-      });
+    (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status)).forEach(ensureRooming);
+    const records = (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status) && a.status !== "Rescheduled")
+      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
     const head = pageHead("Rooming manager", "Rooming", esc(locationName(state.locationId)) + " · " + esc(fmtLong(date)), "");
     const toolbar = `<div class="room-toolbar datebar">
       <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
@@ -999,53 +1107,56 @@
       <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, 1) })}" aria-label="Next day">›</a>
       <a class="btn small" id="room-today" href="${hashFor({ page: "rooming", date: todayET() })}">Today</a>
     </div>`;
-    const cardHtml = (r, place) => {
-      const a = appt(r.appointmentId);
-      const p = patient(r.patientId);
-      const nxt = nextRoomingStatus(r.status);
-      const audits = auditsFor("Rooming", r.id);
-      const last = audits.length ? '<div class="row-sub">Log: <a class="audit-link" href="' + hashFor({ page: "audit", auditId: audits[audits.length - 1].id }) + '">' + esc(audits[audits.length - 1].action) + "</a></div>" : "";
-      const apptLink = a ? '<a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "list" }) + '">' + esc(a.id) + "</a>" : "";
-      const uid = esc(r.id) + (place ? '-' + place : '');
-      const sel = '<label class="sr-only" for="room-set-' + uid + '">Set rooming status</label><select id="room-set-' + uid + '" data-room-set="' + esc(r.id) + '">' +
-        BRIZZA.ROOMING_STATUSES.map((s) => "<option" + (r.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
-      const suiteSel = '<label class="sr-only" for="suite-set-' + esc(r.id) + '">Move to suite</label><select id="suite-set-' + esc(r.id) + '" data-suite-set="' + esc(r.id) + '"><option value="">Not in a suite</option>' +
-        BRIZZA.SUITES.map((s) => "<option value=\"" + esc(s.id) + "\"" + (r.suiteId === s.id ? " selected" : "") + ">" + esc(s.name) + " · " + esc(s.service) + "</option>").join("") + "</select>";
-      const adv = nxt && place !== 'suite' ? '<button class="btn small primary" type="button" data-room-advance="' + esc(r.id) + '">Advance</button>' : "";
-      const controls = place === 'suite' ? '' : (sel + suiteSel);
-      const suiteName = r.suiteId ? ((BRIZZA.SUITES.find((s) => s.id === r.suiteId) || {}).name || r.suiteId) : "Not in a suite";
-      return `<div class="room-card" data-rooming="${esc(r.id)}" tabindex="0">
-        <div class="row-title">${esc(p ? p.name : r.patientId)}</div>
-        <div class="row-sub">${a ? esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(reasonText(a)) : ""} · ${apptLink}</div>
-        <div class="row-sub">${a ? esc(a.provider) : ""} · Suite: ${esc(suiteName)}</div>
-        <div class="row-sub"><span class="room-mins" data-room-mins="${esc(String(r.statusSince))}">${minutesLabel(r.statusSince)}</span> in this status</div>
-        ${last}
+    const cardHtml = (a, place) => {
+      const p = patient(a.patientId);
+      const nxt = nextRoomingStatus(a.status);
+      const last = auditIconFor("Appointment", a.id);
+      const apptLink = '<a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "list" }) + '">' + esc(a.id) + "</a>";
+      const uid = esc(a.id) + (place ? "-" + place : "");
+      const sel = '<label class="sr-only" for="room-set-' + uid + '">Set visit status</label><select id="room-set-' + uid + '" class="status-dd" data-visit-status="' + esc(a.id) + '">' +
+        (BRIZZA.ROOMING_BOARD_STATUSES || []).map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+      const suiteOpts = ['<option value="">Not in a suite</option>'].concat((BRIZZA.SUITES || []).flatMap((s) => [
+        "<option value=\"" + esc(s.id) + "|With clinical\"" + (a.suiteId === s.id && a.status === "With clinical" ? " selected" : "") + ">" + esc(s.name) + " · Clinical</option>",
+        "<option value=\"" + esc(s.id) + "|With provider\"" + (a.suiteId === s.id && a.status === "With provider" ? " selected" : "") + ">" + esc(s.name) + " · Provider</option>"
+      ]));
+      const suiteSel = place === "suite" ? "" : ('<label class="sr-only" for="suite-set-' + uid + '">Move to suite</label><select id="suite-set-' + uid + '" data-suite-role="' + esc(a.id) + '">' + suiteOpts.join("") + "</select>");
+      const adv = nxt && place !== "suite" ? '<button class="btn advance-sm" type="button" data-room-advance="' + esc(a.id) + '">Advance</button>' : "";
+      const controls = place === "suite" ? "" : (sel + suiteSel);
+      const suiteName = a.suiteId ? ((BRIZZA.SUITES.find((s) => s.id === a.suiteId) || {}).name || a.suiteId) : "Not in a suite";
+      return `<div class="room-card" data-rooming="${esc(a.id)}" tabindex="0">
+        <div class="row-title">${statusDot(a.status)} ${esc(p ? p.name : a.patientId)} ${last}</div>
+        <div class="row-sub">${esc(fmtTime(a.time))} · ${esc(a.type)} · ${esc(reasonText(a))} · ${apptLink}</div>
+        <div class="row-sub">${esc(a.provider)} · ${esc(suiteName)}</div>
+        <div class="row-sub"><span class="${timerClass(a.statusSince)}" data-room-mins="${esc(String(a.statusSince || nowMs()))}">${minutesLabel(a.statusSince)}</span> in this status</div>
         <div class="actions">${adv}</div>
         ${controls}
       </div>`;
     };
-    const cols = BRIZZA.ROOMING_STATUSES.map((status) => {
-      const cards = records.filter((r) => r.status === status).map((r) => cardHtml(r, 'flow')).join("") || '<div class="empty">None</div>';
-      return '<div class="room-col" data-drop-status="' + esc(status) + '"><h2>' + esc(status) + " · " + records.filter((r) => r.status === status).length + "</h2>" + cards + "</div>";
+    const cols = (BRIZZA.ROOMING_BOARD_STATUSES || []).map((status) => {
+      const here = records.filter((a) => a.status === status);
+      const cards = here.map((a) => cardHtml(a, "flow")).join("") || '<div class="empty">None</div>';
+      return '<div class="room-col" data-drop-status="' + esc(status) + '"><h2>' + esc(status) + " · " + here.length + "</h2>" + cards + "</div>";
     }).join("");
-    const suites = BRIZZA.SUITES.map((s) => {
+    const suites = (BRIZZA.SUITES || []).map((s) => {
       const occ = occupantInSuite(s.id, date, null);
       const occupied = !!occ;
-      const mins = occupied && occ.suiteSince ? '<div class="row-sub">Occupied <span class="room-mins" data-room-mins="' + esc(String(occ.suiteSince)) + '">' + minutesLabel(occ.suiteSince) + "</span></div>" : '<div class="row-sub">Available</div>';
-      const inner = occupied ? cardHtml(occ, 'suite') : '<div class="empty">Available</div>';
-      return '<div class="suite-card' + (occupied ? " occupied" : "") + '" data-drop-suite="' + esc(s.id) + '"><h2>' + esc(s.name) + " · " + esc(s.service) + '</h2>' +
-        badge(occupied ? "Occupied" : "Available") + mins + inner + "</div>";
+      const mins = occupied && occ.suiteSince ? '<div class="row-sub">Occupied <span class="' + timerClass(occ.suiteSince) + '" data-room-mins="' + esc(String(occ.suiteSince)) + '">' + minutesLabel(occ.suiteSince) + "</span></div>" : '<div class="row-sub">Available</div>';
+      const inner = occupied ? cardHtml(occ, "suite") : '<div class="empty">Available</div>';
+      return '<div class="suite-card' + (occupied ? " occupied" : "") + '"><h2 class="suite-name">' + esc(s.name) + '</h2><p class="suite-svc">' + esc(s.service) + "</p>" +
+        badge(occupied ? "Occupied" : "Available") + mins + inner +
+        '<div class="suite-zones"><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With clinical">Clinical</div><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With provider">Provider</div></div></div>';
     }).join("");
     const body = toolbar +
-      openQ("These rooming statuses are not mapped to the approved appointment-status catalog. Rooming status is stored as its own field (Open question 14). Suite assignment is also its own field (Open question 16).") +
+      openQ("This merged visit-status list supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update (Open question 23). Payment and invoice status stay independent.") +
       '<h2 class="section-title">Patient Flow</h2><div class="room-board">' + cols + "</div>" +
       '<h2 class="section-title" style="margin-top:18px">Rooms</h2>' +
-      openQ("Suite names and service labels are a prototype layout, not an approved room catalog (Open question 16).") +
+      openQ("Suite names and service labels are a prototype layout, not an approved room catalog (Open question 16). Drop into Clinical or Provider to set With clinical or With provider.") +
       '<div class="room-suites">' + suites + "</div>" +
-      '<div class="suite-unassign" data-drop-suite="">Drop here to remove from a suite</div>';
+      '<div class="suite-unassign" data-drop-suite="" data-unassign="1">Drop here to remove from a suite</div>';
     renderChrome('<a href="' + hashFor({ page: "rooming", date: date }) + '">Rooming</a>', head, body);
     startRoomingTick();
     bindRoomingDrag();
+    bindStatusStops();
   }
 
   function openAddBlock() {
@@ -1151,16 +1262,17 @@
       const posHref = a.invoiceId
         ? hashFor({ page: "pos", invoiceId: a.invoiceId, posTab: "invoice" })
         : hashFor({ page: "pos", appointmentId: a.id, posTab: "invoice" });
-      return `<div class="appt-card" data-type="${esc(a.type)}">
+      return `<div class="appt-card" data-type="${esc(a.type)}" data-open-appt="${esc(a.id)}">
         <div class="appt-card-top">
           <div>
-            <div class="appt-title"><a href="${openHref}">${esc(fmtTime(a.time))}</a> · ${p ? patientLink(p) : esc(a.patientId)}</div>
+            <div class="appt-title">${statusDot(a.status)} <a href="${openHref}">${esc(fmtTime(a.time))}</a> · ${p ? patientLink(p) : esc(a.patientId)} ${auditIconFor("Appointment", a.id)}</div>
             <div class="row-sub">${esc(a.type)} · ${esc(reasonText(a))} · ${esc(dur)} · ${esc(a.provider)}</div>
+            ${paperworkBadge(a)}
           </div>
           <div class="actions">
+            ${statusSelect(a, "list")}
             <a class="btn small" href="${posHref}">Invoice</a>
             <button class="btn small" type="button" data-expand-reg="${esc(a.id)}" aria-expanded="${open ? "true" : "false"}" aria-controls="reg-panel-${esc(a.id)}">Registration</button>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: state.date, appointmentId: a.id, view: "list" })}">${esc(a.status)} ▾</a>
           </div>
         </div>
         ${open ? registrationPanel(a) : ""}
@@ -1172,7 +1284,7 @@
     const taken = new Set(list.map((a) => a.time));
     const emptyAdds = '<div class="list-slot-add" aria-label="Add appointment at time">' + (BRIZZA.BOOKING_TIMES || []).filter((tm) => !taken.has(tm)).map((tm) => addSlotButton(state.date, tm)).join("") + "</div>";
     const hits = q ? scheduleSearchHits(q) : "";
-    const rows = hits + typeLegend() + emptyAdds + (items.map((x) => x.html).join("") || '<div class="empty">No appointments or Admin blocks on this date.</div>');
+    const rows = hits + typeLegend() + statusLegend() + emptyAdds + (items.map((x) => x.html).join("") || '<div class="empty">No appointments or Admin blocks on this date.</div>');
     const body = `<div class="schedule-wrap">
       <div class="card">
         <div class="cardhead">
@@ -1218,7 +1330,10 @@
   function calendarEvent(a) {
     const p = patient(a.patientId);
     const href = hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "calendar", calMode: state.calMode });
-    return '<div class="cal-event" data-type="' + esc(a.type) + '"><span class="t"><a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + '</span><a href="' + href + '">' + esc(a.type) + " · " + esc(reasonText(a)) + "</a></div>";
+    const dd = (state.calMode === "month") ? "" : statusSelect(a, "cal");
+    return '<div class="cal-event" data-type="' + esc(a.type) + '" data-open-appt="' + esc(a.id) + '">' +
+      '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + "</span>" +
+      '<span class="cal-event-mid"><a href="' + href + '">' + esc(a.type) + " · " + esc(reasonText(a)) + "</a></span>" + dd + "</div>";
   }
 
   function rangeAppointments(start, end) {
@@ -1255,7 +1370,7 @@
       <input id="sched-search" class="sched-search" type="search" placeholder="Search patients and appointments" value="${esc(state.scheduleSearch || "")}">
       <label class="sr-only" for="prov">Provider filter</label>
       <select id="prov">${["All providers"].concat(BRIZZA.PROVIDERS).map((x) => "<option" + (state.providerFilter === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select>
-    </div><div class="cardbody">${scheduleSearchHits(state.scheduleSearch || "")}${typeLegend()}${grid}</div></div>`;
+    </div><div class="cardbody">${scheduleSearchHits(state.scheduleSearch || "")}${typeLegend()}${statusLegend()}${grid}</div></div>`;
     renderChrome('<a href="' + hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }) + '">Schedule</a> / Calendar / ' + esc(state.calMode), head, body);
   }
 
@@ -1752,7 +1867,7 @@
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
     const mins = durationMinutes(type, reasons);
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: durationLabelFor(type, reasons), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", history: history, blockOverride: override || "" };
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: durationLabelFor(type, reasons), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", history: history, blockOverride: override || "", statusSince: nowMs() };
     if (state.reschedulingId) rec.replaces = state.reschedulingId;
     if (cf) rec.consultFirstFlag = true;
     store.appointments.push(rec);
@@ -1804,13 +1919,13 @@
         <div class="row-sub">${p ? patientLink(p) : ""} · ${esc(a.date)} · ${esc(fmtTime(a.time))} · ${esc(a.provider)} · ${esc(a.durationLabel || durationLabelFor(a.type, a.reasons))}</div></div>${badge(a.status)}</div>
       <div class="field" style="margin-top:14px"><label>Approved reason(s)</label><div id="reasonOptions">${reasonOptionsHtml(a.type, a.reasons || [])}</div></div>
       <div class="field" style="margin-top:12px"><label for="actionStatus">Appointment status</label>
-        <select id="actionStatus">${BRIZZA.appointmentStatuses.map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select></div>
+        <select id="actionStatus">${visitStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select></div>
       <div class="field" style="margin-top:12px"><label for="actionConsult">Consultation outcome (independent)</label>
         <select id="actionConsult"><option value="">Not recorded</option>${BRIZZA.consultationOutcomes.map((x) => "<option" + (a.consultation === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select></div>
       <div class="field" style="margin-top:12px"><label for="actionTreatment">Treatment status (independent)</label>
         <select id="actionTreatment"><option value="">No treatment record</option>${BRIZZA.treatmentStatuses.map((x) => "<option" + (a.treatment === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select></div>
       <div class="row"><span>Invoice status</span>${inv ? invoiceBadge(a) : '<span class="row-sub">No invoice</span>'}</div>
-      <div class="notice">Appointment completion does not imply consultation, treatment, or payment. Payment is tracked on the invoice.</div>
+      <div class="notice">Payment and invoice status stay independent of visit status.</div>${openQ("This merged visit-status list supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update (Open question 23).")}
       ${optionalIdea("A non-blocking warning could appear when moving to Completed while the linked invoice is not Paid. This is undecided and is not required.")}
       <div id="statusWarn"></div>
       <div class="actions" style="margin-top:12px">
@@ -1840,12 +1955,7 @@
         changes: [{ field: "reasons", before: before, after: after }] });
       a.reasons = reasons;
     }
-    if (next !== a.status) {
-      a.history.push(a.status + " → " + next + " · " + nowET());
-      addAudit({ action: a.status + " → " + next, recordType: "Appointment", recordId: a.id,
-        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
-        changes: [{ field: "status", before: a.status, after: next }] });
-    }
+    if (next !== a.status) setVisitStatus(a.id, next, { silent: true });
     const consult = $("#actionConsult").value;
     const treat = $("#actionTreatment").value;
     if (consult !== a.consultation) {
@@ -2267,9 +2377,32 @@
     else if (state.page === "rooming") renderRooming();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
+    bindStatusStops();
   }
 
   function onClick(e) {
+    if (e.target.closest(".status-dd, [data-visit-status], [data-toggle-paperwork], .audit-icon")) {
+      if (e.target.closest("[data-toggle-paperwork]") && e.target.closest("[data-toggle-paperwork]").contains(e.target)) {
+        /* handled below */
+      } else {
+        e.stopPropagation();
+      }
+    }
+    const paper = e.target.closest("[data-toggle-paperwork]");
+    if (paper) {
+      e.preventDefault();
+      e.stopPropagation();
+      const a = appt(paper.getAttribute("data-toggle-paperwork"));
+      if (a && a.status === "Checked in") {
+        const before = a.paperwork ? "Yes" : "No";
+        a.paperwork = !a.paperwork;
+        addAudit({ action: "Toggled completing paperwork", recordType: "Appointment", recordId: a.id,
+          recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: state.scheduleView },
+          changes: [{ field: "paperwork", before: before, after: a.paperwork ? "Yes" : "No" }] });
+        render();
+      }
+      return;
+    }
     const posEl = e.target.closest("[data-pos]");
     if (posEl) {
       e.preventDefault();
@@ -2293,12 +2426,21 @@
       return;
     }
     const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg],[data-room-advance],[data-open-slot]");
-    if (!t) return;
+    if (!t) {
+      const card = e.target.closest("[data-open-appt]");
+      if (card && !e.target.closest("select,button,input,a,.status-dd,.audit-icon")) {
+        e.preventDefault();
+        openAppointmentModal(card.getAttribute("data-open-appt"));
+      }
+      return;
+    }
     if (t.dataset.roomAdvance) {
       e.preventDefault();
+      const a = appt(t.dataset.roomAdvance) || store.appointments.find((x) => x.id === t.dataset.roomAdvance);
       const rec = (store.rooming || []).find((r) => r.id === t.dataset.roomAdvance);
-      const nxt = rec ? nextRoomingStatus(rec.status) : null;
-      if (nxt) setRoomingStatus(rec.id, nxt);
+      const current = a ? a.status : (rec && rec.status);
+      const nxt = nextRoomingStatus(current);
+      if (nxt) setVisitStatus((a && a.id) || (rec && rec.appointmentId), nxt);
       return;
     }
     if (t.dataset.expandReg) {
@@ -2341,6 +2483,15 @@
     }
     else if (e.target.dataset.roomSet) { setRoomingStatus(e.target.dataset.roomSet, e.target.value); }
     else if (e.target.dataset.suiteSet) { setRoomingSuite(e.target.dataset.suiteSet, e.target.value || null); }
+    else if (e.target.dataset.visitStatus) { setVisitStatus(e.target.dataset.visitStatus, e.target.value); }
+    else if (e.target.dataset.suiteRole) {
+      const raw = e.target.value || "";
+      if (!raw) setAppointmentSuite(e.target.dataset.suiteRole, null);
+      else {
+        const parts = raw.split("|");
+        setAppointmentSuite(e.target.dataset.suiteRole, parts[0], parts[1] || "With clinical");
+      }
+    }
     else if (e.target.id === "patient-search") {
       state.search = e.target.value;
       const hold = e.target.selectionStart;

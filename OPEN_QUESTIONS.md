@@ -13,8 +13,16 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 9. **Decisions 435–440** (product taxation, checkout discounts, staff-level retail sales reporting, product images/descriptions, online catalog visibility, staff inventory display) and related inventory costing / bill-reopen rules. Checkout / FEFO posting is labeled **Concept**.
 10. **Inactivity timeout value, backup RPO/RTO, and customizable permission groups (DB-088)** remain unset or unapproved. This mockup has no sign-in.
 11. **Service prices and appointment durations.** Dropdowns show TBD. No prices, pay rates, or doses are displayed.
-12. **Brand and logo.** The remaining moodboard themes (01 Quiet Atelier, default; 03 Architectural Classic v2) are DRAFT explorations, not a finalized identity. Theme 02 Modern Sanctuary v2 was removed. Wordmarks are type tests, not logos.
+12. **Brand and logo.** The remaining themes (01 Quiet Atelier, default; Lapis Conservatory, a new cool jewel-tone exploration) are DRAFT, not a finalized identity. Theme 02 was removed earlier. Theme 03 Architectural Classic was retired from the runtime and kept under `_superseded/`. Wordmarks are type tests, not logos.
 13. **Fiscal calendar, weekly cutoff, and reporting audiences** remain open in the reporting architecture (out of scope here).
 
 14. **Rooming status vs appointment status.** The rooming-manager statuses (Checked in (front desk), Completing paperwork, Ready, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) are not mapped in the sources to the approved appointment-status catalog. This mockup stores rooming status as its own field and does not change appointment status when a rooming status is advanced or corrected.
 15. **Admin schedule blocks.** Scheduling Standards mention blocked availability, but they do not define an Admin block type, the reason list used here (Meeting, Rep meeting, Lunch, Personal, OFF), whether a block prevents booking, or who may create or override a block beyond the already-sourced provider request rules.
+
+16. **Rooming suites and the Room field.** Suite 1 (Aesthetics) and Suites 2 and 3 (Injectables) are a prototype layout. V1 documents do not approve this suite catalog, occupancy rules (this mockup allows one patient per suite), or how the Room field relates to appointment room and rooming status.
+
+17. **Clinical note templates and who may Create / Sign notes.** The Consult template keeps the single Consultation note with procedure Yes/No (Sched §5 / §14). Toxin, Filler, Facial, and Microneedling templates are labeled **Draft templates – Open question** and are not taken from the SOPs or V1 documents. Create Note is shown only for RN / NP Injector and Aesthetician (from the V1-sourced role profiles, using Acting as). Whether MD / Clinic Owner or Medical Assistant may create or sign notes is not established.
+
+18. **Provider office availability.** Shaded in-office hours (for example Manhattan 10–12 and 1–6, with a midday gap) are synthetic sample data, not taken from the V1 documents. Official provider schedules, lunch coverage, and how availability interacts with Admin blocks remain open.
+
+19. **Consulting for catalog.** New-patient visits require a Consulting for value drawn from `BRIZZA.consultingFor` in `assets/js/data.js` (Toxins, Fillers, Dissolve, Facial, Wax, Microneedling). That list is easy to extend, but it is not an approved catalog in the V1 documents.

@@ -18,7 +18,7 @@ BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
 
 BRIZZA.THEMES = {
   "01": { id: "01", name: "Quiet Atelier", short: "01 Atelier", status: "DRAFT", default: true },
-  "03": { id: "03", name: "Architectural Classic v2", short: "03 Classic", status: "DRAFT" }
+  "lapis": { id: "lapis", name: "Lapis Conservatory", short: "Lapis", status: "DRAFT" }
 };
 
 /* Body-text pairs from MOODBOARDS.md plus UI pairs that must also pass AA 4.5:1. */
@@ -30,16 +30,28 @@ BRIZZA.CONTRAST_PAIRS = {
     { fg: "#352820", bg: "#B8AA9B", use: "ink on taupe — large only if <4.5", min: 3 },
     { fg: "#F4F0E9", bg: "#352820", use: "sidebar and primary button", min: 4.5 },
     { fg: "#352820", bg: "#FBF8F3", use: "ink on paper", min: 4.5 },
-    { fg: "#6E6055", bg: "#FBF8F3", use: "muted on paper", min: 4.5 }
+    { fg: "#6E6055", bg: "#FBF8F3", use: "muted on paper", min: 4.5 },
+    { fg: "#0B2A55", bg: "#D9E6F8", use: "Consult type chip", min: 4.5 },
+    { fg: "#0A2F2A", bg: "#D4EEE8", use: "Toxin/Filler type chip", min: 4.5 },
+    { fg: "#2A1848", bg: "#E6DFF3", use: "Skin Treatment type chip", min: 4.5 },
+    { fg: "#1A2C38", bg: "#D8E3EA", use: "Follow Up type chip", min: 4.5 }
   ],
-  "03": [
-    { fg: "#352820", bg: "#F3F1EC", use: "ink on chalk", min: 4.5 },
-    { fg: "#352820", bg: "#C8C0B4", use: "ink on greige", min: 4.5 },
-    { fg: "#F3F1EC", bg: "#352820", use: "sidebar and primary button", min: 4.5 },
-    { fg: "#5F574D", bg: "#F3F1EC", use: "muted on chalk", min: 4.5 },
-    { fg: "#352820", bg: "#9A9184", use: "ink on stone greige", min: 4.5 },
-    { fg: "#352820", bg: "#FFFCF8", use: "ink on paper", min: 4.5 },
-    { fg: "#5F574D", bg: "#FFFCF8", use: "muted on paper", min: 4.5 }
+  "lapis": [
+    { fg: "#07162B", bg: "#D4DFF0", use: "ink on cool wash", min: 4.5 },
+    { fg: "#3B5472", bg: "#D4DFF0", use: "muted on cool wash", min: 4.5 },
+    { fg: "#07162B", bg: "#F3F6FB", use: "ink on ice paper", min: 4.5 },
+    { fg: "#3B5472", bg: "#F3F6FB", use: "muted on ice paper", min: 4.5 },
+    { fg: "#07162B", bg: "#E4ECF7", use: "ink on field / notices", min: 4.5 },
+    { fg: "#F3F6FB", bg: "#07162B", use: "sidebar text", min: 4.5 },
+    { fg: "#B4C5DC", bg: "#07162B", use: "sidebar muted", min: 4.5 },
+    { fg: "#F3F6FB", bg: "#143A7A", use: "primary button", min: 4.5 },
+    { fg: "#07162B", bg: "#D3EDE6", use: "ink on good badge", min: 4.5 },
+    { fg: "#07162B", bg: "#DCE6F8", use: "ink on warn badge", min: 4.5 },
+    { fg: "#07162B", bg: "#E4DFF3", use: "ink on alert badge", min: 4.5 },
+    { fg: "#0B2A55", bg: "#D9E6F8", use: "Consult type chip", min: 4.5 },
+    { fg: "#0A2F2A", bg: "#D4EEE8", use: "Toxin/Filler type chip", min: 4.5 },
+    { fg: "#2A1848", bg: "#E6DFF3", use: "Skin Treatment type chip", min: 4.5 },
+    { fg: "#1A2C38", bg: "#D8E3EA", use: "Follow Up type chip", min: 4.5 }
   ]
 };
 
@@ -93,6 +105,125 @@ BRIZZA.ROOMING_STATUSES = [
 /* Admin block reasons as specified for this mockup; not an approved V1 catalog. */
 BRIZZA.BLOCK_REASONS = ["Meeting", "Rep meeting", "Lunch", "Personal", "OFF"];
 BRIZZA.CLINIC_TIMES = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00"];
+
+/* Config list for new-patient visits. Add options here (see README). */
+BRIZZA.consultingFor = ["Toxins", "Fillers", "Dissolve", "Facial", "Wax", "Microneedling"];
+
+BRIZZA.CLINICAL_NOTE_ROLES = ["RN / NP Injector", "Aesthetician"];
+
+BRIZZA.SUITES = [
+  { id: "SUITE-1", name: "Suite 1", service: "Aesthetics" },
+  { id: "SUITE-2", name: "Suite 2", service: "Injectables" },
+  { id: "SUITE-3", name: "Suite 3", service: "Injectables" }
+];
+
+/* Synthetic provider availability by office. Not sourced from V1 docs. */
+BRIZZA.availability = [
+  { provider: "Dr. Elena Ruiz", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "12:00"], ["13:00", "18:00"]] },
+  { provider: "Dr. Samir Shah", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "12:00"], ["13:30", "18:00"]] }
+];
+
+BRIZZA.TYPE_COLORS = {
+  "Consult": { bg: "#D9E6F8", fg: "#0B2A55" },
+  "Toxin/Filler Treatment": { bg: "#D4EEE8", fg: "#0A2F2A" },
+  "Skin Treatment": { bg: "#E6DFF3", fg: "#2A1848" },
+  "Follow Up": { bg: "#D8E3EA", fg: "#1A2C38" }
+};
+
+/* Draft templates — Open question where not taken from SOPs / V1 docs. Units/amount fields stay empty (no example values). */
+BRIZZA.NOTE_TEMPLATES = [
+  {
+    id: "consult",
+    name: "Consult",
+    draft: false,
+    source: "Single Consultation note with procedure performed Yes/No (Sched §5 / §14).",
+    sections: [
+      { id: "reason", title: "Visit reason", fields: [
+        { id: "consultingFor", label: "Consulting for", required: true, type: "select", optionsRef: "consultingFor" },
+        { id: "chiefConcern", label: "Chief concern", required: true, type: "text" }
+      ]},
+      { id: "findings", title: "Consultation findings", fields: [
+        { id: "findings", label: "Findings", required: true, type: "textarea" },
+        { id: "recommendations", label: "Recommendations", required: true, type: "textarea" }
+      ]},
+      { id: "procedure", title: "Procedure", fields: [
+        { id: "procedurePerformed", label: "Procedure performed", required: true, type: "select", options: ["No", "Yes"] }
+      ]},
+      { id: "consent", title: "Consent and aftercare", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
+        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      ]}
+    ]
+  },
+  {
+    id: "toxin",
+    name: "Toxin",
+    draft: true,
+    source: "Draft template – Open question.",
+    sections: [
+      { id: "treatment", title: "Treatment", fields: [
+        { id: "areasTreated", label: "Areas treated", required: true, type: "text" },
+        { id: "productLot", label: "Product / lot", required: true, type: "text" },
+        { id: "unitsDocumented", label: "Units documented", required: false, type: "text" }
+      ]},
+      { id: "consent", title: "Consent and aftercare", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
+        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      ]}
+    ]
+  },
+  {
+    id: "filler",
+    name: "Filler",
+    draft: true,
+    source: "Draft template – Open question.",
+    sections: [
+      { id: "treatment", title: "Treatment", fields: [
+        { id: "areasTreated", label: "Areas treated", required: true, type: "text" },
+        { id: "productLot", label: "Product / lot", required: true, type: "text" },
+        { id: "amountDocumented", label: "Amount documented", required: false, type: "text" }
+      ]},
+      { id: "consent", title: "Consent and aftercare", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
+        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      ]}
+    ]
+  },
+  {
+    id: "facial",
+    name: "Facial",
+    draft: true,
+    source: "Draft template – Open question.",
+    sections: [
+      { id: "treatment", title: "Treatment", fields: [
+        { id: "areasTreated", label: "Areas treated", required: true, type: "text" },
+        { id: "servicePerformed", label: "Service performed", required: true, type: "text" },
+        { id: "productLot", label: "Product / lot", required: false, type: "text" }
+      ]},
+      { id: "consent", title: "Consent and aftercare", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
+        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      ]}
+    ]
+  },
+  {
+    id: "microneedling",
+    name: "Microneedling",
+    draft: true,
+    source: "Draft template – Open question.",
+    sections: [
+      { id: "treatment", title: "Treatment", fields: [
+        { id: "areasTreated", label: "Areas treated", required: true, type: "text" },
+        { id: "productLot", label: "Product / lot", required: false, type: "text" }
+      ]},
+      { id: "consent", title: "Consent and aftercare", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
+        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      ]}
+    ]
+  }
+];
+
 
 
 
@@ -274,9 +405,9 @@ BRIZZA.seed = function () {
   ];
   const now = Date.now();
   data.rooming = [
-    {id:"RM-1001",appointmentId:"A-6220",patientId:"BRZ0002",date:"2026-11-18",status:"Checked in (front desk)",statusSince: now - 18 * 60000},
-    {id:"RM-1002",appointmentId:"A-6214",patientId:"BRZ0001",date:"2026-11-18",status:"Ready",statusSince: now - 7 * 60000},
-    {id:"RM-1003",appointmentId:"A-6221",patientId:"BRZ0003",date:"2026-11-18",status:"With clinical",statusSince: now - 31 * 60000}
+    {id:"RM-1001",appointmentId:"A-6220",patientId:"BRZ0002",date:"2026-11-18",status:"Checked in (front desk)",statusSince: now - 18 * 60000, suiteId: null, suiteSince: null},
+    {id:"RM-1002",appointmentId:"A-6214",patientId:"BRZ0001",date:"2026-11-18",status:"Ready",statusSince: now - 7 * 60000, suiteId: "SUITE-1", suiteSince: now - 7 * 60000},
+    {id:"RM-1003",appointmentId:"A-6221",patientId:"BRZ0003",date:"2026-11-18",status:"With clinical",statusSince: now - 31 * 60000, suiteId: "SUITE-2", suiteSince: now - 20 * 60000}
   ];
   return data;
 };

@@ -3,15 +3,11 @@
 @font-face{font-family:"Cormorant Garamond";src:url("../fonts/CormorantGaramond-Italic-Variable.ttf") format("truetype");font-weight:300 700;font-style:italic;font-display:swap;}
 @font-face{font-family:Jost;src:url("../fonts/Jost-Variable.ttf") format("truetype");font-weight:400 600;font-style:normal;font-display:swap;}
 @font-face{font-family:Jost;src:url("../fonts/Jost-Italic-Variable.ttf") format("truetype");font-weight:400 600;font-style:italic;font-display:swap;}
-@font-face{font-family:Syne;src:url("../fonts/Syne-Variable.ttf") format("truetype");font-weight:400 800;font-style:normal;font-display:swap;}
-@font-face{font-family:"IBM Plex Sans";src:url("../fonts/IBMPlexSans-Variable.ttf") format("truetype");font-weight:400 600;font-style:normal;font-display:swap;}
-@font-face{font-family:"IBM Plex Sans";src:url("../fonts/IBMPlexSans-Italic-Variable.ttf") format("truetype");font-weight:400 600;font-style:italic;font-display:swap;}
 
 /*
-  01 Quiet Atelier — tokens from MOODBOARDS.md (DRAFT).
-  lapis — Lapis Conservatory, an original cool jewel-tone theme (no brown).
-  Body-text pairs are limited to WCAG 2.1 AA (≥4.5:1). Accent metals / jewel brights are never used for small text.
-  Theme 03 Architectural Classic v2 was removed; its files are in _superseded/theme-03/.
+  01 Quiet Atelier — tokens from MOODBOARDS.md (DRAFT). This is the only runtime theme.
+  Lapis Conservatory and Architectural Classic files live in _superseded/.
+  Body-text pairs are limited to WCAG 2.1 AA (≥4.5:1). Accent metals are never used for small text.
 */
 
 :root,
@@ -43,7 +39,7 @@
   --font-display:"Cormorant Garamond", "Palatino Linotype", Palatino, "Times New Roman", serif;
   --font-text:Jost, "Segoe UI", system-ui, sans-serif;
   --display-settings:"wght" 500;
-  --radius:10px;
+  --radius:12px;
   --radius-sm:8px;
   --radius-pill:999px;
   --heading-transform:none;
@@ -52,51 +48,18 @@
   --clinic-hours:#EDE6DA;
   --avail:#E3EDE3;
   --unavail:#E8E2DC;
+  --block-bg:#E4D5C4;
+  --block-fg:#3A2C20;
+  --block-bar:#8B6540;
 }
 
-[data-theme="lapis"]{
-  --bg:#D4DFF0;
-  --paper:#F3F6FB;
-  --field:#E4ECF7;
-  --ink:#07162B;
-  --muted:#3B5472;
-  --line:#9AAFCB;
-  --sidebar:#07162B;
-  --sidebar-text:#F3F6FB;
-  --sidebar-muted:#B4C5DC;
-  --nav-hover:#16325A;
-  --primary:#143A7A;
-  --primary-text:#F3F6FB;
-  --accent:#3D7CFF;
-  --good-bg:#D3EDE6;
-  --good-fg:#07162B;
-  --warn-bg:#DCE6F8;
-  --warn-fg:#07162B;
-  --alert-bg:#E4DFF3;
-  --alert-fg:#07162B;
-  --notice-bg:#E4ECF7;
-  --notice-fg:#07162B;
-  --optional-bg:#F3F6FB;
-  --optional-line:#3D7CFF;
-  --shadow:0 8px 28px #07162B1F;
-  --font-display:Syne, "Segoe UI", system-ui, sans-serif;
-  --font-text:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  --display-settings:"wght" 700;
-  --radius:6px;
-  --radius-sm:4px;
-  --radius-pill:999px;
-  --heading-transform:none;
-  --heading-tracking:-0.03em;
-  --sidebar-radius:0;
-  --clinic-hours:#C9D7EC;
-  --avail:#C5E4DC;
-  --unavail:#C9D0DE;
-}
-
-/* Appointment type colors (shared; text/background pairs meet AA 4.5:1). */
-[data-type="Consult"]{--type-bg:#D9E6F8;--type-fg:#0B2A55;--type-bar:#2A5EA8}
-[data-type="Toxin/Filler Treatment"]{--type-bg:#D4EEE8;--type-fg:#0A2F2A;--type-bar:#1A7A6A}
-[data-type="Skin Treatment"]{--type-bg:#E6DFF3;--type-fg:#2A1848;--type-bar:#6B4CA0}
-[data-type="Follow Up"]{--type-bg:#D8E3EA;--type-fg:#1A2C38;--type-bar:#4A6A7A}
-
-/* Documented AA body-text pairs used in the UI (checked in tools/check_contrast.py and at runtime). */
+/* Appointment type colors (text/background pairs meet AA 4.5:1). */
+[data-type="Consultation"]{--type-bg:#D6E4F5;--type-fg:#163A66;--type-bar:#2A5EA8}
+[data-type="Neurotoxin"]{--type-bg:#D5EBDD;--type-fg:#1B3D2A;--type-bar:#2E7A4F}
+[data-type="Filler"]{--type-bg:#F3DDE4;--type-fg:#5A2233;--type-bar:#A44D68}
+[data-type="Dissolve"]{--type-bg:#F3E1C8;--type-fg:#5A3510;--type-bar:#C4843A}
+[data-type="Facial"]{--type-bg:#E7DCF3;--type-fg:#3A1F5C;--type-bar:#6B4CA0}
+[data-type="Chemical Peel"]{--type-bg:#E8DCC0;--type-fg:#3F2E0C;--type-bar:#8A6A28}
+[data-type="Microneedling"]{--type-bg:#D3E8E8;--type-fg:#123D3D;--type-bar:#2A7A7A}
+[data-type="Wax"]{--type-bg:#F4D9CC;--type-fg:#5C2614;--type-bar:#C46A45}
+[data-type="Follow-up"]{--type-bg:#D9E0E8;--type-fg:#1E3044;--type-bar:#4A6A7A}

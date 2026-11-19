@@ -13,7 +13,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 9. **Decisions 435–440** (product taxation, checkout discounts, staff-level retail sales reporting, product images/descriptions, online catalog visibility, staff inventory display) and related inventory costing / bill-reopen rules. Checkout / FEFO posting is labeled **Concept**.
 10. **Inactivity timeout value, backup RPO/RTO, and customizable permission groups (DB-088)** remain unset or unapproved. This mockup has no sign-in.
 11. **Service prices and appointment durations.** Dropdowns show TBD. No prices, pay rates, or doses are displayed.
-12. **Brand and logo.** The remaining themes (01 Quiet Atelier, default; Lapis Conservatory, a new cool jewel-tone exploration) are DRAFT, not a finalized identity. Theme 02 was removed earlier. Theme 03 Architectural Classic was retired from the runtime and kept under `_superseded/`. Wordmarks are type tests, not logos.
+12. **Brand and logo.** The runtime theme is 01 Quiet Atelier (DRAFT, not a finalized identity). Lapis Conservatory and Architectural Classic were retired to `_superseded/`. Wordmarks are type tests, not logos.
 13. **Fiscal calendar, weekly cutoff, and reporting audiences** remain open in the reporting architecture (out of scope here).
 
 14. **Rooming status vs appointment status.** The rooming-manager statuses (Checked in (front desk), Completing paperwork, Ready, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) are not mapped in the sources to the approved appointment-status catalog. This mockup stores rooming status as its own field and does not change appointment status when a rooming status is advanced or corrected.
@@ -26,3 +26,9 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 18. **Provider office availability.** Shaded in-office hours (for example Manhattan 10–12 and 1–6, with a midday gap) are synthetic sample data, not taken from the V1 documents. Official provider schedules, lunch coverage, and how availability interacts with Admin blocks remain open.
 
 19. **Consulting for catalog.** New-patient visits require a Consulting for value drawn from `BRIZZA.consultingFor` in `assets/js/data.js` (Toxins, Fillers, Dissolve, Facial, Wax, Microneedling). That list is easy to extend, but it is not an approved catalog in the V1 documents.
+
+20. **Quote-to-room workflow.** After a consult, the coordinator can bring a POS quote to the room and the clinician can choose Treat today (convert to a same-day invoice) or Return (book a return visit or keep the quote open). This handoff, and when a quote expires, is not specified in the V1 documents.
+
+21. **Friendly confirmation names and type catalog.** Confirmation names were not provided, so the mockup uses the plain type name labeled draft. Whether the nine types and the reason length overrides (Mini Facial, Hydrafacial, Toxin Touch-up, Wax reasons without overrides) are the official catalog remains open.
+
+22. **Medical-history snapshots on clinical notes.** Storing a snapshot at signing and highlighting later changes is a prototype behavior, not an approved Records rule.

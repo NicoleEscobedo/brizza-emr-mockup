@@ -17,6 +17,42 @@ BRIZZA.LOCATIONS = [
   { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Synthetic sample location", tz: "America/New_York", synthetic: true }
 ];
 BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
+/* Built-in ZIP lookup for address auto-fill (NYC / Long Island / NJ plus a handful more). Prototype only. */
+BRIZZA.ZIP_LOOKUP = {
+  "10001": { city: "New York", state: "NY" },
+  "10003": { city: "New York", state: "NY" },
+  "10010": { city: "New York", state: "NY" },
+  "10011": { city: "New York", state: "NY" },
+  "10013": { city: "New York", state: "NY" },
+  "10014": { city: "New York", state: "NY" },
+  "10016": { city: "New York", state: "NY" },
+  "10019": { city: "New York", state: "NY" },
+  "10022": { city: "New York", state: "NY" },
+  "10023": { city: "New York", state: "NY" },
+  "10024": { city: "New York", state: "NY" },
+  "10025": { city: "New York", state: "NY" },
+  "10036": { city: "New York", state: "NY" },
+  "11201": { city: "Brooklyn", state: "NY" },
+  "11215": { city: "Brooklyn", state: "NY" },
+  "11101": { city: "Long Island City", state: "NY" },
+  "11050": { city: "Port Washington", state: "NY" },
+  "11530": { city: "Garden City", state: "NY" },
+  "11561": { city: "Long Beach", state: "NY" },
+  "11702": { city: "Babylon", state: "NY" },
+  "11743": { city: "Huntington", state: "NY" },
+  "11746": { city: "Huntington Station", state: "NY" },
+  "11901": { city: "Riverhead", state: "NY" },
+  "07030": { city: "Hoboken", state: "NJ" },
+  "07002": { city: "Bayonne", state: "NJ" },
+  "07102": { city: "Newark", state: "NJ" },
+  "07302": { city: "Jersey City", state: "NJ" },
+  "07601": { city: "Hackensack", state: "NJ" },
+  "06830": { city: "Greenwich", state: "CT" },
+  "02108": { city: "Boston", state: "MA" }
+};
+BRIZZA.COUNTRIES = ["United States", "Canada", "United Kingdom", "Mexico"];
+
+
 
 BRIZZA.THEMES = {
   "01": { id: "01", name: "Quiet Atelier", short: "01 Atelier", status: "DRAFT", default: true }
@@ -35,7 +71,9 @@ BRIZZA.CONTRAST_PAIRS = {
     { fg: "#352820", bg: "#FFFCF6", use: "ink on creamy appointment card", min: 4.5 },
     { fg: "#6E6055", bg: "#FFFCF6", use: "muted on creamy appointment card", min: 4.5 },
     { fg: "#352820", bg: "#E4D5C4", use: "Admin block", min: 4.5 },
-    { fg: "#352820", bg: "#E8C547", use: "rooming wait timer gold (≥15 min)", min: 4.5 }
+    { fg: "#352820", bg: "#E8C547", use: "rooming wait timer gold (≥15 min)", min: 4.5 },
+    { fg: "#352820", bg: "#E8C547", use: "worklist next-pending row", min: 4.5 },
+    { fg: "#6B1C1C", bg: "#F6E4E0", use: "worklist Late tag", min: 4.5 }
   ]
 };
 
@@ -442,7 +480,9 @@ BRIZZA.seed = function () {
       {id:"A-6231",time:"12:00",patientId:"BZ0005",type:"Facial",reasons:["Hydrafacial"],provider:"Dr. Samir Shah",durationLabel:"75 min",durationMinutes:75,status:"Ready for checkout",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",invoiceId:"INV-1010",prepNotes:"Package: first Hydrafacial of a series — confirm remaining visits.",history:["Scheduled → Confirmed","Confirmed → Ready for checkout"]},
       {id:"A-6232",time:"13:00",patientId:"BZ0007",type:"Neurotoxin",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"30 min",durationMinutes:30,status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-18",locationId:"LOC-MANHATTAN",prepNotes:"Wants upper face discussed; no unit count recorded.",history:["Scheduled"]},
       {id:"A-6233",time:"11:30",patientId:"BZ0008",type:"Facial",reasons:["Mini Facial"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
-      {id:"A-6234",time:"15:30",patientId:"BZ0007",type:"Wax",reasons:["Eyebrow Tint"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]}
+      {id:"A-6234",time:"15:30",patientId:"BZ0007",type:"Wax",reasons:["Eyebrow Tint"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6235",time:"09:30",patientId:"BZ0004",type:"Follow-up",reasons:["Existing Patient"],provider:"Dr. Elena Ruiz",durationLabel:"15 min",durationMinutes:15,status:"Checked out",consultation:"",treatment:"",room:"Room 2",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked out"]},
+      {id:"A-6236",time:"16:00",patientId:"BZ0004",type:"Consultation",reasons:["New Patient"],provider:"Dr. Samir Shah",durationLabel:"30 min",durationMinutes:30,status:"No-show",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → No-show"]}
         ],
     visits: [
       {id:"V-1001",patientId:"BZ0004",date:"2026-03-12",appointmentIds:["A-6201","A-6202"],invoiceId:"INV-1001",noteId:"N-3",label:"Same-day consult and Chemical Peel"},
@@ -584,25 +624,26 @@ BRIZZA.seed = function () {
 
   data.availabilityTemplates = JSON.parse(JSON.stringify(BRIZZA.availabilityTemplates || []));
   const extras = {
-    BZ0001: { address: "14 Mercer Street, New York, NY 10013", credit: 50,
+    BZ0001: { addressParts: { address1: "14 Mercer Street", address2: "", city: "New York", state: "NY", zip: "10013", country: "United States" }, credit: 50,
       alerts: [{ id: "AL-1001", kind: "preference", text: "Prefers email confirmation" }],
       patientNotes: [{ id: "PN-1", text: "Asked about a fall membership package.", when: "2026-10-28 3:10 p.m. ET", who: "Alex Morgan" }] },
-    BZ0002: { address: "88 West 12th Street, New York, NY 10011", credit: 0,
+    BZ0002: { addressParts: { address1: "88 West 12th Street", address2: "", city: "New York", state: "NY", zip: "10011", country: "United States" }, credit: 0,
       alerts: [{ id: "AL-1002", kind: "preference", text: "Prefers a call before confirming" }] },
-    BZ0003: { address: "201 East 15th Street, New York, NY 10003", credit: 0,
+    BZ0003: { addressParts: { address1: "201 East 15th Street", address2: "", city: "New York", state: "NY", zip: "10003", country: "United States" }, credit: 0,
       alerts: [{ id: "AL-1003", kind: "allergy", text: "Allergy: latex" }, { id: "AL-1004", kind: "preference", text: "Prefers text messages" }] },
-    BZ0004: { address: "9 Jane Street, New York, NY 10014", credit: 0 },
-    BZ0005: { address: "320 West 23rd Street, New York, NY 10011", credit: 0 },
-    BZ0006: { address: "", credit: 0 },
-    BZ0007: { address: "55 West 21st Street, New York, NY 10010", credit: 0 },
-    BZ0008: { address: "", credit: 0 }
+    BZ0004: { addressParts: { address1: "9 Jane Street", address2: "", city: "New York", state: "NY", zip: "10014", country: "United States" }, credit: 0 },
+    BZ0005: { addressParts: { address1: "320 West 23rd Street", address2: "", city: "New York", state: "NY", zip: "10011", country: "United States" }, credit: 0 },
+    BZ0006: { addressParts: { address1: "", address2: "", city: "", state: "", zip: "", country: "United States" }, credit: 0 },
+    BZ0007: { addressParts: { address1: "55 West 21st Street", address2: "", city: "New York", state: "NY", zip: "10010", country: "United States" }, credit: 0 },
+    BZ0008: { addressParts: { address1: "", address2: "", city: "", state: "", zip: "", country: "United States" }, credit: 0 }
   };
   (data.patients || []).forEach(function (pt) {
     const parts = String(pt.name || "").trim().split(/\s+/);
     pt.firstName = pt.firstName || parts[0] || "";
     pt.lastName = pt.lastName || parts.slice(1).join(" ");
     const ex = extras[pt.id] || {};
-    if (pt.address == null) pt.address = ex.address || "";
+    if (!pt.addressParts) pt.addressParts = Object.assign({ address1: "", address2: "", city: "", state: "", zip: "", country: "United States" }, ex.addressParts || {});
+    if (pt.address == null) pt.address = [pt.addressParts.address1, pt.addressParts.address2, [pt.addressParts.city, pt.addressParts.state, pt.addressParts.zip].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(), pt.addressParts.country].filter(Boolean).join(", ");
     if (pt.credit == null) pt.credit = ex.credit || 0;
     if (pt.accountBalance == null) pt.accountBalance = 0;
     pt.alerts = pt.alerts || ex.alerts || [];

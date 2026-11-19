@@ -305,7 +305,7 @@ a{color:var(--ink)}
   .shell{grid-template-columns:200px minmax(0,1fr)}
   .content{padding:16px 14px 32px}
   .wl-head,.wl-row{grid-template-columns:64px minmax(100px,1.2fr) 80px minmax(70px,.7fr) minmax(70px,.7fr) 0 56px 72px 132px minmax(90px,1fr) 80px 64px}
-  .wl-head > :nth-child(4),.wl-row > .wl-prov{display:none} /* provider is in the group header */
+  /* Provider stays visible: Worklist is no longer grouped by provider */
   .wl-type,.wl-reason{font-size:11px}
   .wl-group-h{top:58px}
 }
@@ -344,7 +344,8 @@ a{color:var(--ink)}
 .user-bar .user-title,.user-bar .user-perm{color:var(--muted);font-size:13px;line-height:1.3}
 .user-bar #actingRole{min-width:12em}
 .top{z-index:5}
-.confirm-demo{margin-top:12px;display:inline-flex;align-items:center}
+.confirm-demo{margin-top:12px;margin-bottom:36px;display:inline-flex;align-items:center}
+.history-block{margin-top:36px}
 .patient-name{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .patient-name .btn{font-family:var(--font-text);font-size:13px;font-weight:600;text-transform:none;letter-spacing:0}
 .wl-patient .wl-sub{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
@@ -374,3 +375,15 @@ a{color:var(--ink)}
 .cal-day-row.outside-clinic,.cal-cell.outside-clinic{background:#F3E8DC}
 .av-block{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin:8px 0}
 .pid{font-variant-numeric:tabular-nums}
+
+.wl-bucket{margin:0 0 16px}
+.wl-bucket-h{width:100%;display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:var(--radius-sm);font-family:var(--font-display);font-size:18px;font-weight:500;text-align:left;position:sticky;top:66px;z-index:2}
+.wl-bucket-h:hover,.wl-bucket-h:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+.wl-bucket-h .count{font-family:var(--font-text);font-size:13px;font-weight:700;min-width:1.6em;text-align:center;border-radius:999px;background:var(--field);padding:2px 8px}
+.wl-bucket-body{padding:8px 0 0}
+.wl-bucket.is-collapsed .wl-bucket-body{display:none}
+.wl-row.wl-next,.wl-row.wl-next .wl-dob,.wl-row.wl-next .wl-prov,.wl-row.wl-next .wl-type,.wl-row.wl-next .wl-reason,.wl-row.wl-next .wl-suite,.wl-row.wl-next .wl-sub{background:#E8C547;color:#352820}
+.wl-row.wl-next{background:#E8C547;color:#352820;border-color:#C9A83A}
+.wl-late{display:inline-block;margin-left:6px;background:#F6E4E0;color:#6B1C1C;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 6px;border-radius:999px;vertical-align:middle;line-height:1.3}
+.addr-grid{margin-top:6px}
+.addr-grid .field.full{grid-column:1 / -1}

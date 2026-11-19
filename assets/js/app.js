@@ -116,6 +116,110 @@
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
     return "";
   }
+
+  function digitsOnly(s, max) {
+    return String(s || "").replace(/\D/g, "").slice(0, max);
+  }
+  function formatDobMask(s) {
+    const d = digitsOnly(s, 8);
+    if (d.length <= 2) return d;
+    if (d.length <= 4) return d.slice(0, 2) + "/" + d.slice(2);
+    return d.slice(0, 2) + "/" + d.slice(2, 4) + "/" + d.slice(4);
+  }
+  function formatPhoneMask(s) {
+    const d = digitsOnly(s, 10);
+    if (!d) return "";
+    if (d.length <= 3) return "(" + d;
+    if (d.length <= 6) return "(" + d.slice(0, 3) + ") " + d.slice(3);
+    return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6);
+  }
+  function applyInputMask(el) {
+    const kind = el && el.getAttribute("data-mask");
+    if (!kind) return;
+    const fmt = kind === "dob" ? formatDobMask : kind === "phone" ? formatPhoneMask : null;
+    if (!fmt) return;
+    const max = kind === "dob" ? 8 : 10;
+    const start = el.selectionStart == null ? String(el.value || "").length : el.selectionStart;
+    const digitsBefore = digitsOnly(el.value.slice(0, start), max).length;
+    const next = fmt(el.value);
+    if (next === el.value) return;
+    el.value = next;
+    let seen = 0, pos = next.length;
+    if (digitsBefore === 0) pos = (kind === "phone" && next.charAt(0) === "(" ? 1 : 0);
+    else {
+      for (let i = 0; i < next.length; i++) {
+        if (/\d/.test(next[i])) {
+          seen += 1;
+          if (seen >= digitsBefore) { pos = i + 1; break; }
+        }
+      }
+    }
+    try { el.setSelectionRange(pos, pos); } catch (err) {}
+  }
+  function emptyAddress() {
+    return { address1: "", address2: "", city: "", state: "", zip: "", country: "United States" };
+  }
+  function addressPartsOf(p) {
+    const base = emptyAddress();
+    if (!p) return base;
+    if (p.addressParts) return Object.assign(base, p.addressParts);
+    return base;
+  }
+  function formatAddressLines(parts) {
+    parts = Object.assign(emptyAddress(), parts || {});
+    const cityLine = [parts.city, [parts.state, parts.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    return [parts.address1, parts.address2, cityLine, parts.country].filter(function (x) { return x && String(x).trim(); });
+  }
+  function formatAddressText(parts) {
+    return formatAddressLines(parts).join(", ") || "";
+  }
+  function formatAddressHtml(parts) {
+    const lines = formatAddressLines(parts);
+    return lines.length ? lines.map(function (l) { return esc(l); }).join("<br>") : "—";
+  }
+  function addressFieldsHtml(parts, prefix) {
+    parts = Object.assign(emptyAddress(), parts || {});
+    prefix = prefix || "addr";
+    const countries = (BRIZZA.COUNTRIES || ["United States"]).slice();
+    if (parts.country && countries.indexOf(parts.country) < 0) countries.push(parts.country);
+    const countryOpts = countries.map(function (c) {
+      return "<option" + (parts.country === c ? " selected" : "") + ">" + esc(c) + "</option>";
+    }).join("");
+    return '<div class="formgrid addr-grid">' +
+      '<div class="field full"><label for="' + prefix + '1">Address 1</label><input id="' + prefix + '1" data-addr="address1" value="' + esc(parts.address1 || "") + '" autocomplete="address-line1"></div>' +
+      '<div class="field full"><label for="' + prefix + '2">Address 2</label><input id="' + prefix + '2" data-addr="address2" value="' + esc(parts.address2 || "") + '" placeholder="Apartment, suite, optional" autocomplete="address-line2"></div>' +
+      '<div class="field"><label for="' + prefix + 'Zip">Zip</label><input id="' + prefix + 'Zip" data-addr="zip" data-zip-lookup="1" value="' + esc(parts.zip || "") + '" inputmode="numeric" maxlength="10" autocomplete="postal-code"></div>' +
+      '<div class="field"><label for="' + prefix + 'City">City</label><input id="' + prefix + 'City" data-addr="city" value="' + esc(parts.city || "") + '" autocomplete="address-level2"></div>' +
+      '<div class="field"><label for="' + prefix + 'State">State</label><input id="' + prefix + 'State" data-addr="state" value="' + esc(parts.state || "") + '" autocomplete="address-level1"></div>' +
+      '<div class="field"><label for="' + prefix + 'Country">Country</label><select id="' + prefix + 'Country" data-addr="country">' + countryOpts + "</select></div>" +
+      "</div>";
+  }
+  function readAddressFields(root) {
+    root = root || document;
+    const get = function (key) {
+      const el = root.querySelector('[data-addr="' + key + '"]');
+      return el ? el.value.trim() : "";
+    };
+    return {
+      address1: get("address1"),
+      address2: get("address2"),
+      city: get("city"),
+      state: get("state"),
+      zip: get("zip"),
+      country: get("country") || "United States"
+    };
+  }
+  function applyZipLookup(el) {
+    const zip = digitsOnly(el.value, 5);
+    if (zip.length !== 5) return;
+    const hit = (BRIZZA.ZIP_LOOKUP || {})[zip];
+    if (!hit) return;
+    const scope = el.closest(".addr-grid") || el.closest("form") || el.closest("#modalBody") || document;
+    const city = scope.querySelector('[data-addr="city"]');
+    const state = scope.querySelector('[data-addr="state"]');
+    if (city) city.value = hit.city;
+    if (state) state.value = hit.state;
+  }
   function displayId(id) {
     if (!id) return "";
     const raw = String(id).replace(/^#/, "");
@@ -334,8 +438,7 @@
     documents: "Documents",
     ledger: "Ledger",
     quotes: "Quotes",
-    "follow-up": "Follow-up history",
-    "clinical-notes": "Clinical notes"
+    "follow-up": "Follow-up history"
   };
 
   function parseHash() {
@@ -443,7 +546,7 @@
     if (r.calMode) state.calMode = r.calMode;
     if (r.selected && patient(r.selected)) {
       state.selected = r.selected;
-      state.tab = TABS[r.tab] ? r.tab : (r.tab === "treatment-history" ? "clinical-profile" : "demographics");
+      state.tab = TABS[r.tab] ? r.tab : (r.tab === "treatment-history" || r.tab === "clinical-notes" ? "demographics" : "demographics");
     }
     if (r.invTab) state.invTab = r.invTab;
     if (r.visitId) state.visitId = r.visitId;
@@ -706,6 +809,49 @@
     return '<div class="reg-minis"><button type="button" class="btn small" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button></div>";
   }
 
+  function wlBucketFor(a) {
+    const s = a.status;
+    if (s === "Checked out") return "completed";
+    if (s === "No-show" || s === "Canceled") return "noshow";
+    if (s === "Scheduled" || s === "Confirmed") return "pending";
+    return "inprogress";
+  }
+  function wlBucketLabels() {
+    return [
+      { key: "inprogress", label: "In progress" },
+      { key: "pending", label: "Pending" },
+      { key: "completed", label: "Completed" },
+      { key: "noshow", label: "No-show/Canceled" }
+    ];
+  }
+  function wlBucketState() {
+    const st = { inprogress: false, pending: false, completed: true, noshow: true };
+    try {
+      const raw = localStorage.getItem("brizza-emr-wl-buckets");
+      if (raw) Object.assign(st, JSON.parse(raw));
+    } catch (err) {}
+    return st;
+  }
+  function setWlBucketCollapsed(key, collapsed) {
+    const st = wlBucketState();
+    st[key] = !!collapsed;
+    try { localStorage.setItem("brizza-emr-wl-buckets", JSON.stringify(st)); } catch (err) {}
+  }
+  function appointmentMs(a) {
+    const [y, m, d] = String(a.date).split("-").map(Number);
+    const parts = String(a.time || "00:00").split(":");
+    return new Date(y, m - 1, d, Number(parts[0] || 0), Number(parts[1] || 0), 0).getTime();
+  }
+  function isLateAppointment(a) {
+    if (a.status !== "Scheduled" && a.status !== "Confirmed") return false;
+    return nowMs() > appointmentMs(a);
+  }
+  function nextPendingId(list) {
+    const upcoming = list.filter(function (a) {
+      return wlBucketFor(a) === "pending" && !isLateAppointment(a);
+    }).slice().sort(function (a, b) { return a.time.localeCompare(b.time) || a.id.localeCompare(b.id); });
+    return upcoming.length ? upcoming[0].id : null;
+  }
   function renderWorklist() {
     const date = state.date;
     const q = (state.scheduleSearch || "").trim().toLowerCase();
@@ -739,28 +885,31 @@
       filtBtn("quotes", "Open quotes", counts.quotes) +
       "</div>";
     const hits = q ? scheduleSearchHits(q) : "";
-    const providers = [];
-    rows.forEach((a) => { if (providers.indexOf(a.provider) < 0) providers.push(a.provider); });
-    BRIZZA.PROVIDERS.forEach(function (pr) { if (providers.indexOf(pr) < 0 && rows.some((a) => a.provider === pr)) providers.push(pr); });
+    const timed = rows.slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
+    const goldId = nextPendingId(timed);
     const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>DOB</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    const collapsed = wlBucketState();
     let groups = "";
     if (isWeekend(date)) {
       groups = '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
-    } else if (!rows.length) {
-      groups = '<div class="empty">No appointments match the current filters.</div>';
     } else {
-      providers.forEach(function (pr) {
-        const set = rows.filter((a) => a.provider === pr).slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
-        if (!set.length) return;
-        const blks = dayBlocks(date).filter((b) => b.staff === pr);
-        groups += '<section class="wl-group" aria-labelledby="wl-h-' + esc(pr.replace(/\s+/g, "-")) + '">' +
-          '<h2 class="wl-group-h" id="wl-h-' + esc(pr.replace(/\s+/g, "-")) + '">' + esc(pr) + ' <span class="row-sub">' + set.length + (set.length === 1 ? " appointment" : " appointments") + (blks.length ? " · " + blks.length + " admin block" + (blks.length > 1 ? "s" : "") : "") + "</span></h2>" +
-          colHead +
-          set.map(wlRow).join("") +
-          blks.map(function (b) { return '<div class="block-card" style="margin:8px 0">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + " · Admin · " + esc(b.reason) + "</div>"; }).join("") +
-          "</section>";
+      wlBucketLabels().forEach(function (bk) {
+        const set = timed.filter((a) => wlBucketFor(a) === bk.key);
+        const shut = !!collapsed[bk.key];
+        groups += '<section class="wl-bucket' + (shut ? " is-collapsed" : "") + '" data-wl-bucket="' + bk.key + '">' +
+          '<button type="button" class="wl-bucket-h" data-wl-toggle="' + bk.key + '" aria-expanded="' + (shut ? "false" : "true") + '">' +
+          '<span class="wl-bucket-name">' + esc(bk.label) + '</span> <span class="count">' + set.length + "</span></button>" +
+          '<div class="wl-bucket-body">' + (set.length ? colHead + set.map(function (a) { return wlRow(a, { late: isLateAppointment(a), gold: a.id === goldId }); }).join("") : '<div class="empty">None</div>') + "</div></section>";
       });
+      const blks = dayBlocks(date).slice().sort((a, b) => String(a.start).localeCompare(String(b.start)));
+      if (blks.length) {
+        groups += '<div class="wl-admin-blocks"><h3 class="section-title">Admin blocks</h3>' +
+          blks.map(function (b) { return '<div class="block-card" style="margin:8px 0">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + " · " + esc(b.staff || "") + " · Admin · " + esc(b.reason) + "</div>"; }).join("") +
+          "</div>";
+      }
+      if (!timed.length && !blks.length) groups = '<div class="empty">No appointments match the current filters.</div>' + groups;
     }
+
     const body = `<div class="wl" data-worklist="1">
       <div class="card">
         <div class="cardhead">
@@ -795,14 +944,17 @@
     const s = (BRIZZA.SUITES || []).find((x) => x.id === id);
     return s ? s.name : "—";
   }
-  function wlRow(a) {
+  function wlRow(a, opts) {
+    opts = opts || {};
     const p = patient(a.patientId);
     const open = state.expandedAppt === a.id;
     const suite = a.suiteId ? suiteName(a.suiteId) : "—";
     const note = a.prepNotes || "";
     const tip = note ? ('<span class="note-tip"><input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="' + esc(note) + '" placeholder="Prep, packages…" title="' + esc(note) + '" aria-describedby="tip-' + esc(a.id) + '"><span class="tip" id="tip-' + esc(a.id) + '" role="tooltip">' + esc(note) + "</span></span>") : ('<input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="" placeholder="Prep, packages…">');
-    return '<div class="wl-row" data-type="' + esc(a.type) + '" data-wl-row="' + esc(a.id) + '">' +
-      '<div class="wl-time">' + esc(fmtTime(a.time)) + "</div>" +
+    const late = opts.late ? '<span class="wl-late">Late</span>' : "";
+    const cls = "wl-row" + (opts.gold ? " wl-next" : "") + (opts.late ? " is-late" : "");
+    return '<div class="' + cls + '" data-type="' + esc(a.type) + '" data-wl-row="' + esc(a.id) + '"' + (opts.gold ? ' data-wl-next="1"' : "") + ">" +
+      '<div class="wl-time">' + esc(fmtTime(a.time)) + late + "</div>" +
       '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) +
         (p ? '<span class="wl-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</span>" : "") + "</div>" +
       '<div class="wl-dob">' + (p ? esc(fmtDob(p.dob)) : "—") + "</div>" +
@@ -1213,32 +1365,27 @@
     }, "Save");
   }
 
-  function notesListHtml() {
+  function notesListHtml(p) {
+    p = p || patient(state.selected);
+    if (!p) return "";
     const q = (state.notesSearch || "").trim().toLowerCase();
-    const all = [];
-    store.patients.forEach(function (p) {
-      (p.notes || []).forEach(function (n) { all.push({ p: p, n: n }); });
-    });
-    all.sort((a, b) => String(b.n.date).localeCompare(String(a.n.date)));
-    const rows = all.filter((x) => !q || (x.p.name + " " + x.p.id + " " + (x.n.type || "") + " " + (x.n.status || "") + " " + (x.n.text || "")).toLowerCase().includes(q));
-    const list = rows.map(function (x) {
-      const n = x.n, p = x.p;
+    const all = (p.notes || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const rows = all.filter((n) => !q || ((n.type || "") + " " + (n.status || "") + " " + (n.text || "") + " " + (n.provider || "")).toLowerCase().includes(q));
+    const list = rows.map(function (n) {
       const st = n.status || "Open";
       const canEdit = st === "Open";
-      return '<div class="row"><div><div class="row-title">' + esc(fmtDate(n.date)) + " · " + patientLink(p) + '</div><div class="row-sub">' + esc(n.type || "Note") + " · " + esc(n.provider || "") + "</div></div>" +
+      return '<div class="row"><div><div class="row-title">' + esc(fmtDate(n.date)) + " · " + esc(n.type || "Note") + '</div><div class="row-sub">' + esc(n.provider || "") + "</div></div>" +
         badge(st) +
         '<div class="actions">' +
         (canEdit ? '<button class="btn small" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '">Edit</button>' : '<span class="row-sub">Edit</span>') +
         '<button class="btn small" type="button" data-print-note="' + p.id + '" data-nid="' + n.id + '">View/Print</button></div></div>';
-    }).join("") || '<div class="empty">No clinical notes match.</div>';
-    return `<div class="card notes-list"><div class="cardhead"><h2>Clinical notes</h2>
-      <a class="btn small" href="#modal-new-patient" data-open="new-patient">＋ New patient</a></div>
-      <div class="cardbody" style="padding:12px">
-        <label class="sr-only" for="notes-search">Search clinical notes</label>
-        <input id="notes-search" class="searchbox" placeholder="Search notes, patient, status" value="${esc(state.notesSearch || "")}">
-        <p class="row-sub">Patient search also lives on the Worklist and calendar.</p>
-        <div>${list}</div>
-      </div></div>`;
+    }).join("") || '<div class="empty">No clinical notes for this patient.</div>';
+    return '<div class="card notes-list"><div class="cardhead"><h2>Clinical notes</h2>' +
+      '<button class="btn small" type="button" data-open="note-composer" data-pid="' + p.id + '">Add new note</button></div>' +
+      '<div class="cardbody" style="padding:12px">' +
+      '<label class="sr-only" for="notes-search">Search clinical notes</label>' +
+      '<input id="notes-search" class="searchbox" placeholder="Search notes for this patient" value="' + esc(state.notesSearch || "") + '">' +
+      "<div>" + list + "</div></div></div>";
   }
 
   function findPatientHtml() {
@@ -1413,14 +1560,13 @@
         '<div class="row"><span>Date of birth</span><strong>' + esc(fmtDob(p.dob)) + "</strong></div>" +
         '<div class="row"><span>Phone</span><strong>' + esc(p.phone) + "</strong></div>" +
         '<div class="row"><span>Email</span><strong>' + esc(p.email) + "</strong></div>" +
-        '<div class="row"><span>Address</span><strong>' + esc(p.address || "—") + "</strong></div></div>" +
+        '<div class="row"><span>Address</span><strong>' + formatAddressHtml(addressPartsOf(p)) + "</strong></div></div>" +
         '<div><h3 class="section-title">Patient status</h3>' +
         '<label class="sr-only" for="pstatus">Patient status</label>' +
         '<select id="pstatus" data-set-status="' + p.id + '">' + BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select>" +
         '<div class="notice">One centralized chart. Patient number is immutable and never reused.</div>' +
         '<button class="btn primary confirm-demo" type="button" data-confirm-demo="' + p.id + '">Confirm Demographics</button>' +
-        '<h3 class="section-title">' + historyIcon("Patient", p.id) + " History</h3>" +
-        '<div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" +
+        '<h3 class="section-title history-block">' + historyIcon("Patient", p.id) + " History</h3>" +
         '<h3 class="section-title">Patient notes</h3><p class="row-sub">Non-clinical notes, timestamped with the author.</p>' +
         patientNotesHtml(p) +
         "</div></div>";
@@ -1458,15 +1604,8 @@
       body = `<div class="labelrow"><h3 class="section-title">Follow-up history</h3>
         <a class="btn small" href="#modal-followup" data-open="followup" data-pid="${p.id}">＋ Add follow-up</a></div>
         ${p.followups.length ? p.followups.map((f) => '<div class="row"><div><div class="row-title">' + esc(f.text) + '</div><div class="row-sub">Due ' + esc(fmtDate(f.due || f)) + "</div></div></div>").join("") : '<div class="empty">No follow-up tasks</div>'}`;
-    } else if (state.tab === "clinical-notes") {
-      body = `<div class="labelrow"><h3 class="section-title">Clinical notes</h3>
-        ${createNoteButton(p.id)}</div>
-        ${openQ("Records audits Clinical Notes as a section; DB-005 lists eight chart sections and does not include this tab. Note statuses Draft / Ready for review are not an approved catalog.")}
-        ${openQ("Draft templates – Open question. Templates other than the single Consultation note with procedure Yes/No are not taken from the SOPs or V1 documents. Create Note is shown only for clinical roles (RN / NP Injector, Aesthetician). Whether MD / Clinic Owner or Medical Assistant may create or sign notes is not established (Open question 17).")}
-        ${openQ("Draft templates – Open question. Injectables and Aesthetician Consult / Follow-up / Procedure templates are not taken from the SOPs or V1 documents (Open question 17).")}
-        ${p.notes.map((n) => '<button class="note-btn" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '"><strong>' + esc(n.type || "Note") + "</strong> " + badge(n.status || "Draft") + (n.locked ? ' <span class="badge">Locked</span>' : "") + (n.historySnapshot ? ' <span class="badge">History snapshot</span>' : "") + ' <span class="row-sub" style="float:right">' + esc(fmtDate(n.date)) + '</span><div class="row-sub">' + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</div><p>" + esc(n.text) + "</p></button>").join("") || '<div class="empty">No clinical notes</div>'}`;
     }
-    return body + '<div class="row-sub" style="margin-top:18px">' + auditIconFor("Patient", p.id) + " · " + esc(TABS[state.tab] || state.tab) + "</div>";
+    return body;
   }
 
   function renderPatients() {
@@ -1512,7 +1651,7 @@
           <div class="cardhead"><h2>Next appointments</h2><a class="btn small" href="${hashFor({ page: "schedule", date: state.date })}">Schedule</a></div>
           <div class="cardbody">${upcoming.map((a) => '<div class="row"><div><div class="row-title">' + esc(a.type) + '</div><div class="row-sub">' + esc(a.date) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.provider) + "</div></div>" + badge(a.status) + "</div>").join("") || '<div class="empty">None scheduled</div>'}</div>
         </div>
-        ${notesListHtml()}
+        ${notesListHtml(p)}
       </div>
     </div>`;
     renderChrome('<a href="' + hashFor({ page: "patients" }) + '">Patients</a> / ' + esc(p.name), head, body);
@@ -2034,7 +2173,7 @@
       action: "Signed " + tpl.name + " note",
       recordType: "Note",
       recordId: rec.id,
-      recordPath: { page: "patients", selected: p.id, tab: "clinical-notes" },
+      recordPath: { page: "patients", selected: p.id, tab: "demographics" },
       changes: [
         { field: "status", before: "—", after: "Signed" },
         { field: "template", before: "—", after: tpl.name },
@@ -2044,8 +2183,8 @@
     state.noteDraft = null;
     closeModal();
     toast("Note signed and locked");
-    const next = hashFor({ page: "patients", selected: p.id, tab: "clinical-notes" });
-    if (location.hash !== next) go({ page: "patients", selected: p.id, tab: "clinical-notes" });
+    const next = hashFor({ page: "patients", selected: p.id, tab: "demographics" });
+    if (location.hash !== next) go({ page: "patients", selected: p.id, tab: "demographics" });
     else render();
   }
 
@@ -2726,9 +2865,9 @@
           <div id="bookNewFields" hidden class="formgrid" style="margin-top:10px">
             <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>
             <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>
-            <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy"></div>
-            <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone"></div>
-            <div class="field full"><label for="npAddress">Address</label><input id="npAddress" placeholder="Optional"></div>
+            <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob"></div>
+            <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone"></div>
+            <div class="field full"><label>Address</label>${addressFieldsHtml(emptyAddress(), "bkAddr")}</div>
           </div>
         </section>
         <section>
@@ -2855,7 +2994,8 @@
         return;
       }
       pid = nextPatientId();
-      store.patients.push({ id: pid, firstName: first, lastName: last, name: first + " " + last, dob: dob, sex: "Unspecified", phone: phone, email: "—", address: ($("#npAddress") && $("#npAddress").value.trim()) || "", status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
+      const parts = readAddressFields(document);
+      store.patients.push({ id: pid, firstName: first, lastName: last, name: first + " " + last, dob: dob, sex: "Unspecified", phone: formatPhoneMask(phone), email: "—", addressParts: parts, address: formatAddressText(parts), status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
       addAudit({ action: "Created patient record", recordType: "Patient", recordId: pid,
         recordPath: { page: "patients", selected: pid, tab: "demographics" },
         changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: first + " " + last }, { field: "id", before: "—", after: displayId(pid) }] });
@@ -3004,9 +3144,9 @@
       <div class="formgrid">
         <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst" required autocomplete="given-name"></div>
         <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast" required autocomplete="family-name"></div>
-        <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" required placeholder="mm/dd/yyyy" inputmode="numeric"></div>
-        <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" required></div>
-        <div class="field full"><label for="npAddress">Address</label><input id="npAddress" placeholder="Optional"></div>
+        <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" required placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob" autocomplete="bday"></div>
+        <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" required placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone" autocomplete="tel"></div>
+        <div class="field full"><label>Address</label>${addressFieldsHtml(emptyAddress(), "npAddr")}</div>
         <div class="field"><label for="npEmail">Email</label><input id="npEmail" placeholder="Optional"></div>
         <div class="field"><label for="npSex">Sex</label><select id="npSex"><option>Female</option><option>Male</option><option>Unspecified</option></select></div>
       </div>
@@ -3027,7 +3167,9 @@
       }
       const name = first + " " + last;
       const id = nextPatientId();
-      store.patients.push({ id: id, firstName: first, lastName: last, name: name, dob: dob, sex: $("#npSex").value, phone: phone, email: $("#npEmail").value || "—", address: ($("#npAddress").value || "").trim(), status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
+      const parts = readAddressFields(document);
+      const phoneFmt = formatPhoneMask(phone);
+      store.patients.push({ id: id, firstName: first, lastName: last, name: name, dob: dob, sex: $("#npSex").value, phone: phoneFmt, email: $("#npEmail").value || "—", addressParts: parts, address: formatAddressText(parts), status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
       addAudit({ action: "Created patient record", recordType: "Patient", recordId: id,
         recordPath: { page: "patients", selected: id, tab: "demographics" },
         changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: name }, { field: "id", before: "—", after: displayId(id) }] });
@@ -3045,24 +3187,26 @@
       <div class="formgrid">
         <div class="field"><label>Patient number</label><input value="${esc(displayId(p.id))}" disabled></div>
         <div class="field"><label>Name</label><input value="${esc(p.name)}" disabled></div>
-        <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(p.phone)}"></div>
+        <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(formatPhoneMask(p.phone))}" data-mask="phone" inputmode="tel" autocomplete="tel"></div>
         <div class="field"><label for="edEmail">Email</label><input id="edEmail" value="${esc(p.email)}"></div>
-        <div class="field full"><label for="edAddress">Address</label><input id="edAddress" value="${esc(p.address || "")}"></div>
-        <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy"></div>
+        <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy" data-mask="dob" inputmode="numeric"></div>
+        <div class="field full"><label>Address</label>${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
       </div>
       <div class="notice">Demographic changes are audit-tracked. The patient number cannot be changed.</div>`, function () {
-      const phone = $("#edPhone").value, email = $("#edEmail").value, address = $("#edAddress").value.trim();
+      const phone = formatPhoneMask($("#edPhone").value), email = $("#edEmail").value;
       const dob = parseDob($("#edDob").value) || p.dob;
+      const parts = readAddressFields(document);
+      const address = formatAddressText(parts);
       const changes = [];
       if (phone !== p.phone) { p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
       if (email !== p.email) { p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
-      if (address !== (p.address || "")) { changes.push({ field: "address", before: p.address || "—", after: address || "—" }); }
+      if (address !== formatAddressText(addressPartsOf(p))) { changes.push({ field: "address", before: formatAddressText(addressPartsOf(p)) || "—", after: address || "—" }); }
       if (dob !== p.dob) { changes.push({ field: "date of birth", before: fmtDob(p.dob), after: fmtDob(dob) }); }
       if (changes.length) {
         addAudit({ action: "Updated demographics", recordType: "Patient", recordId: p.id,
           recordPath: { page: "patients", selected: p.id, tab: "demographics" }, changes: changes });
       }
-      p.phone = phone; p.email = email; p.address = address; p.dob = dob;
+      p.phone = phone; p.email = email; p.addressParts = parts; p.address = address; p.dob = dob;
       closeModal(); toast("Demographic edits are audit-tracked"); render();
     });
   }
@@ -3591,6 +3735,19 @@
       openHistoryPop(hist.getAttribute("data-history-type"), hist.getAttribute("data-history-id"));
       return;
     }
+    const wlT = e.target.closest("[data-wl-toggle]");
+    if (wlT) {
+      e.preventDefault();
+      const key = wlT.getAttribute("data-wl-toggle");
+      const section = wlT.closest(".wl-bucket");
+      const willCollapse = !(section && section.classList.contains("is-collapsed"));
+      setWlBucketCollapsed(key, willCollapse);
+      if (section) {
+        section.classList.toggle("is-collapsed", willCollapse);
+        wlT.setAttribute("aria-expanded", willCollapse ? "false" : "true");
+      }
+      return;
+    }
     const wlF = e.target.closest("[data-wl-filter]");
     if (wlF) {
       e.preventDefault();
@@ -3677,7 +3834,7 @@
         const pt = patient(pid);
         if (!pt) return;
         pt.alerts = pt.alerts || [];
-        const rec = { id: nextId("AL-", pt.alerts), text: text, when: nowET(), who: state.actingRole };
+        const rec = { id: nextId("AL-", pt.alerts), text: text, when: nowET(), who: actingName() };
         pt.alerts.push(rec);
         addAudit({ action: "Added patient alert", recordType: "Patient", recordId: pid,
           recordPath: { page: "patients", selected: pid, tab: "demographics" },
@@ -3733,7 +3890,7 @@
       const text = ($("#pnote") && $("#pnote").value.trim()) || "";
       if (!pt || !text) { toast("Enter a patient note"); return; }
       pt.patientNotes = pt.patientNotes || [];
-      pt.patientNotes.push({ id: nextId("PN-", pt.patientNotes), text: text, when: nowET(), who: state.actingRole });
+      pt.patientNotes.push({ id: nextId("PN-", pt.patientNotes), text: text, when: nowET(), who: actingName() });
       addAudit({ action: "Added patient note", recordType: "Patient", recordId: pid,
         recordPath: { page: "patients", selected: pid, tab: "demographics" },
         changes: [{ field: "patient note", before: "—", after: text }] });
@@ -3953,6 +4110,8 @@
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
     document.addEventListener("input", function (e) {
+      if (e.target && e.target.getAttribute && e.target.getAttribute("data-mask")) applyInputMask(e.target);
+      if (e.target && e.target.getAttribute && e.target.getAttribute("data-zip-lookup")) applyZipLookup(e.target);
       if (e.target.id === "patient-search" || e.target.id === "sched-search" || e.target.id === "notes-search" || e.target.id === "patient-find" || e.target.id === "lot-trace" || e.target.dataset.cost) onChange(e);
       if (e.target.dataset && (e.target.dataset.lineQty != null || e.target.dataset.linePrice != null)) {
         const inv = invoice(state.invoiceId);

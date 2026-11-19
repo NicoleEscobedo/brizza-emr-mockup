@@ -35,6 +35,98 @@
     return `${dt.getFullYear()}-${mm}-${dd}`;
   }
 
+
+  function todayET() {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  }
+  function weekdayNum(iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).getDay();
+  }
+  function isWeekend(iso) {
+    const d = weekdayNum(iso);
+    return d === 0 || d === 6;
+  }
+  function weekMonday(iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    const day = dt.getDay();
+    dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day));
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return dt.getFullYear() + "-" + mm + "-" + dd;
+  }
+  function addMonths(iso, n) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1 + n, 1);
+    const last = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    const day = Math.min(d, last);
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return dt.getFullYear() + "-" + mm + "-" + dd;
+  }
+  function monthLabel(iso) {
+    const [y, m] = iso.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+  function locationName(id) {
+    const loc = (BRIZZA.LOCATIONS || []).find((l) => l.id === id);
+    return loc ? loc.name : (id || "—");
+  }
+  function auditsFor(type, id) {
+    return store.audit.filter((e) => e.recordType === type && e.recordId === id);
+  }
+  function addAudit(spec) {
+    const ev = {
+      id: nextId("AUD-", store.audit),
+      when: spec.when || nowET(),
+      who: spec.who || "Alex Morgan",
+      role: spec.role || "Synthetic session user",
+      action: spec.action,
+      recordType: spec.recordType,
+      recordId: spec.recordId,
+      recordPath: spec.recordPath || {},
+      changes: spec.changes || []
+    };
+    store.audit.push(ev);
+    return ev;
+  }
+  function historyLinks(type, id, fallback) {
+    const evs = auditsFor(type, id);
+    if (!evs.length) return fallback ? esc(fallback) : "";
+    return evs.map((e) => '<a class="audit-link" href="' + hashFor({ page: "audit", auditId: e.id }) + '">' + esc(e.action) + "</a>").join(" · ");
+  }
+  function timelineHtml(type, id) {
+    const evs = auditsFor(type, id);
+    if (!evs.length) return '<div class="row-sub">No history</div>';
+    return evs.map((e) => '<div class="event"><div class="event-date">' + esc(e.when) + '</div><a class="audit-link" href="' + hashFor({ page: "audit", auditId: e.id }) + '">' + esc(e.action) + "</a></div>").join("");
+  }
+  function registrationItems(p) {
+    const r = (p && p.registration) || {};
+    const item = (key, label, doneWord, pendingWord) => {
+      const rec = r[key] || { status: pendingWord, date: null };
+      return { key: key, label: label, status: rec.status || pendingWord, date: rec.date, ok: rec.status === doneWord };
+    };
+    return [
+      item("idUploaded", "ID uploaded", "Uploaded", "Not uploaded"),
+      item("formsCompleted", "Intake/consent forms completed", "Completed", "Not completed"),
+      item("demographicsConfirmed", "Demographics confirmed", "Confirmed", "Not confirmed")
+    ];
+  }
+  function registrationPanel(a) {
+    const p = patient(a.patientId);
+    const items = registrationItems(p);
+    const rows = items.map((it) => '<div class="reg-item"><div><div class="row-title">' + esc(it.label) + '</div><div class="row-sub">' + (it.date ? esc(fmtDate(it.date)) : "No date recorded") + "</div></div>" + badge(it.status) + "</div>").join("");
+    return '<div class="reg-panel" id="reg-panel-' + esc(a.id) + '"><h3 class="section-title">Registration status</h3>' + rows +
+      openQ("The official visit-readiness and registration checklist is not named in the sources (Open question 4). ID uploaded, intake/consent forms, and demographics confirmed are prototype indicators only.") + "</div>";
+  }
+  function scheduleShift(iso, dir) {
+    if (state.scheduleView === "calendar" && state.calMode === "week") return addDays(weekMonday(iso), dir * 7);
+    if (state.scheduleView === "calendar" && state.calMode === "month") return addMonths(iso, dir);
+    return addDays(iso, dir);
+  }
+
+
   function hexToRgb(hex) {
     hex = hex.replace("#", "");
     if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
@@ -74,10 +166,12 @@
 
   const store = BRIZZA.seed();
   const state = {
-    theme: "02", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BRZ0001",
+    theme: "01", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BRZ0001",
     tab: "demographics", visitId: null, invoiceId: null, appointmentId: null,
     providerFilter: "All providers", search: "", reschedulingId: null, modal: null,
-    demo: { running: false, index: 0, timer: null }, contrast: null
+    demo: { running: false, index: 0, timer: null }, contrast: null,
+    scheduleView: "list", calMode: "week", locationId: BRIZZA.DEFAULT_LOCATION,
+    expandedAppt: null, auditId: null
   };
 
   const patient = (id) => store.patients.find((p) => p.id === id);
@@ -132,7 +226,21 @@
     let route = { page: "patients" };
     const p0 = parts[0] || "patients";
     if (p0 === "schedule") {
-      route = { page: "schedule", date: parts[1] || state.date || BRIZZA.SAMPLE_DAY, appointmentId: parts[2] === "appointment" ? parts[3] : null };
+      let i = 1;
+      let view = "list";
+      let calMode = state.calMode || "week";
+      if (parts[1] === "list") { view = "list"; i = 2; }
+      else if (parts[1] === "calendar") {
+        view = "calendar";
+        const mode = parts[2];
+        if (mode === "day" || mode === "week" || mode === "month") { calMode = mode; i = 3; }
+        else { calMode = "week"; i = 2; }
+      }
+      let date = state.date || BRIZZA.SAMPLE_DAY;
+      let appointmentId = null;
+      if (parts[i] && /^\d{4}-\d{2}-\d{2}$/.test(parts[i])) { date = parts[i]; i += 1; }
+      if (parts[i] === "appointment") appointmentId = parts[i + 1] || null;
+      route = { page: "schedule", view: view, calMode: calMode, date: date, appointmentId: appointmentId };
     } else if (p0 === "patients") {
       route = { page: "patients", selected: parts[1] || state.selected, tab: parts[2] || "demographics" };
     } else if (p0 === "queue") {
@@ -145,6 +253,8 @@
       route = { page: "checkout", invoiceId: parts[1] };
     } else if (p0 === "demo") {
       route = { page: "demo" };
+    } else if (p0 === "audit") {
+      route = { page: "audit", auditId: parts[1] };
     }
     return route;
   }
@@ -153,7 +263,11 @@
     const t = theme || state.theme;
     let path = "/patients";
     if (route.page === "schedule") {
-      path = "/schedule/" + (route.date || state.date);
+      const date = route.date || state.date;
+      const view = route.view || state.scheduleView || "list";
+      const calMode = route.calMode || state.calMode || "week";
+      if (view === "calendar") path = "/schedule/calendar/" + calMode + "/" + date;
+      else path = "/schedule/" + date;
       if (route.appointmentId) path += "/appointment/" + route.appointmentId;
     } else if (route.page === "patients") {
       path = route.selected ? "/patients/" + route.selected + "/" + (route.tab || "demographics") : "/patients";
@@ -162,6 +276,7 @@
     else if (route.page === "visit") path = "/visits/" + route.visitId;
     else if (route.page === "checkout") path = "/checkout/" + route.invoiceId;
     else if (route.page === "demo") path = "/demo";
+    else if (route.page === "audit") path = "/audit/" + route.auditId;
     return "#" + path + "?theme=" + t;
   }
 
@@ -173,6 +288,8 @@
     const r = parseHash();
     state.page = r.page;
     if (r.date) state.date = r.date;
+    if (r.view) state.scheduleView = r.view;
+    if (r.calMode) state.calMode = r.calMode;
     if (r.selected && patient(r.selected)) {
       state.selected = r.selected;
       state.tab = TABS[r.tab] ? r.tab : "demographics";
@@ -180,6 +297,7 @@
     if (r.visitId) state.visitId = r.visitId;
     if (r.invoiceId) state.invoiceId = r.invoiceId;
     if (r.appointmentId) state.appointmentId = r.appointmentId;
+    if (r.auditId) state.auditId = r.auditId;
     document.documentElement.setAttribute("data-theme", state.theme);
     if (r.page === "demo" && !state.demo.running) {
       startDemo();
@@ -188,6 +306,8 @@
     render();
     if (r.page === "schedule" && r.appointmentId && appt(r.appointmentId)) {
       openAppointmentModal(r.appointmentId);
+    } else if ($("#modal") && $("#modal").classList.contains("open")) {
+      closeModal({ cancelPending: true });
     }
   }
 
@@ -239,7 +359,7 @@
           <div class="brand"><span class="brand-name">brizza</span><small>clinic workspace</small></div>
           <div class="nav-label">Workspace</div>
           <nav class="nav" aria-label="Workspace">
-            ${nav(hashFor({ page: "schedule", date: state.date }), "schedule", "Schedule", "▦")}
+            ${nav(hashFor({ page: "schedule", date: state.date, view: state.scheduleView, calMode: state.calMode }), "schedule", "Schedule", "▦")}
             ${nav(hashFor({ page: "patients", selected: state.selected, tab: state.tab }), "patients", "Patients", "♙")}
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Work queue", "☷")}
             ${nav(hashFor({ page: "checkout", invoiceId: state.invoiceId || "INV-1003" }), "checkout", "Checkout", "☰")}
@@ -288,14 +408,14 @@
   }
 
   function appointmentRow(a) {
-    const hist = (a.history || []).join(" · ");
+    const hist = historyLinks("Appointment", a.id, (a.history || []).join(" · "));
     const vlink = a.visitId ? ' · <a href="' + hashFor({ page: "visit", visitId: a.visitId }) + '">' + esc(a.visitId) + "</a>" : "";
     return `<div class="row">
       <div>
         <div class="row-title">${esc(a.type)} · ${esc(reasonText(a))}</div>
         <div class="row-sub">${esc(a.date)} · ${esc(a.time)} · ${esc(a.provider)} · ${esc(a.id)} · ${esc(a.room || "No room")}${vlink}</div>
         <div class="row-sub">Consultation: ${esc(a.consultation || "Not recorded")} · Treatment: ${esc(a.treatment || "Not recorded")} · Duration: TBD</div>
-        ${hist ? '<div class="row-sub">Status history: ' + esc(hist) + "</div>" : ""}
+        ${hist ? '<div class="row-sub">Status history: ' + hist + "</div>" : ""}
         <div class="row-sub">Invoice: ${invoiceBadge(a)}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -317,7 +437,7 @@
         <label class="sr-only" for="pstatus">Patient status</label>
         <select id="pstatus" data-set-status="${p.id}">${BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select>
         <div class="notice">One centralized chart. Patient number is immutable and never reused.</div>
-        ${p.demoHistory.length ? '<h3 class="section-title">Demographic change history</h3>' + p.demoHistory.map((h) => '<div class="row-sub">' + esc(h) + "</div>").join("") : ""}
+        ${auditsFor("Patient", p.id).length ? '<h3 class="section-title">Audit trail</h3><div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" : ""}
         </div></div>`;
     } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
@@ -407,23 +527,37 @@
     return store.appointments
       .filter((a) => a.date === date && a.status !== "Rescheduled" && a.status !== "Canceled")
       .filter((a) => state.providerFilter === "All providers" || a.provider === state.providerFilter)
+      .filter((a) => !state.locationId || a.locationId === state.locationId)
       .sort((a, b) => a.time.localeCompare(b.time));
   }
 
   function renderSchedule() {
+    if (state.scheduleView === "calendar") {
+      renderCalendar();
+      return;
+    }
     const list = dayAppointments(state.date);
-    const head = pageHead("Appointment operations", "Schedule", esc(BRIZZA.CLINIC.location) + " · " + esc(BRIZZA.CLINIC.hours),
-      '<a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a>');
+    const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (state.locationId === l.id ? " selected" : "") + ">" + esc(l.name) + "</option>").join("");
+    const toggle = scheduleViewToggle();
+    const head = pageHead("Appointment operations", "Schedule", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours),
+      toggle + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a>');
     const rows = list.map((a) => {
       const p = patient(a.patientId);
       const v = a.visitId ? '<a href="' + hashFor({ page: "visit", visitId: a.visitId }) + '">' + esc(a.visitId) + "</a>" : "";
-      return `<div class="row">
-        <div>
-          <strong>${esc(a.time)} · ${esc(p ? p.name : a.patientId)}</strong>
-          <div class="row-sub">${esc(a.type)} · ${esc(reasonText(a))} · Duration TBD · ${esc(a.room || "No room")}${a.visitId ? " · " + v : ""}</div>
-          <div class="row-sub">Primary provider: ${esc(a.provider)} · consultation ${esc(a.consultation || "—")} · treatment ${esc(a.treatment || "—")} · ${invoiceBadge(a)}</div>
+      const open = state.expandedAppt === a.id;
+      return `<div class="appt-card">
+        <div class="appt-card-top">
+          <div>
+            <strong>${esc(a.time)} · ${esc(p ? p.name : a.patientId)}</strong>
+            <div class="row-sub">${esc(a.type)} · ${esc(reasonText(a))} · Duration TBD · ${esc(a.room || "No room")}${a.visitId ? " · " + v : ""} · ${esc(locationName(a.locationId))}</div>
+            <div class="row-sub">Primary provider: ${esc(a.provider)} · consultation ${esc(a.consultation || "—")} · treatment ${esc(a.treatment || "—")} · ${invoiceBadge(a)}</div>
+          </div>
+          <div class="actions">
+            <button class="btn small" type="button" data-expand-reg="${esc(a.id)}" aria-expanded="${open ? "true" : "false"}" aria-controls="reg-panel-${esc(a.id)}">Registration</button>
+            <a class="btn small" href="${hashFor({ page: "schedule", date: state.date, appointmentId: a.id, view: "list" })}">${esc(a.status)} ▾</a>
+          </div>
         </div>
-        <a class="btn small" href="${hashFor({ page: "schedule", date: state.date, appointmentId: a.id })}">${esc(a.status)} ▾</a>
+        ${open ? registrationPanel(a) : ""}
       </div>`;
     }).join("") || '<div class="empty">No appointments on this date.</div>';
     const catalog = Object.entries(BRIZZA.reasonCatalog).map(([t, rs]) => {
@@ -436,15 +570,20 @@
       <div class="card">
         <div class="cardhead">
           <div class="datebar">
-            <a class="btn small" href="${hashFor({ page: "schedule", date: addDays(state.date, -1) })}" aria-label="Previous day">‹</a>
+            <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: addDays(state.date, -1), view: "list" })}" aria-label="Previous day">‹</a>
             <strong>${esc(fmtLong(state.date))}</strong>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: addDays(state.date, 1) })}" aria-label="Next day">›</a>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY })}">Sample day</a>
+            <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: addDays(state.date, 1), view: "list" })}" aria-label="Next day">›</a>
+            <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "list" })}">Today</a>
+            <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "list" })}">Sample day</a>
           </div>
-          <label class="sr-only" for="prov">Provider filter</label>
-          <select id="prov">${["All providers"].concat(BRIZZA.PROVIDERS).map((x) => "<option" + (state.providerFilter === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select>
+          <div class="sched-tools">
+            <label class="sr-only" for="locationSel">Location</label>
+            <select id="locationSel">${locOpts}</select>
+            <label class="sr-only" for="prov">Provider filter</label>
+            <select id="prov">${["All providers"].concat(BRIZZA.PROVIDERS).map((x) => "<option" + (state.providerFilter === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select>
+          </div>
         </div>
-        <div class="cardbody">${rows}</div>
+        <div class="cardbody">${isWeekend(state.date) ? '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>' : rows}</div>
       </div>
       <div class="card">
         <div class="cardhead"><h2>Controlled configuration</h2></div>
@@ -456,8 +595,149 @@
         </div>
       </div>
     </div>`;
-    renderChrome('<a href="' + hashFor({ page: "schedule", date: state.date }) + '">Schedule</a>', head, body);
+    renderChrome('<a href="' + hashFor({ page: "schedule", date: state.date, view: "list" }) + '">Schedule</a>', head, body);
   }
+
+  function scheduleViewToggle() {
+    const listHref = hashFor({ page: "schedule", date: state.date, view: "list" });
+    const calHref = hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode || "week" });
+    return '<div class="view-toggle" role="group" aria-label="Schedule view"><a href="' + listHref + '" class="' + (state.scheduleView !== "calendar" ? "active" : "") + '">List</a><a href="' + calHref + '" class="' + (state.scheduleView === "calendar" ? "active" : "") + '">Calendar</a></div>';
+  }
+
+  function calendarModeToggle() {
+    const modes = ["day", "week", "month"];
+    const links = modes.map((m) => {
+      const href = hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: m });
+      return '<a href="' + href + '" class="' + (state.calMode === m ? "active" : "") + '">' + (m.charAt(0).toUpperCase() + m.slice(1)) + "</a>";
+    }).join("");
+    return '<div class="mode-toggle" role="group" aria-label="Calendar mode">' + links + "</div>";
+  }
+
+  function calendarEvent(a) {
+    const p = patient(a.patientId);
+    const href = hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "calendar", calMode: state.calMode });
+    return '<a class="cal-event" href="' + href + '"><span class="t">' + esc(a.time) + " · " + esc(p ? p.name : a.patientId) + '</span>' + esc(a.type) + " · " + esc(reasonText(a)) + "</a>";
+  }
+
+  function rangeAppointments(start, end) {
+    return store.appointments
+      .filter((a) => a.date >= start && a.date <= end && a.status !== "Rescheduled" && a.status !== "Canceled")
+      .filter((a) => state.providerFilter === "All providers" || a.provider === state.providerFilter)
+      .filter((a) => !state.locationId || a.locationId === state.locationId)
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  }
+
+  function renderCalendar() {
+    const toggle = scheduleViewToggle();
+    const modes = calendarModeToggle();
+    const shiftPrev = scheduleShift(state.date, -1);
+    const shiftNext = scheduleShift(state.date, 1);
+    let title = fmtLong(state.date);
+    if (state.calMode === "week") title = "Week of " + fmtLong(weekMonday(state.date));
+    if (state.calMode === "month") title = monthLabel(state.date);
+    const head = pageHead("Appointment operations", "Schedule", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours),
+      toggle + " " + modes + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a>');
+    const nav = `<div class="datebar">
+      <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: shiftPrev, view: "calendar", calMode: state.calMode })}" aria-label="Previous">‹</a>
+      <strong>${esc(title)}</strong>
+      <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: shiftNext, view: "calendar", calMode: state.calMode })}" aria-label="Next">›</a>
+      <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "calendar", calMode: state.calMode })}">Today</a>
+      <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "calendar", calMode: state.calMode })}">Sample day</a>
+    </div>`;
+    let grid = "";
+    if (state.calMode === "day") grid = calendarDayGrid(state.date);
+    else if (state.calMode === "month") grid = calendarMonthGrid(state.date);
+    else grid = calendarWeekGrid(state.date);
+    const body = `<div class="card"><div class="cardhead">${nav}
+      <label class="sr-only" for="prov">Provider filter</label>
+      <select id="prov">${["All providers"].concat(BRIZZA.PROVIDERS).map((x) => "<option" + (state.providerFilter === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select>
+    </div><div class="cardbody">${grid}</div></div>`;
+    renderChrome('<a href="' + hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }) + '">Schedule</a> / Calendar / ' + esc(state.calMode), head, body);
+  }
+
+  function calendarDayGrid(date) {
+    if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    const hours = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
+    const list = dayAppointments(date);
+    return hours.map((t) => {
+      const slot = list.filter((a) => a.time === t).map(calendarEvent).join("") || "";
+      return '<div class="cal-day-row"><div class="cal-time">' + t + '</div><div>' + slot + "</div></div>";
+    }).join("") + '<div class="row-sub" style="margin-top:10px">Closes 6:00 p.m. ET</div>';
+  }
+
+  function calendarWeekGrid(date) {
+    const mon = weekMonday(date);
+    const days = [0, 1, 2, 3, 4].map((i) => addDays(mon, i));
+    const hours = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"];
+    const appts = rangeAppointments(mon, addDays(mon, 4));
+    const heads = '<div class="cal-time"></div>' + days.map((d) => '<div class="cal-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) + "</a></div>").join("");
+    const rows = hours.map((h) => {
+      const next = h === "17:00" ? "18:00" : String(Number(h.slice(0, 2)) + 1).padStart(2, "0") + ":00";
+      const cells = days.map((d) => {
+        const slot = appts.filter((a) => a.date === d && a.time >= h && a.time < next).map(calendarEvent).join("");
+        return '<div class="cal-cell">' + slot + "</div>";
+      }).join("");
+      return '<div class="cal-time">' + h + "</div>" + cells;
+    }).join("");
+    return '<div class="cal-grid-week">' + heads + rows + "</div>";
+  }
+
+  function calendarMonthGrid(date) {
+    const [y, m] = date.split("-").map(Number);
+    const first = y + "-" + String(m).padStart(2, "0") + "-01";
+    const start = weekMonday(first);
+    const lastDate = new Date(y, m, 0).getDate();
+    const last = y + "-" + String(m).padStart(2, "0") + "-" + String(lastDate).padStart(2, "0");
+    // show full weeks covering the month (Mon–Sun)
+    let end = addDays(weekMonday(last), 6);
+    const appts = rangeAppointments(start, end);
+    const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    let html = labels.map((l) => '<div class="cal-hd">' + l + "</div>").join("");
+    let d = start;
+    while (d <= end) {
+      const inMonth = d.slice(0, 7) === first.slice(0, 7);
+      const closed = isWeekend(d);
+      const dayAppts = appts.filter((a) => a.date === d);
+      const chips = inMonth ? dayAppts.map(calendarEvent).join("") : "";
+      const dayLink = '<a class="d" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + Number(d.slice(8)) + "</a>";
+      html += '<div class="cal-mcell' + (closed ? " closed" : "") + '">' + (inMonth ? dayLink : "") + (closed && inMonth ? '<div class="row-sub">Closed</div>' : "") + chips + "</div>";
+      d = addDays(d, 1);
+    }
+    return '<div class="cal-grid-month">' + html + "</div>";
+  }
+
+  function renderAudit() {
+    const ev = store.audit.find((e) => e.id === state.auditId);
+    if (!ev) {
+      const head = pageHead("Audit trail", "Audit event", "Event not found.", "");
+      renderChrome("Audit", head, '<div class="card"><div class="cardbody"><div class="empty">No audit event matches this link.</div></div></div>');
+      return;
+    }
+    const href = ev.recordPath ? hashFor(ev.recordPath) : "";
+    const rows = (ev.changes || []).map((c) => "<tr><td>" + esc(c.field) + "</td><td>" + esc(c.before) + "</td><td>" + esc(c.after) + "</td></tr>").join("") || "<tr><td colspan=\"3\">No field changes recorded.</td></tr>";
+    const head = pageHead("Audit trail", ev.id, esc(ev.action), href ? '<a class="btn primary" href="' + href + '">Open record</a>' : "");
+    const body = `<div class="card">
+      <div class="cardhead"><h2>Event detail</h2></div>
+      <div class="cardbody">
+        <div class="two">
+          <div>
+            <div class="row"><span>Who</span><strong>${esc(ev.who)}</strong></div>
+            <div class="row"><span>Role</span><strong>${esc(ev.role)}</strong></div>
+            <div class="row"><span>When</span><strong>${esc(ev.when)}</strong></div>
+          </div>
+          <div>
+            <div class="row"><span>Action</span><strong>${esc(ev.action)}</strong></div>
+            <div class="row"><span>Record</span><strong>${esc(ev.recordType)} · ${href ? '<a href="' + href + '">' + esc(ev.recordId) + "</a>" : esc(ev.recordId)}</strong></div>
+          </div>
+        </div>
+        ${openQ("Which of the seven staff roles applies is not defined in the V1 documents (Open question 3). Seeded events use Clinic staff · Not recorded.")}
+        <h3 class="section-title" style="margin-top:16px">Changed fields</h3>
+        <table class="table audit-changes"><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${rows}</tbody></table>
+      </div>
+    </div>`;
+    renderChrome('<a href="' + href + '">Record</a> / <a href="' + hashFor({ page: "audit", auditId: ev.id }) + '">' + esc(ev.id) + "</a>", head, body);
+  }
+
 
   function readinessFor(a) {
     const p = patient(a.patientId);
@@ -774,22 +1054,35 @@
     const cf = p && isNewPatient(p) && type !== "Consult";
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: "TBD", status: "Scheduled", consultation: "", treatment: "", room: room, date: date, history: history };
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: "TBD", status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: state.locationId || BRIZZA.DEFAULT_LOCATION, history: history };
     if (state.reschedulingId) rec.replaces = state.reschedulingId;
     if (cf) rec.consultFirstFlag = true;
     store.appointments.push(rec);
+    addAudit({ action: "Scheduled appointment", recordType: "Appointment", recordId: id,
+      recordPath: { page: "schedule", date: date, appointmentId: id, view: state.scheduleView, calMode: state.calMode },
+      changes: [
+        { field: "status", before: "—", after: "Scheduled" },
+        { field: "type", before: "—", after: type },
+        { field: "date", before: "—", after: date + " " + time }
+      ] });
     if (state.reschedulingId) {
       const old = appt(state.reschedulingId);
       if (old) {
         old.status = "Rescheduled";
         old.rescheduledTo = id;
         old.history.push("Replacement " + id + " created · " + nowET());
+        addAudit({ action: "Rescheduled appointment", recordType: "Appointment", recordId: old.id,
+          recordPath: { page: "schedule", date: old.date, appointmentId: old.id, view: "list" },
+          changes: [
+            { field: "status", before: "Scheduled", after: "Rescheduled" },
+            { field: "rescheduledTo", before: "—", after: id }
+          ] });
       }
       state.reschedulingId = null;
     }
     closeModal();
     toast(reasons.length ? "Appointment scheduled" : "Appointment scheduled · select a reason before Confirmed");
-    go({ page: "schedule", date: date });
+    go({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
   }
 
   function openAppointmentModal(id) {
@@ -797,7 +1090,7 @@
     if (!a) return;
     state.appointmentId = id;
     const p = patient(a.patientId);
-    const hist = (a.history || []).map((h) => '<div class="event"><div class="event-date">Recorded</div>' + esc(h) + "</div>").join("");
+    const hist = timelineHtml("Appointment", a.id);
     const inv = invoiceForAppt(a);
     showModal("Appointment " + a.id + " · " + (p ? p.name : a.patientId), `
       <div class="row"><div><strong>${esc(a.type)} · ${esc(reasonText(a))}</strong>
@@ -815,7 +1108,7 @@
       <div id="statusWarn"></div>
       <div style="margin-top:12px"><button class="btn small" type="button" data-reschedule="${a.id}">Reschedule (retain history)</button></div>
       <h3 class="section-title" style="margin-top:16px">Status history</h3>
-      <div class="timeline">${hist || '<div class="row-sub">No history</div>'}</div>
+      <div class="timeline">${hist}</div>
     `, function () { saveAppointmentActions(a); });
   }
 
@@ -828,13 +1121,35 @@
       return;
     }
     if (reasons.join() !== (a.reasons || []).join()) {
-      a.history.push("Reasons: " + reasonText(a) + " → " + (reasons.join(", ") || "(none)") + " · " + nowET());
+      const before = reasonText(a);
+      const after = reasons.join(", ") || "(none)";
+      a.history.push("Reasons: " + before + " → " + after + " · " + nowET());
+      addAudit({ action: "Updated appointment reasons", recordType: "Appointment", recordId: a.id,
+        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
+        changes: [{ field: "reasons", before: before, after: after }] });
       a.reasons = reasons;
     }
-    if (next !== a.status) a.history.push(a.status + " → " + next + " · " + nowET());
+    if (next !== a.status) {
+      a.history.push(a.status + " → " + next + " · " + nowET());
+      addAudit({ action: a.status + " → " + next, recordType: "Appointment", recordId: a.id,
+        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
+        changes: [{ field: "status", before: a.status, after: next }] });
+    }
+    const consult = $("#actionConsult").value;
+    const treat = $("#actionTreatment").value;
+    if (consult !== a.consultation) {
+      addAudit({ action: "Updated consultation outcome", recordType: "Appointment", recordId: a.id,
+        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
+        changes: [{ field: "consultation", before: a.consultation || "Not recorded", after: consult || "Not recorded" }] });
+    }
+    if (treat !== a.treatment) {
+      addAudit({ action: "Updated treatment status", recordType: "Appointment", recordId: a.id,
+        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
+        changes: [{ field: "treatment", before: a.treatment || "Not recorded", after: treat || "Not recorded" }] });
+    }
     a.status = next;
-    a.consultation = $("#actionConsult").value;
-    a.treatment = $("#actionTreatment").value;
+    a.consultation = consult;
+    a.treatment = treat;
     closeModal();
     toast("Appointment history recorded");
     render();
@@ -864,7 +1179,10 @@
       if (!name || !$("#npDob").value) { toast("Name and date of birth are required"); return; }
       if (store.patients.some((p) => p.name.toLowerCase() === name.toLowerCase())) { toast("A patient with that name already exists"); return; }
       const id = "BRZ" + String(store.patients.length + 1).padStart(4, "0");
-      store.patients.push({ id: id, name: name, dob: $("#npDob").value, sex: $("#npSex").value, phone: $("#npPhone").value || "—", email: $("#npEmail").value || "—", status: "Active", allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [] });
+      store.patients.push({ id: id, name: name, dob: $("#npDob").value, sex: $("#npSex").value, phone: $("#npPhone").value || "—", email: $("#npEmail").value || "—", status: "Active", allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
+      addAudit({ action: "Created patient record", recordType: "Patient", recordId: id,
+        recordPath: { page: "patients", selected: id, tab: "demographics" },
+        changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: name }] });
       closeModal();
       toast("Patient " + id + " created");
       go({ page: "patients", selected: id, tab: "demographics" });
@@ -882,8 +1200,19 @@
       </div>
       <div class="notice">Demographic changes are audit-tracked. The patient number cannot be changed.</div>`, function () {
       const phone = $("#edPhone").value, email = $("#edEmail").value;
-      if (phone !== p.phone) p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET());
-      if (email !== p.email) p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET());
+      const changes = [];
+      if (phone !== p.phone) {
+        p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET());
+        changes.push({ field: "phone", before: p.phone, after: phone });
+      }
+      if (email !== p.email) {
+        p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET());
+        changes.push({ field: "email", before: p.email, after: email });
+      }
+      if (changes.length) {
+        addAudit({ action: "Updated demographics", recordType: "Patient", recordId: p.id,
+          recordPath: { page: "patients", selected: p.id, tab: "demographics" }, changes: changes });
+      }
       p.phone = phone; p.email = email;
       closeModal(); toast("Demographic edits are audit-tracked"); render();
     });
@@ -930,12 +1259,16 @@
   function recordPayment(invId) {
     const inv = invoice(invId);
     const status = $("#pay-status").value;
+    const prev = inv.status;
     inv.payments.push({ id: nextId("PAY-", inv.payments), method: "Card (processor reference only)", status: status, recorded: nowET() });
     if (status === "Paid") { inv.status = "Paid"; inv.balance = "None"; }
     else if (status === "Partially Paid") { inv.status = "Partially Paid"; inv.balance = "Outstanding (amount TBD)"; }
     else if (status === "Refunded") { inv.status = "Refunded"; }
     else if (status === "Voided") { inv.status = "Voided"; }
     else { inv.status = "Issued"; }
+    addAudit({ action: "Recorded payment " + status, recordType: "Invoice", recordId: inv.id,
+      recordPath: { page: "checkout", invoiceId: inv.id },
+      changes: [{ field: "payment status", before: "—", after: status }, { field: "invoice status", before: prev, after: inv.status }] });
     toast("Payment recorded as " + status);
     render();
   }
@@ -953,6 +1286,12 @@
     inv.finalized = true;
     inv.finalizedAt = nowET();
     if (inv.status === "Draft") inv.status = "Issued";
+    addAudit({ action: "Finalized invoice and posted inventory", recordType: "Invoice", recordId: inv.id,
+      recordPath: { page: "checkout", invoiceId: inv.id },
+      changes: [
+        { field: "finalized", before: "No", after: "Yes" },
+        { field: "inventory movement", before: "None", after: lot ? lot.id : "—" }
+      ] });
     toast(lot ? "Invoice finalized · inventory posted from " + lot.id : "Invoice finalized · no lot posted");
     render();
   }
@@ -977,13 +1316,20 @@
     else if (state.page === "configuration") renderSettings();
     else if (state.page === "visit") renderVisit();
     else if (state.page === "checkout") renderCheckout();
+    else if (state.page === "audit") renderAudit();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
   }
 
   function onClick(e) {
-    const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize]");
+    const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg]");
     if (!t) return;
+    if (t.dataset.expandReg) {
+      e.preventDefault();
+      state.expandedAppt = state.expandedAppt === t.dataset.expandReg ? null : t.dataset.expandReg;
+      render();
+      return;
+    }
     if (t.dataset.open === "book") { e.preventDefault(); openBook(t.dataset.pid); }
     else if (t.dataset.open === "new-patient") { e.preventDefault(); openNewPatient(); }
     else if (t.dataset.open === "edit") { e.preventDefault(); openEdit(t.dataset.pid); }
@@ -999,6 +1345,7 @@
 
   function onChange(e) {
     if (e.target.id === "prov") { state.providerFilter = e.target.value; render(); }
+    else if (e.target.id === "locationSel") { state.locationId = e.target.value; render(); }
     else if (e.target.id === "patient-search") {
       state.search = e.target.value;
       const hold = e.target.selectionStart;
@@ -1007,7 +1354,15 @@
       if (el) { el.focus(); el.setSelectionRange(hold, hold); }
     } else if (e.target.dataset.setStatus) {
       const p = patient(e.target.dataset.setStatus);
-      if (p) { p.status = e.target.value; toast("Patient status updated and recorded"); render(); }
+      if (p) {
+        const before = p.status;
+        p.status = e.target.value;
+        addAudit({ action: "Updated patient status", recordType: "Patient", recordId: p.id,
+          recordPath: { page: "patients", selected: p.id, tab: "demographics" },
+          changes: [{ field: "status", before: before, after: p.status }] });
+        toast("Patient status updated and recorded");
+        render();
+      }
     }
   }
 

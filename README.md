@@ -18,9 +18,10 @@ There is no login. Refreshing the page restores the original sample data (nothin
 
 ## How to use it
 
-- **Schedule, Patients, Work queue, Checkout, Configuration** are in the left navigation. Each screen has its own hash URL (for example `#/schedule/2026-11-16?theme=02` or `#/visits/V-1002?theme=02`).
+- **Schedule, Patients, Work queue, Checkout, Configuration** are in the left navigation. Each screen has its own hash URL (for example `#/schedule/2026-11-16?theme=01`, `#/schedule/calendar/week/2026-11-16?theme=01`, `#/visits/V-1002?theme=01`, or `#/audit/AUD-0001?theme=01`).
+- **Schedule** has List and Calendar views. Calendar has Day, Week, and Month modes, with previous/next and Today. Clinic hours are Monday–Friday, 10:00 a.m.–6:00 p.m. ET; weekends are shown as closed (month) or omitted (week columns). The List view has a location selector (Manhattan Clinic is the only real location) and expandable registration status on each appointment.
 - The **sample day** is Monday, November 16, 2026. Use **Sample day** on the schedule to return to it. Clinic hours are Monday–Friday, 10:00 a.m.–6:00 p.m. ET. The clinic is cash-pay.
-- **Theme switcher** (top right, labeled DRAFT): 01 Quiet Atelier, **02 Modern Sanctuary v2 (default)**, 03 Architectural Classic v2. Palettes and fonts come from the brand moodboards. Fonts are hosted locally; no CDN requests are made at runtime.
+- **Theme switcher** (top right, labeled DRAFT): **01 Quiet Atelier (default)** and 03 Architectural Classic v2. Palettes and fonts come from the brand moodboards. Fonts are hosted locally; no CDN requests are made at runtime. Theme 02 Modern Sanctuary v2 was removed.
 - **Start guided demo** is on the Configuration page, or go to `#/demo`. It runs about 60–90 seconds, with captions tied to decision IDs, and can be stepped or stopped.
 - **Same-day consult-then-treat:** open Sofia Williams on the sample day, or go to `#/visits/V-1002` (two appointments under one visit, one invoice). Ava Thompson’s March 12 visit (`#/visits/V-1001`) is a completed historical example.
 - **Checkout / FEFO:** `#/checkout/INV-1003`. Inventory posts only when the invoice is finalized. Amounts are TBD. This flow is labeled **Concept** where the design is not approved.

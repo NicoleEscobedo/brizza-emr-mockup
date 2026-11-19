@@ -10,9 +10,14 @@ BRIZZA.CLINIC = {
   payModel: "Cash-pay"
 };
 
+/* Location-aware model. Manhattan Clinic is the only real location in the sources. */
+BRIZZA.LOCATIONS = [
+  { id: "LOC-MANHATTAN", name: "Manhattan Clinic", hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET", tz: "America/New_York" }
+];
+BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
+
 BRIZZA.THEMES = {
-  "01": { id: "01", name: "Quiet Atelier", short: "01 Atelier", status: "DRAFT" },
-  "02": { id: "02", name: "Modern Sanctuary v2", short: "02 Sanctuary", status: "DRAFT", default: true },
+  "01": { id: "01", name: "Quiet Atelier", short: "01 Atelier", status: "DRAFT", default: true },
   "03": { id: "03", name: "Architectural Classic v2", short: "03 Classic", status: "DRAFT" }
 };
 
@@ -26,16 +31,6 @@ BRIZZA.CONTRAST_PAIRS = {
     { fg: "#F4F0E9", bg: "#352820", use: "sidebar and primary button", min: 4.5 },
     { fg: "#352820", bg: "#FBF8F3", use: "ink on paper", min: 4.5 },
     { fg: "#6E6055", bg: "#FBF8F3", use: "muted on paper", min: 4.5 }
-  ],
-  "02": [
-    { fg: "#4A3328", bg: "#DCCDB8", use: "body ink on warm stone", min: 4.5 },
-    { fg: "#4A3328", bg: "#F1EAE0", use: "ink on bone / paper", min: 4.5 },
-    { fg: "#F1EAE0", bg: "#4A3328", use: "sidebar and primary button", min: 4.5 },
-    { fg: "#6A5243", bg: "#DCCDB8", use: "muted on warm stone", min: 4.5 },
-    { fg: "#6A5243", bg: "#F1EAE0", use: "muted on bone", min: 4.5 },
-    { fg: "#4A3328", bg: "#E8DFD2", use: "ink on field / good badge", min: 4.5 },
-    { fg: "#4A3328", bg: "#E4D3C4", use: "ink on warn badge", min: 4.5 },
-    { fg: "#4A3328", bg: "#E8D4CC", use: "ink on alert badge", min: 4.5 }
   ],
   "03": [
     { fg: "#352820", bg: "#F3F1EC", use: "ink on chalk", min: 4.5 },
@@ -75,8 +70,88 @@ BRIZZA.BOOKING_TIMES = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00",
 BRIZZA.ROOMS = ["No room assigned", "Room 1", "Room 2", "Room 3"];
 BRIZZA.PROVIDERS = ["Dr. Elena Ruiz", "Dr. Samir Shah"]; /* Open question: which of the seven roles these names hold. */
 
+
+/* Structured audit events for seed records. Live edits append more in app.js. */
+BRIZZA.buildSeedAudit = function (data) {
+  const events = [];
+  let n = 1;
+  const nid = function () { return "AUD-" + String(n++).padStart(4, "0"); };
+  const staff = { who: "Clinic staff", role: "Not recorded" };
+  data.appointments.forEach(function (a) {
+    (a.history || []).forEach(function (h) {
+      const changes = [];
+      const m = /^([^·]+?) → ([^·]+)$/.exec(h.trim());
+      if (m) changes.push({ field: "status", before: m[1].trim(), after: m[2].trim() });
+      else changes.push({ field: "history", before: "—", after: h });
+      events.push({
+        id: nid(),
+        when: a.date + " " + a.time + " ET",
+        who: staff.who,
+        role: staff.role,
+        action: h,
+        recordType: "Appointment",
+        recordId: a.id,
+        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
+        changes: changes
+      });
+    });
+  });
+  data.invoices.forEach(function (inv) {
+    (inv.payments || []).forEach(function (pay) {
+      events.push({
+        id: nid(),
+        when: (pay.recorded && String(pay.recorded).indexOf("ET") >= 0) ? pay.recorded : (pay.recorded || inv.finalizedAt || "") + (String(pay.recorded || "").indexOf("ET") >= 0 ? "" : " 16:00 ET"),
+        who: staff.who,
+        role: staff.role,
+        action: "Recorded payment " + pay.status,
+        recordType: "Invoice",
+        recordId: inv.id,
+        recordPath: { page: "checkout", invoiceId: inv.id },
+        changes: [
+          { field: "payment status", before: "—", after: pay.status },
+          { field: "invoice status", before: "Issued", after: inv.status }
+        ]
+      });
+    });
+    if (inv.finalized) {
+      const lot = (inv.movements && inv.movements[0]) ? inv.movements[0].lotId : "—";
+      events.push({
+        id: nid(),
+        when: inv.finalizedAt,
+        who: staff.who,
+        role: staff.role,
+        action: "Finalized invoice and posted inventory",
+        recordType: "Invoice",
+        recordId: inv.id,
+        recordPath: { page: "checkout", invoiceId: inv.id },
+        changes: [
+          { field: "finalized", before: "No", after: "Yes" },
+          { field: "inventory movement", before: "None", after: lot }
+        ]
+      });
+    }
+  });
+  data.patients.forEach(function (p) {
+    const r = p.registration || {};
+    if (r.demographicsConfirmed && r.demographicsConfirmed.status === "Confirmed") {
+      events.push({
+        id: nid(),
+        when: r.demographicsConfirmed.date + " 10:15 ET",
+        who: staff.who,
+        role: staff.role,
+        action: "Confirmed demographics",
+        recordType: "Patient",
+        recordId: p.id,
+        recordPath: { page: "patients", selected: p.id, tab: "demographics" },
+        changes: [{ field: "demographics confirmed", before: "Not confirmed", after: "Confirmed" }]
+      });
+    }
+  });
+  return events;
+};
+
 BRIZZA.seed = function () {
-  return {
+  const data = {
     patients: [
       {id:"BRZ0001",name:"Maya Chen",dob:"1989-04-16",sex:"Female",phone:"(212) 555-0184",email:"maya.chen@example.com",status:"Active",
         allergies:["Hyaluronic acid — swelling"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],
@@ -84,18 +159,21 @@ BRIZZA.seed = function () {
           text:"Consultation completed. Patient wants time to decide; risks, alternatives, and expected results reviewed."}],
         consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],
-        treatments:[],followups:[{id:"F-1",text:"Check in after consultation",due:"2026-11-25"}],demoHistory:[]},
+        treatments:[],followups:[{id:"F-1",text:"Check in after consultation",due:"2026-11-25"}],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-10-28"},formsCompleted:{status:"Completed",date:"2026-10-28"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-28"}}},
       {id:"BRZ0002",name:"Jordan Patel",dob:"1976-09-02",sex:"Male",phone:"(212) 555-0132",email:"j.patel@example.com",status:"Active",
         allergies:["No known allergies"],meds:[],conditions:["Skin sensitivity"],
         notes:[{id:"N-2",date:"2026-11-03",type:"Consultation",procedurePerformed:"Yes",provider:"Dr. Elena Ruiz",status:"Ready for review",
           text:"Treatment completed; aftercare instructions provided and acknowledged."}],
         consents:{clinical:"Current · signed Nov 3, 2026",marketing:"Not authorized"},
         photos:["Clinical before/after · Nov 3, 2026"],documents:["Treatment consent · Nov 3, 2026"],
-        treatments:["Botox · Completed Nov 3, 2026"],followups:[{id:"F-2",text:"Two-week follow-up",due:"2026-11-17"}],demoHistory:[]},
+        treatments:["Botox · Completed Nov 3, 2026"],followups:[{id:"F-2",text:"Two-week follow-up",due:"2026-11-17"}],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-10-09"},formsCompleted:{status:"Completed",date:"2026-10-09"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-09"}}},
       {id:"BRZ0003",name:"Sofia Williams",dob:"1994-12-21",sex:"Female",phone:"(917) 555-0127",email:"sofia.w@example.com",status:"Active",
         allergies:["Latex"],meds:[],conditions:[],notes:[],
         consents:{clinical:"Not yet recorded",marketing:"Not authorized"},photos:[],
-        documents:["Registration and intake pending"],treatments:[],followups:[],demoHistory:[]},
+        documents:["Registration and intake pending"],treatments:[],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Not uploaded",date:null},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}},
       {id:"BRZ0004",name:"Ava Thompson",dob:"1997-07-09",sex:"Female",phone:"(646) 555-0148",email:"ava.thompson@example.com",status:"Inactive",
         allergies:["No known allergies"],meds:[],conditions:[],
         notes:[{id:"N-3",date:"2026-03-12",type:"Consultation",procedurePerformed:"Yes",provider:"Dr. Samir Shah",status:"Ready for review",
@@ -103,20 +181,31 @@ BRIZZA.seed = function () {
         consents:{clinical:"Signed Mar 12, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Mar 12, 2026"],
         documents:["Intake and medical history · Mar 12, 2026","Treatment consent · Mar 12, 2026"],
-        treatments:["Chemical Peel · Completed Mar 12, 2026"],followups:[],demoHistory:[]}
+        treatments:["Chemical Peel · Completed Mar 12, 2026"],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-03-12"},formsCompleted:{status:"Completed",date:"2026-03-12"},demographicsConfirmed:{status:"Confirmed",date:"2026-03-12"}}}
     ],
     appointments: [
-      {id:"A-6201",time:"11:00",patientId:"BRZ0004",type:"Consult",reasons:["New Patient"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Completed",consultation:"Treatment performed during visit",treatment:"",room:"Room 3",date:"2026-03-12",visitId:"V-1001",invoiceId:"INV-1001",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
-      {id:"A-6202",time:"11:45",patientId:"BRZ0004",type:"Skin Treatment",reasons:["Chemical Peel"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Completed",consultation:"",treatment:"Completed",room:"Room 3",date:"2026-03-12",visitId:"V-1001",invoiceId:"INV-1001",relatedAppointmentId:"A-6201",history:["Scheduled","Scheduled → Checked In","Checked In → In Progress","In Progress → Completed"]},
-      {id:"A-6203",time:"14:00",patientId:"BRZ0001",type:"Consult",reasons:["New Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Completed",consultation:"Patient wants time to decide",treatment:"",room:"Room 1",date:"2026-10-28",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
-      {id:"A-6204",time:"15:00",patientId:"BRZ0002",type:"Toxin/Filler Treatment",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Completed",consultation:"",treatment:"Completed",room:"Room 2",date:"2026-11-03",invoiceId:"INV-1002",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
-      {id:"A-6205",time:"13:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Checked In",consultation:"",treatment:"",room:"Room 2",date:"2026-11-16",history:["Scheduled → Confirmed","Confirmed → Checked In"]},
-      {id:"A-6206",time:"10:00",patientId:"BRZ0001",type:"Consult",reasons:["Existing Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",history:["Scheduled → Confirmed"]},
-      {id:"A-6207",time:"11:30",patientId:"BRZ0003",type:"Consult",reasons:["New Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-16",visitId:"V-1002",invoiceId:"INV-1003",history:["Scheduled → Confirmed"]},
-      {id:"A-6210",time:"12:30",patientId:"BRZ0003",type:"Skin Treatment",reasons:["Facial"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-16",visitId:"V-1002",invoiceId:"INV-1003",relatedAppointmentId:"A-6207",history:["Scheduled → Confirmed"]},
-      {id:"A-6208",time:"13:30",patientId:"BRZ0001",type:"Follow Up",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-16",history:["Scheduled"]},
-      {id:"A-6209",time:"14:30",patientId:"BRZ0002",type:"Skin Treatment",reasons:["Microneedling"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",history:["Scheduled → Confirmed"]}
-    ],
+      {id:"A-6201",time:"11:00",patientId:"BRZ0004",type:"Consult",reasons:["New Patient"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Completed",consultation:"Treatment performed during visit",treatment:"",room:"Room 3",date:"2026-03-12",visitId:"V-1001",invoiceId:"INV-1001",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
+      {id:"A-6202",time:"11:45",patientId:"BRZ0004",type:"Skin Treatment",reasons:["Chemical Peel"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Completed",consultation:"",treatment:"Completed",room:"Room 3",date:"2026-03-12",visitId:"V-1001",invoiceId:"INV-1001",relatedAppointmentId:"A-6201",locationId:"LOC-MANHATTAN",history:["Scheduled","Scheduled → Checked In","Checked In → In Progress","In Progress → Completed"]},
+      {id:"A-6203",time:"14:00",patientId:"BRZ0001",type:"Consult",reasons:["New Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Completed",consultation:"Patient wants time to decide",treatment:"",room:"Room 1",date:"2026-10-28",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
+      {id:"A-6204",time:"15:00",patientId:"BRZ0002",type:"Toxin/Filler Treatment",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Completed",consultation:"",treatment:"Completed",room:"Room 2",date:"2026-11-03",invoiceId:"INV-1002",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
+      {id:"A-6205",time:"13:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Checked In",consultation:"",treatment:"",room:"Room 2",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In"]},
+      {id:"A-6206",time:"10:00",patientId:"BRZ0001",type:"Consult",reasons:["Existing Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6207",time:"11:30",patientId:"BRZ0003",type:"Consult",reasons:["New Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-16",visitId:"V-1002",invoiceId:"INV-1003",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6210",time:"12:30",patientId:"BRZ0003",type:"Skin Treatment",reasons:["Facial"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-16",visitId:"V-1002",invoiceId:"INV-1003",relatedAppointmentId:"A-6207",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6208",time:"13:30",patientId:"BRZ0001",type:"Follow Up",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6209",time:"14:30",patientId:"BRZ0002",type:"Skin Treatment",reasons:["Microneedling"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+
+      {id:"A-6211",time:"11:00",patientId:"BRZ0002",type:"Consult",reasons:["New Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Completed",consultation:"Treatment scheduled for later date",treatment:"",room:"Room 2",date:"2026-10-09",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
+      {id:"A-6212",time:"15:00",patientId:"BRZ0002",type:"Skin Treatment",reasons:["Facial"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-13",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6213",time:"10:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-17",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6214",time:"11:00",patientId:"BRZ0001",type:"Consult",reasons:["Existing Patient"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6215",time:"10:30",patientId:"BRZ0003",type:"Follow Up",reasons:["Facial"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 3",date:"2026-11-23",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6216",time:"13:00",patientId:"BRZ0001",type:"Toxin/Filler Treatment",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 2",date:"2026-11-24",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6217",time:"10:00",patientId:"BRZ0001",type:"Follow Up",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-01",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6218",time:"14:30",patientId:"BRZ0003",type:"Skin Treatment",reasons:["Hydrafacial"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 3",date:"2026-12-03",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6219",time:"15:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-10",locationId:"LOC-MANHATTAN",history:["Scheduled"]}
+        ],
     visits: [
       {id:"V-1001",patientId:"BRZ0004",date:"2026-03-12",appointmentIds:["A-6201","A-6202"],invoiceId:"INV-1001",noteId:"N-3",label:"Same-day consult and Chemical Peel"},
       {id:"V-1002",patientId:"BRZ0003",date:"2026-11-16",appointmentIds:["A-6207","A-6210"],invoiceId:"INV-1003",noteId:null,label:"Same-day consult and Customized Facial (Facial)"}
@@ -145,8 +234,11 @@ BRIZZA.seed = function () {
     ],
     reservations: [
       {id:"RES-1",invoiceId:"INV-1003",lotId:"LOT-FACE-02",product:"Facial",status:"Suggested"}
-    ]
+    ],
+    audit: []
   };
+  data.audit = BRIZZA.buildSeedAudit(data);
+  return data;
 };
 
 BRIZZA.DEMO_STEPS = [

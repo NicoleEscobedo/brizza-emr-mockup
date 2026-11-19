@@ -71,6 +71,31 @@ BRIZZA.ROOMS = ["No room assigned", "Room 1", "Room 2", "Room 3"];
 BRIZZA.PROVIDERS = ["Dr. Elena Ruiz", "Dr. Samir Shah"]; /* Open question: which of the seven roles these names hold. */
 
 
+BRIZZA.ROLES = [
+  "MD / Clinic Owner",
+  "Clinic Manager",
+  "Clinic Coordinator",
+  "RN / NP Injector",
+  "Aesthetician",
+  "Medical Assistant",
+  "Marketing Specialist"
+];
+BRIZZA.ROOMING_STATUSES = [
+  "Checked in (front desk)",
+  "Completing paperwork",
+  "Ready",
+  "With clinical",
+  "Ready for provider",
+  "With provider",
+  "Ready for checkout",
+  "Checked out"
+];
+/* Admin block reasons as specified for this mockup; not an approved V1 catalog. */
+BRIZZA.BLOCK_REASONS = ["Meeting", "Rep meeting", "Lunch", "Personal", "OFF"];
+BRIZZA.CLINIC_TIMES = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00"];
+
+
+
 /* Structured audit events for seed records. Live edits append more in app.js. */
 BRIZZA.buildSeedAudit = function (data) {
   const events = [];
@@ -204,7 +229,9 @@ BRIZZA.seed = function () {
       {id:"A-6216",time:"13:00",patientId:"BRZ0001",type:"Toxin/Filler Treatment",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 2",date:"2026-11-24",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
       {id:"A-6217",time:"10:00",patientId:"BRZ0001",type:"Follow Up",reasons:["Juvederm"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-01",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
       {id:"A-6218",time:"14:30",patientId:"BRZ0003",type:"Skin Treatment",reasons:["Hydrafacial"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 3",date:"2026-12-03",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
-      {id:"A-6219",time:"15:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-10",locationId:"LOC-MANHATTAN",history:["Scheduled"]}
+      {id:"A-6219",time:"15:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-10",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
+      {id:"A-6220",time:"10:00",patientId:"BRZ0002",type:"Follow Up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 2",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6221",time:"14:00",patientId:"BRZ0003",type:"Follow Up",reasons:["Facial"],provider:"Dr. Samir Shah",durationLabel:"TBD",status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]}
         ],
     visits: [
       {id:"V-1001",patientId:"BRZ0004",date:"2026-03-12",appointmentIds:["A-6201","A-6202"],invoiceId:"INV-1001",noteId:"N-3",label:"Same-day consult and Chemical Peel"},
@@ -238,6 +265,19 @@ BRIZZA.seed = function () {
     audit: []
   };
   data.audit = BRIZZA.buildSeedAudit(data);
+  data.blocks = [
+    {id:"BLK-1001",type:"Admin",reason:"Lunch",staff:"Dr. Elena Ruiz",date:"2026-11-18",start:"12:00",end:"13:00",locationId:"LOC-MANHATTAN"},
+    {id:"BLK-1002",type:"Admin",reason:"Meeting",staff:"Dr. Samir Shah",date:"2026-11-16",start:"10:00",end:"11:00",locationId:"LOC-MANHATTAN"},
+    {id:"BLK-1003",type:"Admin",reason:"OFF",staff:"Dr. Samir Shah",date:"2026-11-20",start:"10:00",end:"18:00",locationId:"LOC-MANHATTAN"},
+    {id:"BLK-1004",type:"Admin",reason:"Rep meeting",staff:"Dr. Elena Ruiz",date:"2026-11-17",start:"16:00",end:"17:00",locationId:"LOC-MANHATTAN"},
+    {id:"BLK-1005",type:"Admin",reason:"Personal",staff:"Dr. Elena Ruiz",date:"2026-12-01",start:"11:00",end:"12:00",locationId:"LOC-MANHATTAN"}
+  ];
+  const now = Date.now();
+  data.rooming = [
+    {id:"RM-1001",appointmentId:"A-6220",patientId:"BRZ0002",date:"2026-11-18",status:"Checked in (front desk)",statusSince: now - 18 * 60000},
+    {id:"RM-1002",appointmentId:"A-6214",patientId:"BRZ0001",date:"2026-11-18",status:"Ready",statusSince: now - 7 * 60000},
+    {id:"RM-1003",appointmentId:"A-6221",patientId:"BRZ0003",date:"2026-11-18",status:"With clinical",statusSince: now - 31 * 60000}
+  ];
   return data;
 };
 

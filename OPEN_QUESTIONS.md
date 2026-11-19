@@ -15,3 +15,6 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 11. **Service prices and appointment durations.** Dropdowns show TBD. No prices, pay rates, or doses are displayed.
 12. **Brand and logo.** The remaining moodboard themes (01 Quiet Atelier, default; 03 Architectural Classic v2) are DRAFT explorations, not a finalized identity. Theme 02 Modern Sanctuary v2 was removed. Wordmarks are type tests, not logos.
 13. **Fiscal calendar, weekly cutoff, and reporting audiences** remain open in the reporting architecture (out of scope here).
+
+14. **Rooming status vs appointment status.** The rooming-manager statuses (Checked in (front desk), Completing paperwork, Ready, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) are not mapped in the sources to the approved appointment-status catalog. This mockup stores rooming status as its own field and does not change appointment status when a rooming status is advanced or corrected.
+15. **Admin schedule blocks.** Scheduling Standards mention blocked availability, but they do not define an Admin block type, the reason list used here (Meeting, Rep meeting, Lunch, Personal, OFF), whether a block prevents booking, or who may create or override a block beyond the already-sourced provider request rules.

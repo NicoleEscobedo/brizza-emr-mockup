@@ -171,7 +171,8 @@
     providerFilter: "All providers", search: "", reschedulingId: null, modal: null,
     demo: { running: false, index: 0, timer: null }, contrast: null,
     scheduleView: "list", calMode: "week", locationId: BRIZZA.DEFAULT_LOCATION,
-    expandedAppt: null, auditId: null
+    expandedAppt: null, auditId: null,
+    actingRole: "Clinic Coordinator", roomingDate: null
   };
 
   const patient = (id) => store.patients.find((p) => p.id === id);
@@ -255,6 +256,9 @@
       route = { page: "demo" };
     } else if (p0 === "audit") {
       route = { page: "audit", auditId: parts[1] };
+    } else if (p0 === "rooming") {
+      const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || todayET());
+      route = { page: "rooming", date: date };
     }
     return route;
   }
@@ -277,6 +281,7 @@
     else if (route.page === "checkout") path = "/checkout/" + route.invoiceId;
     else if (route.page === "demo") path = "/demo";
     else if (route.page === "audit") path = "/audit/" + route.auditId;
+    else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
     return "#" + path + "?theme=" + t;
   }
 
@@ -287,7 +292,8 @@
   function applyRoute() {
     const r = parseHash();
     state.page = r.page;
-    if (r.date) state.date = r.date;
+    if (r.date && r.page !== "rooming") state.date = r.date;
+    if (r.page === "rooming" && r.date) state.roomingDate = r.date;
     if (r.view) state.scheduleView = r.view;
     if (r.calMode) state.calMode = r.calMode;
     if (r.selected && patient(r.selected)) {
@@ -345,6 +351,7 @@
       const active = (key === "patients" && (state.page === "patients" || state.page === "visit" || state.page === "demo")) ||
         (key === "schedule" && state.page === "schedule") ||
         (key === "queue" && state.page === "queue") ||
+        (key === "rooming" && state.page === "rooming") ||
         (key === "checkout" && state.page === "checkout") ||
         (key === "configuration" && state.page === "configuration");
       return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
@@ -362,6 +369,7 @@
             ${nav(hashFor({ page: "schedule", date: state.date, view: state.scheduleView, calMode: state.calMode }), "schedule", "Schedule", "▦")}
             ${nav(hashFor({ page: "patients", selected: state.selected, tab: state.tab }), "patients", "Patients", "♙")}
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Work queue", "☷")}
+            ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
             ${nav(hashFor({ page: "checkout", invoiceId: state.invoiceId || "INV-1003" }), "checkout", "Checkout", "☰")}
           </nav>
           <div class="nav-label">Clinic</div>
@@ -531,6 +539,192 @@
       .sort((a, b) => a.time.localeCompare(b.time));
   }
 
+
+  let roomingTimer = null;
+  function minutesInStatus(since) {
+    return Math.max(0, Math.floor((Date.now() - Number(since || Date.now())) / 60000));
+  }
+  function minutesLabel(since) {
+    return minutesInStatus(since) + " min";
+  }
+  function updateRoomingMins() {
+    $$("[data-room-mins]").forEach((el) => {
+      el.textContent = minutesLabel(el.getAttribute("data-room-mins"));
+    });
+  }
+  function startRoomingTick() {
+    if (roomingTimer) clearInterval(roomingTimer);
+    updateRoomingMins();
+    roomingTimer = setInterval(updateRoomingMins, 15000);
+  }
+  function stopRoomingTick() {
+    if (roomingTimer) { clearInterval(roomingTimer); roomingTimer = null; }
+  }
+  function dayBlocks(date) {
+    return (store.blocks || [])
+      .filter((b) => b.date === date)
+      .filter((b) => state.providerFilter === "All providers" || b.staff === state.providerFilter)
+      .sort((a, b) => a.start.localeCompare(b.start));
+  }
+  function rangeBlocks(start, end) {
+    return (store.blocks || [])
+      .filter((b) => b.date >= start && b.date <= end)
+      .filter((b) => state.providerFilter === "All providers" || b.staff === state.providerFilter)
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+  }
+  function blockCard(b) {
+    return `<div class="block-card">
+      <div>
+        <strong>${esc(b.start)}–${esc(b.end)} · Admin block</strong>
+        <div class="row-sub">${esc(b.reason)} · ${esc(b.staff)}</div>
+      </div>
+      <span class="badge">${esc(b.reason)}</span>
+    </div>`;
+  }
+  function calendarBlock(b) {
+    return '<div class="cal-block"><span class="t">' + esc(b.start) + "–" + esc(b.end) + "</span>Admin · " + esc(b.reason) + " · " + esc(b.staff) + "</div>";
+  }
+  function nextRoomingStatus(status) {
+    const list = BRIZZA.ROOMING_STATUSES;
+    const i = list.indexOf(status);
+    if (i < 0 || i >= list.length - 1) return null;
+    return list[i + 1];
+  }
+  function actingName() {
+    return "Alex Morgan";
+  }
+  function setRoomingStatus(id, next) {
+    const rec = (store.rooming || []).find((r) => r.id === id);
+    if (!rec || !next || rec.status === next) return;
+    if (BRIZZA.ROOMING_STATUSES.indexOf(next) < 0) return;
+    const before = rec.status;
+    rec.status = next;
+    rec.statusSince = Date.now();
+    addAudit({
+      who: actingName(),
+      role: state.actingRole,
+      action: "Updated rooming status · " + rec.appointmentId,
+      recordType: "Rooming",
+      recordId: rec.id,
+      recordPath: { page: "rooming", date: rec.date },
+      changes: [
+        { field: "rooming status", before: before, after: next },
+        { field: "appointment", before: rec.appointmentId, after: rec.appointmentId }
+      ]
+    });
+    toast("Rooming status: " + next);
+    render();
+  }
+  function renderRooming() {
+    const date = state.roomingDate || todayET();
+    state.roomingDate = date;
+    const records = (store.rooming || []).filter((r) => r.date === date)
+      .sort((a, b) => {
+        const aa = appt(a.appointmentId);
+        const ba = appt(b.appointmentId);
+        return ((aa && aa.time) || "").localeCompare((ba && ba.time) || "");
+      });
+    const roleOpts = BRIZZA.ROLES.map((r) => "<option" + (state.actingRole === r ? " selected" : "") + ">" + esc(r) + "</option>").join("");
+    const head = pageHead("Rooming manager", "Rooming", esc(locationName(state.locationId)) + " · " + esc(fmtLong(date)),
+      '<label class="sr-only" for="actingRole">Acting as</label><select id="actingRole" aria-label="Acting as">' + roleOpts + "</select>");
+    const toolbar = `<div class="room-toolbar datebar">
+      <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
+      <strong>${esc(fmtLong(date))}</strong>
+      <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, 1) })}" aria-label="Next day">›</a>
+      <a class="btn small" id="room-today" href="${hashFor({ page: "rooming", date: todayET() })}">Today</a>
+    </div>`;
+    const cols = BRIZZA.ROOMING_STATUSES.map((status) => {
+      const cards = records.filter((r) => r.status === status).map((r) => {
+        const a = appt(r.appointmentId);
+        const p = patient(r.patientId);
+        const nxt = nextRoomingStatus(r.status);
+        const audits = auditsFor("Rooming", r.id);
+        const last = audits.length ? '<div class="row-sub">Log: <a class="audit-link" href="' + hashFor({ page: "audit", auditId: audits[audits.length - 1].id }) + '">' + esc(audits[audits.length - 1].action) + "</a></div>" : "";
+        const apptLink = a ? '<a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "list" }) + '">' + esc(a.id) + "</a>" : "";
+        const sel = '<label class="sr-only" for="room-set-' + esc(r.id) + '">Set rooming status</label><select id="room-set-' + esc(r.id) + '" data-room-set="' + esc(r.id) + '">' +
+          BRIZZA.ROOMING_STATUSES.map((s) => "<option" + (r.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+        const adv = nxt ? '<button class="btn small primary" type="button" data-room-advance="' + esc(r.id) + '">Advance</button>' : "";
+        return `<div class="room-card" data-rooming="${esc(r.id)}">
+          <div class="row-title">${esc(p ? p.name : r.patientId)}</div>
+          <div class="row-sub">${a ? esc(a.time) + " · " + esc(a.type) + " · " + esc(reasonText(a)) : ""} · ${apptLink}</div>
+          <div class="row-sub">${a ? esc(a.provider) + " · " + esc(a.room || "No room") : ""}</div>
+          <div class="row-sub"><span class="room-mins" data-room-mins="${esc(String(r.statusSince))}">${minutesLabel(r.statusSince)}</span> in this status</div>
+          ${last}
+          <div class="actions">${adv}</div>
+          ${sel}
+        </div>`;
+      }).join("") || '<div class="empty">None</div>';
+      return '<div class="room-col"><h2>' + esc(status) + " · " + records.filter((r) => r.status === status).length + "</h2>" + cards + "</div>";
+    }).join("");
+    const body = toolbar +
+      openQ("These rooming statuses are not mapped to the approved appointment-status catalog. Rooming status is stored as its own field (Open question 14).") +
+      '<div class="room-board">' + cols + "</div>";
+    renderChrome('<a href="' + hashFor({ page: "rooming", date: date }) + '">Rooming</a>', head, body);
+    startRoomingTick();
+  }
+  function openAddBlock() {
+    const staff = BRIZZA.PROVIDERS.concat(BRIZZA.ROLES);
+    const times = BRIZZA.CLINIC_TIMES || [];
+    const starts = times.filter((t) => t !== "18:00");
+    const ends = times.filter((t) => t !== "10:00");
+    showModal("Add Admin block", `
+      <div class="formgrid">
+        <div class="field"><label for="blkStaff">Provider / staff</label>
+          <select id="blkStaff">${staff.map((s) => "<option>" + esc(s) + "</option>").join("")}</select></div>
+        <div class="field"><label for="blkReason">Reason</label>
+          <select id="blkReason">${BRIZZA.BLOCK_REASONS.map((s) => "<option>" + esc(s) + "</option>").join("")}</select></div>
+        <div class="field"><label for="blkDate">Date</label>
+          <input id="blkDate" type="date" value="${esc(state.date)}" required></div>
+        <div class="field"><label for="blkStart">Start</label>
+          <select id="blkStart">${starts.map((t) => "<option" + (t === "12:00" ? " selected" : "") + ">" + t + "</option>").join("")}</select></div>
+        <div class="field"><label for="blkEnd">End</label>
+          <select id="blkEnd">${ends.map((t) => "<option" + (t === "13:00" ? " selected" : "") + ">" + t + "</option>").join("")}</select></div>
+      </div>
+      <div id="blkWarn"></div>
+      ${openQ("Whether an Admin block prevents booking, and who may create or override blocked availability, is not defined in the V1 documents. These reasons are not an approved catalog (Open question 15).")}
+    `, function () { saveBlock(); }, "Add block");
+  }
+  function saveBlock() {
+    const date = $("#blkDate").value;
+    const start = $("#blkStart").value;
+    const end = $("#blkEnd").value;
+    const warn = $("#blkWarn");
+    if (!date) { warn.innerHTML = '<div class="notice">Date is required.</div>'; return; }
+    if (isWeekend(date)) { warn.innerHTML = '<div class="notice">Blocks must fall on Monday–Friday.</div>'; return; }
+    if (start >= end) { warn.innerHTML = '<div class="notice">End must be after start, within 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
+    if (start < "10:00" || end > "18:00") { warn.innerHTML = '<div class="notice">Start and end must stay within Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
+    const rec = {
+      id: nextId("BLK-", store.blocks),
+      type: "Admin",
+      reason: $("#blkReason").value,
+      staff: $("#blkStaff").value,
+      date: date,
+      start: start,
+      end: end,
+      locationId: state.locationId || BRIZZA.DEFAULT_LOCATION
+    };
+    store.blocks.push(rec);
+    addAudit({
+      who: actingName(),
+      role: state.actingRole,
+      action: "Added Admin block",
+      recordType: "Block",
+      recordId: rec.id,
+      recordPath: { page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode },
+      changes: [
+        { field: "reason", before: "—", after: rec.reason },
+        { field: "staff", before: "—", after: rec.staff },
+        { field: "time", before: "—", after: date + " " + start + "–" + end }
+      ]
+    });
+    closeModal();
+    toast("Admin block added");
+    state.date = date;
+    const next = hashFor({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
+    if (location.hash !== next) go({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
+    else render();
+  }
+
   function renderSchedule() {
     if (state.scheduleView === "calendar") {
       renderCalendar();
@@ -540,8 +734,8 @@
     const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (state.locationId === l.id ? " selected" : "") + ">" + esc(l.name) + "</option>").join("");
     const toggle = scheduleViewToggle();
     const head = pageHead("Appointment operations", "Schedule", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours),
-      toggle + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a>');
-    const rows = list.map((a) => {
+      toggle + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a> <button class="btn" type="button" data-open="block">＋ Admin block</button>');
+    const apptRows = list.map((a) => {
       const p = patient(a.patientId);
       const v = a.visitId ? '<a href="' + hashFor({ page: "visit", visitId: a.visitId }) + '">' + esc(a.visitId) + "</a>" : "";
       const open = state.expandedAppt === a.id;
@@ -559,7 +753,11 @@
         </div>
         ${open ? registrationPanel(a) : ""}
       </div>`;
-    }).join("") || '<div class="empty">No appointments on this date.</div>';
+    });
+    const items = list.map((a, i) => ({ t: a.time, html: apptRows[i] }))
+      .concat(dayBlocks(state.date).map((b) => ({ t: b.start, html: blockCard(b) })))
+      .sort((a, b) => a.t.localeCompare(b.t));
+    const rows = items.map((x) => x.html).join("") || '<div class="empty">No appointments or Admin blocks on this date.</div>';
     const catalog = Object.entries(BRIZZA.reasonCatalog).map(([t, rs]) => {
       if (t === "Skin Treatment") {
         return '<div class="row"><div><strong>Skin Treatment</strong><div class="row-sub">Customized Facial (umbrella): Mini Facial · Facial · Hydrafacial · Chemical Peel · Microneedling</div></div></div>';
@@ -592,6 +790,7 @@
           ${catalog}
           <div class="notice">Staff choose approved reasons only. Duration and price are TBD. At least one reason is required before Confirmed.</div>
           ${openQ("Which of the seven staff roles Dr. Elena Ruiz and Dr. Samir Shah hold is not defined in the V1 documents.")}
+          ${openQ("Whether an Admin block prevents booking, and who may create or override blocked availability, is not defined. Block reasons used here are not an approved catalog (Open question 15).")}
         </div>
       </div>
     </div>`;
@@ -636,7 +835,7 @@
     if (state.calMode === "week") title = "Week of " + fmtLong(weekMonday(state.date));
     if (state.calMode === "month") title = monthLabel(state.date);
     const head = pageHead("Appointment operations", "Schedule", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours),
-      toggle + " " + modes + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a>');
+      toggle + " " + modes + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a> <button class="btn" type="button" data-open="block">＋ Admin block</button>');
     const nav = `<div class="datebar">
       <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: shiftPrev, view: "calendar", calMode: state.calMode })}" aria-label="Previous">‹</a>
       <strong>${esc(title)}</strong>
@@ -659,8 +858,10 @@
     if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
     const hours = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
     const list = dayAppointments(date);
+    const blocks = dayBlocks(date);
     return hours.map((t) => {
-      const slot = list.filter((a) => a.time === t).map(calendarEvent).join("") || "";
+      const slot = list.filter((a) => a.time === t).map(calendarEvent).join("") +
+        blocks.filter((b) => b.start === t).map(calendarBlock).join("");
       return '<div class="cal-day-row"><div class="cal-time">' + t + '</div><div>' + slot + "</div></div>";
     }).join("") + '<div class="row-sub" style="margin-top:10px">Closes 6:00 p.m. ET</div>';
   }
@@ -670,11 +871,13 @@
     const days = [0, 1, 2, 3, 4].map((i) => addDays(mon, i));
     const hours = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"];
     const appts = rangeAppointments(mon, addDays(mon, 4));
+    const blocks = rangeBlocks(mon, addDays(mon, 4));
     const heads = '<div class="cal-time"></div>' + days.map((d) => '<div class="cal-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) + "</a></div>").join("");
     const rows = hours.map((h) => {
       const next = h === "17:00" ? "18:00" : String(Number(h.slice(0, 2)) + 1).padStart(2, "0") + ":00";
       const cells = days.map((d) => {
-        const slot = appts.filter((a) => a.date === d && a.time >= h && a.time < next).map(calendarEvent).join("");
+        const slot = appts.filter((a) => a.date === d && a.time >= h && a.time < next).map(calendarEvent).join("") +
+          blocks.filter((b) => b.date === d && b.start >= h && b.start < next).map(calendarBlock).join("");
         return '<div class="cal-cell">' + slot + "</div>";
       }).join("");
       return '<div class="cal-time">' + h + "</div>" + cells;
@@ -691,6 +894,7 @@
     // show full weeks covering the month (Mon–Sun)
     let end = addDays(weekMonday(last), 6);
     const appts = rangeAppointments(start, end);
+    const blocks = rangeBlocks(start, end);
     const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
     let html = labels.map((l) => '<div class="cal-hd">' + l + "</div>").join("");
     let d = start;
@@ -698,7 +902,8 @@
       const inMonth = d.slice(0, 7) === first.slice(0, 7);
       const closed = isWeekend(d);
       const dayAppts = appts.filter((a) => a.date === d);
-      const chips = inMonth ? dayAppts.map(calendarEvent).join("") : "";
+      const dayBlks = blocks.filter((b) => b.date === d);
+      const chips = inMonth ? dayAppts.map(calendarEvent).join("") + dayBlks.map(calendarBlock).join("") : "";
       const dayLink = '<a class="d" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + Number(d.slice(8)) + "</a>";
       html += '<div class="cal-mcell' + (closed ? " closed" : "") + '">' + (inMonth ? dayLink : "") + (closed && inMonth ? '<div class="row-sub">Closed</div>' : "") + chips + "</div>";
       d = addDays(d, 1);
@@ -1311,19 +1516,28 @@
   }
 
   function render() {
+    if (state.page !== "rooming") stopRoomingTick();
     if (state.page === "schedule") renderSchedule();
     else if (state.page === "queue") renderQueue();
     else if (state.page === "configuration") renderSettings();
     else if (state.page === "visit") renderVisit();
     else if (state.page === "checkout") renderCheckout();
     else if (state.page === "audit") renderAudit();
+    else if (state.page === "rooming") renderRooming();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
   }
 
   function onClick(e) {
-    const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg]");
+    const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg],[data-room-advance]");
     if (!t) return;
+    if (t.dataset.roomAdvance) {
+      e.preventDefault();
+      const rec = (store.rooming || []).find((r) => r.id === t.dataset.roomAdvance);
+      const nxt = rec ? nextRoomingStatus(rec.status) : null;
+      if (nxt) setRoomingStatus(rec.id, nxt);
+      return;
+    }
     if (t.dataset.expandReg) {
       e.preventDefault();
       state.expandedAppt = state.expandedAppt === t.dataset.expandReg ? null : t.dataset.expandReg;
@@ -1331,6 +1545,7 @@
       return;
     }
     if (t.dataset.open === "book") { e.preventDefault(); openBook(t.dataset.pid); }
+    else if (t.dataset.open === "block") { e.preventDefault(); openAddBlock(); }
     else if (t.dataset.open === "new-patient") { e.preventDefault(); openNewPatient(); }
     else if (t.dataset.open === "edit") { e.preventDefault(); openEdit(t.dataset.pid); }
     else if (t.dataset.open === "followup") { e.preventDefault(); openFollowup(t.dataset.pid); }
@@ -1346,6 +1561,8 @@
   function onChange(e) {
     if (e.target.id === "prov") { state.providerFilter = e.target.value; render(); }
     else if (e.target.id === "locationSel") { state.locationId = e.target.value; render(); }
+    else if (e.target.id === "actingRole") { state.actingRole = e.target.value; }
+    else if (e.target.dataset.roomSet) { setRoomingStatus(e.target.dataset.roomSet, e.target.value); }
     else if (e.target.id === "patient-search") {
       state.search = e.target.value;
       const hold = e.target.selectionStart;

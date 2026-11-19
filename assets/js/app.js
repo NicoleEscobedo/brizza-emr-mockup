@@ -1,7 +1,7 @@
 /* Brizza Clinic EMR mockup — synthetic data only. */
 (function () {
   "use strict";
-  // Round 6 — Worklist, given prices, inventory, merged clinical profile, history pop-up.
+  // Round 7 — Availability, #BZ ids, Worklist polish, simpler invoice pop-up.
 
   function fmtTime(t) {
     if (!t) return "";
@@ -102,6 +102,37 @@
     const [y, m, d] = iso.split("-").map(Number);
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
+  function fmtDob(iso) {
+    if (!iso) return "—";
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(iso)) return iso;
+    const [y, m, d] = String(iso).split("-");
+    if (!y || !m || !d) return String(iso);
+    return String(m).padStart(2, "0") + "/" + String(d).padStart(2, "0") + "/" + y;
+  }
+  function parseDob(s) {
+    const v = String(s || "").trim();
+    const mdy = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdy) return mdy[3] + "-" + mdy[1].padStart(2, "0") + "-" + mdy[2].padStart(2, "0");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    return "";
+  }
+  function displayId(id) {
+    if (!id) return "";
+    const raw = String(id).replace(/^#/, "");
+    return "#" + raw;
+  }
+  function nextPatientId() {
+    let max = 0;
+    (store.patients || []).forEach(function (pt) {
+      const m = String(pt.id).match(/(\d+)/);
+      if (m) max = Math.max(max, Number(m[1]));
+    });
+    return "BZ" + String(max + 1).padStart(4, "0");
+  }
+  function patientCredit(pOrId) {
+    const p = typeof pOrId === "object" ? pOrId : patient(pOrId);
+    return Math.round(Number((p && p.credit) || 0) * 100) / 100;
+  }
   function fmtLong(iso) {
     const [y, m, d] = iso.split("-").map(Number);
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -174,7 +205,7 @@
     store.audit.push(ev);
     return ev;
   }
-  const AUDIT_SVG = '<svg class="audit-icon-svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="3.5" y="2.5" width="9" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 6.5h4M6 9h4M6 11.5h2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+  const AUDIT_SVG = '<svg class="audit-icon-svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2.6" y="2.4" width="7.6" height="10.2" rx="1.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.8 2.4h3.2v1.5H4.8z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.6 6.6h3.2M4.6 8.6h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="10.6" cy="10.4" r="2.35" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M12.3 12.2 14.4 14.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
   function auditIcon(href) {
     if (!href) return "";
     return '<a class="audit-icon" href="' + href + '" title="Audit log" aria-label="Audit log">' + AUDIT_SVG + "</a>";
@@ -256,7 +287,7 @@
 
   const store = BRIZZA.seed();
   const state = {
-    theme: "01", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BRZ0001",
+    theme: "01", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BZ0001",
     tab: "demographics", visitId: null, invoiceId: null, appointmentId: null,
     providerFilter: "All providers", search: "", reschedulingId: null, modal: null,
     demo: { running: false, index: 0, timer: null }, contrast: null,
@@ -360,6 +391,8 @@
       route = { page: "rooming", date: date };
     } else if (p0 === "inventory") {
       route = { page: "inventory", invTab: parts[1] || state.invTab || "catalog" };
+    } else if (p0 === "availability") {
+      route = { page: "availability" };
     }
     return route;
   }
@@ -393,6 +426,7 @@
     else if (route.page === "audit") path = "/audit/" + route.auditId;
     else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
     else if (route.page === "inventory") path = "/inventory/" + (route.invTab || state.invTab || "catalog");
+    else if (route.page === "availability") path = "/availability";
     return "#" + path + "?theme=01";
   }
 
@@ -503,7 +537,8 @@
     const ls = lineSum(inv);
     const paid = invoicePaid(inv);
     let balance;
-    if (inv && typeof inv.balance === "number" && inv._balanceLocked) balance = inv.balance;
+    if (inv && inv.carriedToAccount) balance = 0;
+    else if (inv && typeof inv.balance === "number" && inv._balanceLocked) balance = inv.balance;
     else if (!ls.tbd) balance = Math.round((ls.sum - paid) * 100) / 100;
     else balance = null;
     const label = ls.tbd && !ls.sum ? "TBD" : (money(ls.sum) + (ls.tbd ? " + TBD" : ""));
@@ -524,11 +559,14 @@
   }
   function patientBalanceValue(pid) {
     let sum = 0, tbd = false;
-    (store.invoices || []).filter((i) => i.patientId === pid).forEach(function (inv) {
+    (store.invoices || []).filter((i) => i.patientId === pid && !i.carriedToAccount).forEach(function (inv) {
       refreshInvoiceBalance(inv);
       if (typeof inv.balance === "number") sum += inv.balance;
       else if (inv.status !== "Paid" && inv.status !== "Voided" && inv.balance !== "None") tbd = true;
     });
+    const pt = patient(pid);
+    sum += Number((pt && pt.accountBalance) || 0);
+    sum -= patientCredit(pt);
     return { sum: Math.round(sum * 100) / 100, tbd: tbd };
   }
   function appointmentInvoices(a) {
@@ -679,7 +717,7 @@
       .sort((a, b) => a.time.localeCompare(b.time) || a.provider.localeCompare(b.provider));
     const searched = q ? allDay.filter((a) => {
       const p = patient(a.patientId);
-      return ((p && p.name) + " " + (p && p.dob || "") + " " + a.patientId + " " + a.type + " " + reasonText(a) + " " + a.id + " " + a.provider + " " + (a.prepNotes || "")).toLowerCase().includes(q);
+      return ((p && p.name) + " " + (p && p.firstName || "") + " " + (p && p.lastName || "") + " " + (p && p.dob || "") + " " + (p ? fmtDob(p.dob) : "") + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + reasonText(a) + " " + a.id + " " + a.provider + " " + (a.prepNotes || "")).toLowerCase().includes(q);
     }) : allDay;
     const counts = wlFilterCounts(searched);
     const visible = searched.filter((a) => wlMatches(a, filters) && a.status !== "Canceled");
@@ -712,7 +750,7 @@
       groups = '<div class="empty">No appointments match the current filters.</div>';
     } else {
       providers.forEach(function (pr) {
-        const set = rows.filter((a) => a.provider === pr);
+        const set = rows.filter((a) => a.provider === pr).slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
         if (!set.length) return;
         const blks = dayBlocks(date).filter((b) => b.staff === pr);
         groups += '<section class="wl-group" aria-labelledby="wl-h-' + esc(pr.replace(/\s+/g, "-")) + '">' +
@@ -735,7 +773,8 @@
           </div>
           <div class="sched-tools">
             <label class="sr-only" for="sched-search">Search patients and appointments</label>
-            <input id="sched-search" class="sched-search" type="search" placeholder="Search name, DOB, type…" value="${esc(state.scheduleSearch || "")}">
+            <input id="sched-search" class="sched-search" type="search" placeholder="Search name, DOB, #ID, type…" value="${esc(state.scheduleSearch || "")}">
+            <button class="btn small" type="button" data-open="new-patient">＋ New Patient</button>
             <label class="sr-only" for="locationSel">Location</label>
             <select id="locationSel">${locOpts}</select>
           </div>
@@ -743,7 +782,6 @@
         <div class="cardbody">
           <div class="wl-toolbar">${filterBar}</div>
           ${hits}
-          ${typeLegend()}
           ${groups}
           ${openQ("Worklist task filters are a prototype of front-desk prep work. Official readiness criteria remain an open question (Open question 4).")}
         </div>
@@ -761,18 +799,20 @@
     const p = patient(a.patientId);
     const open = state.expandedAppt === a.id;
     const suite = a.suiteId ? suiteName(a.suiteId) : "—";
+    const note = a.prepNotes || "";
+    const tip = note ? ('<span class="note-tip"><input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="' + esc(note) + '" placeholder="Prep, packages…" title="' + esc(note) + '" aria-describedby="tip-' + esc(a.id) + '"><span class="tip" id="tip-' + esc(a.id) + '" role="tooltip">' + esc(note) + "</span></span>") : ('<input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="" placeholder="Prep, packages…">');
     return '<div class="wl-row" data-type="' + esc(a.type) + '" data-wl-row="' + esc(a.id) + '">' +
       '<div class="wl-time">' + esc(fmtTime(a.time)) + "</div>" +
-      '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) + "</div>" +
-      '<div class="wl-dob">' + (p ? esc(fmtDate(p.dob)) : "—") + "</div>" +
+      '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) +
+        (p ? '<span class="wl-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</span>" : "") + "</div>" +
+      '<div class="wl-dob">' + (p ? esc(fmtDob(p.dob)) : "—") + "</div>" +
       '<div class="wl-prov">' + esc(a.provider) + "</div>" +
       '<div class="wl-type">' + esc(a.type) + "</div>" +
       '<div class="wl-reason">' + esc(reasonText(a)) + "</div>" +
       '<div class="wl-suite">' + esc(suite) + "</div>" +
       '<div>' + (p ? regMinis(p, a.id) : "") + "</div>" +
       "<div>" + statusSelect(a, "wl") + "</div>" +
-      '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' +
-        '<input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="' + esc(a.prepNotes || "") + '" placeholder="Prep, packages…"></div>' +
+      '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' + tip + "</div>" +
       "<div>" + balanceBadge(patientBalanceValue(a.patientId)) + "</div>" +
       '<div><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button></div>' +
       (open ? '<div class="reg-expand">' + registrationPanel(a) + "</div>" : "") +
@@ -826,6 +866,66 @@
       '<button class="btn" type="button" data-finalize="' + esc(inv.id) + '">Finalize and post inventory</button>');
   }
 
+  function invoicePopupHtml(inv) {
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    const p = patient(inv.patientId);
+    const credit = patientCredit(p);
+    const lines = (inv.lines || []).map(function (l, i) {
+      const amt = lineAmount(l);
+      const price = l.unitPrice == null ? "" : l.unitPrice;
+      return "<tr><td>" + esc(l.name || "") + (l.unit ? ' <span class="row-sub">/ ' + esc(l.unit) + "</span>" : "") + "</td>" +
+        '<td><input class="qty" data-line-qty="' + i + '" type="number" min="0" step="1" value="' + esc(l.qty == null ? "" : l.qty) + '" placeholder="Qty" aria-label="Quantity"></td>' +
+        '<td><input class="price" data-line-price="' + i + '" type="number" min="0" step="0.01" value="' + esc(price) + '" placeholder="TBD" aria-label="Price"></td>' +
+        "<td>" + (amt == null ? "TBD" : money(amt)) + "</td>" +
+        '<td><button type="button" class="pos-x" data-remove-line="' + i + '" aria-label="Remove line">×</button></td></tr>';
+    }).join("") || '<tr><td colspan="5" class="empty">No lines yet</td></tr>';
+    const catOpts = (store.catalog || BRIZZA.CATALOG || []).map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) : " · TBD") + "</option>").join("");
+    const balLabel = t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance);
+    return '<div class="pos-simple" data-pos-popup="' + esc(inv.id) + '">' +
+      '<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th><th></th></tr></thead><tbody>' + lines + "</tbody></table>" +
+      (inv.finalized ? '<div class="notice">Invoice finalized.</div>' :
+        '<div class="actions"><select id="posCatalog" aria-label="Add item">' + catOpts + '</select>' +
+        '<input id="posQty" class="qty" type="number" min="0" step="1" placeholder="Qty" aria-label="Quantity">' +
+        '<button class="btn small" type="button" data-pos-add-line="' + esc(inv.id) + '">Add</button></div>') +
+      '<div class="pos-totals"><div>Total ' + esc(t.label) + "</div>" +
+        '<div>Available credit <strong>' + money(credit) + "</strong> " +
+        (credit > 0 && !inv.finalized ? '<button class="btn small" type="button" data-apply-credit="' + esc(inv.id) + '">Apply</button>' : "") + "</div>" +
+        '<div class="grand">Balance ' + esc(balLabel) + "</div></div>" +
+      (inv.finalized ? "" :
+        '<div class="actions">' +
+        '<select id="pay-status" aria-label="Payment status">' + BRIZZA.paymentStatuses.map((s) => "<option>" + s + "</option>").join("") + "</select>" +
+        '<input id="pay-amount" class="qty" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Payment amount" value="' + (t.balance != null && t.balance > 0 && !t.tbd ? esc(String(t.balance)) : "") + '">' +
+        '<button class="btn small primary" type="button" data-record-pay="' + esc(inv.id) + '">Record payment</button>' +
+        '<button class="btn small" type="button" data-add-remaining="' + esc(inv.id) + '">Add remaining to patient balance</button></div>') +
+      '<p class="row-sub"><a href="' + hashFor({ page: "pos", invoiceId: inv.id, posTab: "invoice" }) + '">Open full Point of Sale page</a></p></div>';
+  }
+  function paintInvoiceLive(inv) {
+    const wrap = document.querySelector(".pos-simple");
+    if (!wrap || !inv) return;
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    const rows = wrap.querySelectorAll("tbody tr");
+    (inv.lines || []).forEach(function (l, i) {
+      if (rows[i] && rows[i].cells[3]) rows[i].cells[3].textContent = lineAmount(l) == null ? "TBD" : money(lineAmount(l));
+    });
+    const box = wrap.querySelector(".pos-totals");
+    if (box) {
+      const els = box.querySelectorAll("div");
+      if (els[0]) els[0].textContent = "Total " + t.label;
+      if (els[els.length - 1]) els[els.length - 1].textContent = "Balance " + (t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance));
+    }
+  }
+  function refreshInvoicePopup() {
+    if (!$("#modal") || !$("#modal").classList.contains("pos-mode")) return;
+    const inv = invoice(state.invoiceId);
+    if (!inv) return;
+    const p = patient(inv.patientId);
+    const a = appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0];
+    $("#modalTitle").textContent = "Invoice · " + inv.id + (p ? " · " + p.name : "");
+    const sub = a ? ('<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>") : "";
+    $("#modalBody").innerHTML = sub + invoicePopupHtml(inv);
+  }
   function openPosPopup(apptId) {
     const a = appt(apptId);
     if (!a) return;
@@ -834,16 +934,53 @@
     state.invoiceId = inv.id;
     state.posAppointmentId = a.id;
     $("#modalTitle").textContent = "Invoice · " + inv.id + " · " + (p ? p.name : a.patientId);
-    $("#modalBody").innerHTML = '<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>" + posLineEditor(inv, true) +
-      '<p class="row-sub" style="margin-top:12px"><a href="' + hashFor({ page: "pos", invoiceId: inv.id, posTab: "invoice" }) + '">Open full Point of Sale page</a></p>';
+    $("#modalBody").innerHTML = '<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>" + invoicePopupHtml(inv);
     const save = $("#modalSave");
     save.textContent = "Done";
     save.onclick = function () { closeModal(); if (state.page === "schedule") renderWorklist(); else render(); };
     $("#modal").classList.add("open", "pos-mode");
     $("#modal").classList.remove("hist-mode");
-    const first = $("#modalBody").querySelector("input,select,button");
-    if (first) first.focus();
   }
+  function applyInvoiceCredit(invId) {
+    const inv = invoice(invId); if (!inv || inv.finalized) return;
+    const p = patient(inv.patientId); if (!p) return;
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    const credit = patientCredit(p);
+    const due = (t.balance != null && !t.tbd) ? t.balance : 0;
+    const use = Math.min(credit, Math.max(0, due));
+    if (use <= 0) { toast("No credit to apply"); return; }
+    const before = credit;
+    p.credit = Math.round((credit - use) * 100) / 100;
+    inv.payments = inv.payments || [];
+    inv.payments.push({ id: nextId("PAY-", inv.payments), method: "Account credit", status: "Paid", recorded: nowET(), amount: use });
+    refreshInvoiceBalance(inv);
+    addAudit({ action: "Applied patient credit", recordType: "Invoice", recordId: inv.id,
+      recordPath: { page: "pos", invoiceId: inv.id },
+      changes: [{ field: "credit applied", before: money(before), after: money(use) }, { field: "credit remaining", before: money(before), after: money(p.credit) }] });
+    toast("Applied " + money(use) + " credit");
+    refreshInvoicePopup();
+  }
+  function addRemainingToBalance(invId) {
+    const inv = invoice(invId); if (!inv || inv.finalized) return;
+    const p = patient(inv.patientId); if (!p) return;
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    let remain = 0;
+    if (t.balance != null && !t.tbd) remain = Math.max(0, t.balance);
+    else { toast("Remaining amount is TBD"); return; }
+    if (remain <= 0) { toast("Nothing remaining"); return; }
+    const before = Number(p.accountBalance || 0);
+    p.accountBalance = Math.round((before + remain) * 100) / 100;
+    inv.carriedToAccount = true;
+    inv.balance = 0;
+    addAudit({ action: "Added remaining to patient balance", recordType: "Patient", recordId: p.id,
+      recordPath: { page: "patients", selected: p.id, tab: "ledger" },
+      changes: [{ field: "patient balance", before: money(before), after: money(p.accountBalance) }, { field: "invoice remaining", before: money(remain), after: money(0) }] });
+    toast("Added " + money(remain) + " to patient balance");
+    refreshInvoicePopup();
+  }
+
 
   function addCatalogLine(invId, catalogId, qtyRaw) {
     const inv = invoice(invId);
@@ -1106,9 +1243,28 @@
 
   function findPatientHtml() {
     const q = (state.patientFind || "").trim().toLowerCase();
-    const hits = q ? store.patients.filter((p) => (p.name + " " + p.id + " " + p.dob + " " + p.phone).toLowerCase().includes(q)).slice(0, 8) : [];
-    const list = hits.map((p) => '<a class="row" href="' + hashFor({ page: "patients", selected: p.id, tab: state.tab || "demographics" }) + '"><div><div class="row-title">' + esc(p.name) + '</div><div class="row-sub">' + esc(p.id) + " · " + esc(p.dob) + "</div></div></a>").join("");
-    return '<div class="field find-patient"><label class="sr-only" for="patient-find">Find patient</label><input id="patient-find" class="searchbox" placeholder="Find patient (name, DOB, ID)" value="' + esc(state.patientFind || "") + '">' + (q ? '<div>' + (list || '<div class="empty">No match</div>') + "</div>" : "") + "</div>";
+    const hits = q ? store.patients.filter((p) => (p.name + " " + p.firstName + " " + p.lastName + " " + p.id + " " + displayId(p.id) + " " + p.dob + " " + fmtDob(p.dob) + " " + p.phone).toLowerCase().includes(q)).slice(0, 8) : [];
+    const list = hits.map((p) => '<a class="row" href="' + hashFor({ page: "patients", selected: p.id, tab: state.tab || "demographics" }) + '"><div><div class="row-title">' + esc(p.name) + '</div><div class="row-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</div></div></a>").join("");
+    return '<div class="field find-patient"><div class="actions"><label class="sr-only" for="patient-find">Find patient</label><input id="patient-find" class="searchbox" placeholder="Find patient (name, DOB, #ID)" value="' + esc(state.patientFind || "") + '"> <button class="btn small" type="button" data-open="new-patient">＋ New Patient</button></div>' + (q ? '<div>' + (list || '<div class="empty">No match</div>') + "</div>" : "") + "</div>";
+  }
+  function alertsBanner(p, opts) {
+    opts = opts || {};
+    const list = (p && p.alerts) || [];
+    if (!list.length && opts.readonly) return "";
+    const items = list.map(function (al) {
+      const rm = opts.readonly ? "" : ' <button type="button" class="pos-x" data-remove-alert="' + esc(al.id) + '" data-pid="' + esc(p.id) + '" aria-label="Remove alert">×</button>';
+      return '<span class="alert-item">' + esc(al.text) + rm + "</span>";
+    }).join(" ");
+    const add = opts.readonly ? "" : ' <button class="btn small" type="button" data-add-alert="' + esc(p.id) + '">Add alert</button>';
+    if (!list.length) return '<div class="row-sub">No patient alerts.' + add + "</div>";
+    return '<div class="alert-banner" role="status"><strong>Patient alerts</strong>' + items + add + "</div>";
+  }
+  function patientNotesHtml(p) {
+    const rows = (p.patientNotes || []).slice().reverse().map(function (n) {
+      return '<div class="row"><div><div class="row-title">' + esc(n.text) + '</div><div class="row-sub">' + esc(n.when) + " · " + esc(n.who) + "</div></div></div>";
+    }).join("") || '<div class="empty">No patient notes</div>';
+    return rows + '<div class="field" style="margin-top:8px"><label class="sr-only" for="pnote">Add a patient note</label><input id="pnote" placeholder="Add a non-clinical note">' +
+      '<button class="btn small" type="button" data-add-pnote="' + esc(p.id) + '">Add note</button></div>';
   }
 
   function documentsHtml(p) {
@@ -1159,6 +1315,7 @@
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
         (key === "inventory" && state.page === "inventory") ||
+        (key === "availability" && state.page === "availability") ||
         (key === "types" && (state.page === "types" || state.page === "reasons")) ||
         (key === "configuration" && state.page === "configuration");
       return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
@@ -1167,7 +1324,7 @@
       <a class="skip" href="#main">Skip to content</a>
       <div class="shell">
         <aside class="side">
-          <div class="brand"><span class="brand-name">brizza</span><small>clinic workspace</small></div>
+          <div class="brand"><span class="brand-name"><span class="brand-b">B</span>rizza</span><small>clinic workspace</small></div>
           <div class="nav-label">Workspace</div>
           <nav class="nav" aria-label="Workspace">
             ${nav(hashFor({ page: "schedule", date: state.date, view: state.scheduleView, calMode: state.calMode }), "schedule", "Schedule", "▦")}
@@ -1179,11 +1336,11 @@
           </nav>
           <div class="nav-label">Clinic</div>
           <nav class="nav" aria-label="Clinic">
+            ${nav(hashFor({ page: "availability" }), "availability", "Availability", "◷")}
             ${nav(hashFor({ page: "types" }), "types", "Appointment Types", "▤")}
             ${nav(hashFor({ page: "reasons" }), "types", "Appointment Reasons", "▤")}
             ${nav(hashFor({ page: "configuration" }), "configuration", "Configuration", "⚙")}
           </nav>
-          <div class="profile"><div class="avatar">AM</div><div>Alex Morgan<small>Synthetic session</small>${actingSelectHtml()}</div></div>
         </aside>
         <main class="main" id="main">
           <header class="top">
@@ -1191,6 +1348,15 @@
             <div class="topright">
               <span class="disclaimer">Synthetic data · prototype, not a production EMR</span>
               <span class="clinic-pill">${esc(BRIZZA.CLINIC.location)}</span>
+              <div class="user-bar">
+                <div class="avatar">AM</div>
+                <div>
+                  <div class="user-who">Alex Morgan</div>
+                  <div class="user-title">Clinic Coordinator</div>
+                  <div class="user-perm">Permission: ${esc(state.actingRole)}</div>
+                </div>
+                ${actingSelectHtml()}
+              </div>
             </div>
           </header>
           <div class="content">${titleArea}${body}</div>
@@ -1242,19 +1408,22 @@
   function chartSection(p) {
     let body = "";
     if (state.tab === "demographics") {
-      body = `<div class="two"><div><h3 class="section-title">Patient identity</h3>
-        <div class="row"><span>Patient number</span><strong>${esc(p.id)}</strong></div>
-        <div class="row"><span>Date of birth</span><strong>${esc(p.dob)}</strong></div>
-        <div class="row"><span>Phone</span><strong>${esc(p.phone)}</strong></div>
-        <div class="row"><span>Email</span><strong>${esc(p.email)}</strong></div></div>
-        <div><h3 class="section-title">Patient status</h3>
-        <label class="sr-only" for="pstatus">Patient status</label>
-        <select id="pstatus" data-set-status="${p.id}">${BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select>
-        <div class="notice">One centralized chart. Patient number is immutable and never reused.</div>
-        <button class="btn primary" type="button" data-confirm-demo="${p.id}" style="margin-top:12px">Confirm Demographics</button>
-        <h3 class="section-title">' + historyIcon("Patient", p.id) + ' History</h3>
-        <div class="timeline">' + timelineHtml("Patient", p.id) + '</div>
-        </div></div>`;
+      body = '<div class="two"><div><h3 class="section-title">Patient identity</h3>' +
+        '<div class="row"><span>Patient number</span><strong class="pid">' + esc(displayId(p.id)) + "</strong></div>" +
+        '<div class="row"><span>Date of birth</span><strong>' + esc(fmtDob(p.dob)) + "</strong></div>" +
+        '<div class="row"><span>Phone</span><strong>' + esc(p.phone) + "</strong></div>" +
+        '<div class="row"><span>Email</span><strong>' + esc(p.email) + "</strong></div>" +
+        '<div class="row"><span>Address</span><strong>' + esc(p.address || "—") + "</strong></div></div>" +
+        '<div><h3 class="section-title">Patient status</h3>' +
+        '<label class="sr-only" for="pstatus">Patient status</label>' +
+        '<select id="pstatus" data-set-status="' + p.id + '">' + BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select>" +
+        '<div class="notice">One centralized chart. Patient number is immutable and never reused.</div>' +
+        '<button class="btn primary confirm-demo" type="button" data-confirm-demo="' + p.id + '">Confirm Demographics</button>' +
+        '<h3 class="section-title">' + historyIcon("Patient", p.id) + " History</h3>" +
+        '<div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" +
+        '<h3 class="section-title">Patient notes</h3><p class="row-sub">Non-clinical notes, timestamped with the author.</p>' +
+        patientNotesHtml(p) +
+        "</div></div>";
     } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
       body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3>${rows(p.conditions, "No history items recorded")}
@@ -1314,22 +1483,25 @@
       '<a class="tab ' + (state.tab === k ? "active" : "") + '" href="' + hashFor({ page: "patients", selected: p.id, tab: k }) + '">' + esc(label) + "</a>"
     ).join("");
     const upcoming = apptsFor(p).filter((a) => ACTIVE.has(a.status) && a.date >= BRIZZA.SAMPLE_DAY).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    const head = pageHead("Patient-centered chart", "Patient chart", findPatientHtml(), '<a class="btn small" href="#modal-edit" data-open="edit" data-pid="' + p.id + '">Edit chart</a><a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
+    const head = pageHead("Patient-centered chart", "Patient chart", findPatientHtml(), '<a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
     const body = `<div class="grid">
       <div class="card">
         <div class="cardbody">
+          ${alertsBanner(p)}
           <div class="patient-banner">
             <div class="patient-avatar">${esc(initials(p.name))}</div>
             <div style="flex:1">
-              <div class="patient-name">${esc(p.name)} ${badge(p.status)}</div>
-              <div class="patient-meta"><span>${esc(p.id)}</span><span>${age(p.dob)} yrs · ${esc(p.sex)}</span><span>${esc(p.phone)}</span><span>${esc(p.email)}</span></div>
+              <div class="patient-name">${esc(p.name)} ${badge(p.status)}
+                <a class="btn small" href="#modal-edit" data-open="edit" data-pid="${p.id}">Edit Chart</a>
+              </div>
+              <div class="patient-meta"><span class="pid">${esc(displayId(p.id))}</span><span>${esc(fmtDob(p.dob))} · ${age(p.dob)} yrs · ${esc(p.sex)}</span><span>${esc(p.phone)}</span><span>${esc(p.email)}</span></div>
             </div>
           </div>
           <div class="summary-strip">
             <div class="metric"><label>Last completed appointment</label><strong>${esc(lastLabel)}</strong><div class="sub">${esc(lastSub)}</div></div>
             <div class="metric"><label>Next appointment</label><strong>${esc(nextLabel)}</strong><div class="sub">${esc(nextSub)}</div></div>
             <div class="metric"><label>Last provider</label><strong>${esc(lastProv)}</strong></div>
-            <div class="metric"><label>Patient number</label><strong>${esc(p.id)}</strong></div>
+            <div class="metric"><label>Patient number</label><strong class="pid">${esc(displayId(p.id))}</strong></div>
           </div>
         </div>
         <div class="tabs" role="tablist">${tabs}</div>
@@ -1569,23 +1741,96 @@
   function isInWindow(time, windows) {
     return (windows || []).some((w) => time >= w[0] && time < w[1]);
   }
+  function weeksFrom(start, date) {
+    const a = new Date(start + "T12:00:00");
+    const b = new Date(date + "T12:00:00");
+    return Math.floor(Math.round((b - a) / 86400000) / 7);
+  }
+  function templateApplies(t, date) {
+    if (!t || !date) return false;
+    if (t.startDate && date < t.startDate) return false;
+    if (t.endDate && date > t.endDate) return false;
+    if ((t.days || []).indexOf(weekdayNum(date)) < 0) return false;
+    const n = t.everyNWeeks || 1;
+    if (n > 1 && t.startDate && (weeksFrom(t.startDate, date) % n) !== 0) return false;
+    return true;
+  }
+  function templatesFor(provider, date) {
+    return (store.availabilityTemplates || []).filter(function (t) {
+      if (provider && provider !== "All providers" && t.provider !== provider) return false;
+      return templateApplies(t, date);
+    });
+  }
+  function blocksOnDate(provider, date) {
+    const out = [];
+    templatesFor(provider, date).forEach(function (t) {
+      (t.blocks || []).forEach(function (b) {
+        out.push({ start: b.start, end: b.end, locationId: b.locationId || t.locationId, color: t.color, templateId: t.id, provider: t.provider });
+      });
+    });
+    return out.sort((x, y) => (x.start || "").localeCompare(y.start || ""));
+  }
+  function timeInBlock(time, b) {
+    return time >= b.start && time < b.end;
+  }
+  function isOutsideClinicHours(date, time) {
+    if (isWeekend(date)) return true;
+    return time < "10:00" || time >= "18:00";
+  }
+  function locationShort(id) {
+    const loc = (BRIZZA.LOCATIONS || []).find((l) => l.id === id);
+    return loc ? (loc.short || loc.name) : (id || "Location");
+  }
+  function compactTime(t) {
+    if (!t) return "";
+    const parts = String(t).split(":");
+    const h = Number(parts[0]), m = Number(parts[1] || 0);
+    const ampm = h >= 12 ? "pm" : "am";
+    const h12 = h % 12 || 12;
+    return m ? (h12 + ":" + String(m).padStart(2, "0") + ampm) : (h12 + ampm);
+  }
+  function availHoverText(date, provider) {
+    const providers = (provider && provider !== "All providers") ? [provider] : (BRIZZA.PROVIDERS || []);
+    const parts = [];
+    providers.forEach(function (pv) {
+      const blocks = blocksOnDate(pv, date);
+      if (!blocks.length) return;
+      const txt = blocks.map(function (b) {
+        return locationShort(b.locationId) + " (" + compactTime(b.start) + "-" + compactTime(b.end) + ")";
+      }).join(" / ");
+      parts.push(providers.length > 1 ? (pv + ": " + txt) : txt);
+    });
+    return parts.length ? parts.join(" · ") : "No availability template for this day.";
+  }
+  function availPopWrap(tag, classes, date, inner, extraAttrs) {
+    const text = availHoverText(date, state.providerFilter);
+    const cls = (classes || "") + " has-pop";
+    return "<" + tag + ' class="' + cls + '" tabindex="0" title="' + esc(text) + '"' + (extraAttrs || "") + ">" +
+      '<span class="avail-pop" role="tooltip">' + esc(text) + "</span>" + inner + "</" + tag + ">";
+  }
   function slotAvailability(date, time, provider) {
-    if (isWeekend(date) || time < "10:00" || time >= "18:00") return "closed";
-    const day = weekdayNum(date);
-    const loc = state.locationId || BRIZZA.DEFAULT_LOCATION;
-    let rows = BRIZZA.availability || [];
-    if (provider && provider !== "All providers") rows = rows.filter((r) => r.provider === provider);
-    rows = rows.filter((r) => !r.locationId || r.locationId === loc);
-    rows = rows.filter((r) => !r.days || r.days.indexOf(day) >= 0);
-    if (!rows.length) return "unavailable";
-    const any = rows.some((r) => isInWindow(time, r.windows));
-    return any ? "available" : "unavailable";
+    if (isWeekend(date)) return "closed";
+    const providers = (provider && provider !== "All providers") ? [provider] : (BRIZZA.PROVIDERS || []);
+    let any = false, outside = false;
+    providers.forEach(function (pv) {
+      const hit = blocksOnDate(pv, date).filter(function (b) { return timeInBlock(time, b); });
+      if (hit.length) {
+        any = true;
+        if (isOutsideClinicHours(date, time)) outside = true;
+      }
+    });
+    if (!any) return isOutsideClinicHours(date, time) ? "closed" : "unavailable";
+    return outside ? "available-outside" : "available";
   }
   function slotClass(date, time) {
     const av = slotAvailability(date, time, state.providerFilter);
-    if (av === "closed") return "";
+    if (av === "closed") return isOutsideClinicHours(date, time) && !isWeekend(date) ? "outside-clinic" : "";
     if (av === "available") return "clinic-open available";
+    if (av === "available-outside") return "clinic-open available outside-clinic";
     return "clinic-open unavailable";
+  }
+  function canManageAvailability() {
+    return (BRIZZA.AVAILABILITY_ROLES || []).indexOf(state.actingRole) >= 0;
   }
   function typeLegend() {
     return '<div class="legend" aria-label="Appointment type colors">' +
@@ -1601,6 +1846,20 @@
     const p = patient(pid);
     if (p && isNewPatient(p)) return true;
     return (type === "Consultation" || type === "Consult") && (reasons || []).indexOf("New Patient") >= 0;
+  }
+  function selectedBookReasons() {
+    const el = $("#fReason");
+    return (el && el.value) ? [el.value] : [];
+  }
+  function reasonDropdownHtml(type, selected) {
+    const reasons = reasonsForType(type);
+    const sel = (selected && selected[0]) || "";
+    if (!reasons.length) return '<p class="row-sub">No reasons are attached to this type.</p><select id="fReason" required><option value="">Select a reason</option></select>';
+    return '<select id="fReason" required><option value="">Select a reason</option>' +
+      reasons.map(function (r) {
+        const extra = r.minutes != null ? " · " + r.minutes + " min" : "";
+        return '<option value="' + esc(r.name) + '"' + (sel === r.name ? " selected" : "") + ">" + esc(r.name) + extra + "</option>";
+      }).join("") + "</select>";
   }
   function actingSelectHtml() {
     return '<label class="sr-only" for="actingRole">Acting as</label><select id="actingRole" aria-label="Acting as">' +
@@ -1714,7 +1973,7 @@
       sections = flag + tpl.sections.map((sec) => "<h3 class=\"section-title\">" + esc(sec.title) + "</h3><div class=\"formgrid\">" +
         sec.fields.map((f) => noteFieldControl(f, (draft.values || {})[f.id])).join("") + "</div>").join("");
     }
-    showModal("Create note · " + (p ? p.name : draft.pid), picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
+    showModal("Create note · " + (p ? p.name : draft.pid), (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
     updateNoteSignState();
     const sel = $("#noteTpl");
     if (sel) sel.addEventListener("change", function () {
@@ -2032,7 +2291,8 @@
     const dd = (state.calMode === "month") ? "" : statusSelect(a, "cal");
     return '<div class="cal-event" data-type="' + esc(a.type) + '" data-open-appt="' + esc(a.id) + '">' +
       '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + "</span>" +
-      '<span class="cal-event-mid"><a href="' + href + '">' + esc(a.type) + " · " + esc(reasonText(a)) + "</a></span>" + dd + "</div>";
+      '<span class="cal-event-mid"><a href="' + href + '">' + esc(a.type) + " · " + esc(reasonText(a)) + "</a></span>" +
+      '<span class="row-sub">' + esc(a.provider) + "</span>" + dd + "</div>";
   }
 
   function rangeAppointments(start, end) {
@@ -2069,35 +2329,37 @@
       <input id="sched-search" class="sched-search" type="search" placeholder="Search patients and appointments" value="${esc(state.scheduleSearch || "")}">
       <label class="sr-only" for="prov">Provider filter</label>
       <select id="prov">${["All providers"].concat(BRIZZA.PROVIDERS).map((x) => "<option" + (state.providerFilter === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select>
-    </div><div class="cardbody">${scheduleSearchHits(state.scheduleSearch || "")}${typeLegend()}${statusLegend()}${grid}</div></div>`;
+    </div><div class="cardbody">${scheduleSearchHits(state.scheduleSearch || "")}${statusLegend()}${grid}</div></div>`;
     renderChrome('<a href="' + hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }) + '">Schedule</a> / Calendar / ' + esc(state.calMode), head, body);
   }
 
   function calendarDayGrid(date) {
     if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
-    const hours = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
+    const hours = ["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
     const list = dayAppointments(date);
     const blocks = dayBlocks(date);
     const q = (state.scheduleSearch || "").trim().toLowerCase();
-    const vis = (a) => !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().includes(q);
-    return hours.map((t) => {
-      const here = list.filter((a) => a.time === t && vis(a));
+    const vis = (a) => !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().includes(q);
+    const head = availPopWrap("div", "cal-hd", date, esc(fmtLong(date)) + ' <span class="count">' + esc(patientCount(date)) + "</span>");
+    return head + hours.map((tm) => {
+      const here = list.filter((a) => a.time === tm && vis(a));
       const slot = here.map(calendarEvent).join("") +
-        blocks.filter((b) => b.start === t).map(calendarBlock).join("") +
-        (list.filter((a) => a.time === t).length ? "" : addSlotButton(date, t));
-      return '<div class="cal-day-row ' + slotClass(date, t) + '"><div class="cal-time">' + esc(fmtTime(t)) + '</div><div>' + slot + "</div></div>";
-    }).join("") + '<div class="row-sub" style="margin-top:10px">Closes 6:00 p.m. ET · ' + esc(patientCount(date)) + "</div>";
+        blocks.filter((b) => b.start === tm).map(calendarBlock).join("") +
+        (list.filter((a) => a.time === tm).length ? "" : addSlotButton(date, tm));
+      const timeEl = availPopWrap("div", "cal-time", date, esc(fmtTime(tm)));
+      return availPopWrap("div", "cal-day-row " + slotClass(date, tm), date, timeEl + "<div>" + slot + "</div>");
+    }).join("") + '<div class="row-sub" style="margin-top:10px">Clinic hours 10:00 a.m.–6:00 p.m. ET · slots before 10:00 a.m. come from a provider template and are flagged. · ' + esc(patientCount(date)) + "</div>";
   }
 
   function calendarWeekGrid(date) {
     const mon = weekMonday(date);
     const days = [0, 1, 2, 3, 4].map((i) => addDays(mon, i));
-    const hours = ["10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"];
+    const hours = ["09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"];
     const appts = rangeAppointments(mon, addDays(mon, 4));
     const blocks = rangeBlocks(mon, addDays(mon, 4));
     const q = (state.scheduleSearch || "").trim().toLowerCase();
-    const vis = (a) => !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().includes(q);
-    const heads = '<div class="cal-time"></div>' + days.map((d) => '<div class="cal-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) + '</a> <span class="count">' + esc(patientCount(d)) + '</span></div>').join("");
+    const vis = (a) => !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().includes(q);
+    const heads = '<div class="cal-time"></div>' + days.map((d) => availPopWrap("div", "cal-hd", d, '<a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) + '</a> <span class="count">' + esc(patientCount(d)) + "</span>")).join("");
     const rows = hours.map((h) => {
       const next = h === "17:00" ? "18:00" : String(Number(h.slice(0, 2)) + 1).padStart(2, "0") + ":00";
       const cells = days.map((d) => {
@@ -2105,9 +2367,9 @@
         const slot = here.filter(vis).map(calendarEvent).join("") +
           blocks.filter((b) => b.date === d && b.start >= h && b.start < next).map(calendarBlock).join("") +
           (here.length ? "" : addSlotButton(d, h));
-        return '<div class="cal-cell ' + slotClass(d, h) + '">' + slot + "</div>";
+        return availPopWrap("div", "cal-cell " + slotClass(d, h), d, slot);
       }).join("");
-      return '<div class="cal-time">' + esc(fmtTime(h)) + "</div>" + cells;
+      return availPopWrap("div", "cal-time", days[0], esc(fmtTime(h))) + cells;
     }).join("");
     return '<div class="cal-grid-week">' + heads + rows + "</div>";
   }
@@ -2327,7 +2589,7 @@
         <div class="cardbody">
           ${sections.map((s) => '<div class="row"><span>' + s + '</span><span class="row-sub">Section history retained</span></div>').join("")}
           <div class="row"><span>Clinical Notes</span><span class="badge warn">Pending review</span></div>
-          <div class="row"><span>Patient number</span><span class="row-sub">BRZ0001 sequence · immutable · never reused</span></div>
+          <div class="row"><span>Patient number</span><span class="row-sub">BZ0001 sequence · immutable · never reused</span></div>
           <div class="row"><span>Photo permissions</span><span class="row-sub">Clinical consent separate from marketing authorization</span></div>
         </div>
       </div>
@@ -2371,7 +2633,7 @@
     clearTimeout(state.demo.timer);
     const panel = $("#demo-panel");
     if (panel) panel.classList.remove("open");
-    if (state.page === "demo") go({ page: "patients", selected: "BRZ0003", tab: "demographics" });
+    if (state.page === "demo") go({ page: "patients", selected: "BZ0003", tab: "demographics" });
     else render();
   }
   function runDemoStep() {
@@ -2413,7 +2675,7 @@
   function closeModal(opts) {
     opts = opts || {};
     const back = $("#modal");
-    if (back) back.classList.remove("open", "pos-mode", "hist-mode", "hide-foot");
+    if (back) back.classList.remove("open", "pos-mode", "hist-mode", "book-mode", "hide-foot");
     if (opts.cancelPending) state.reschedulingId = null;
     if (state.appointmentId && state.page === "schedule") {
       state.appointmentId = null;
@@ -2425,6 +2687,7 @@
     $("#modalBody").innerHTML = body;
     const save = $("#modalSave");
     save.textContent = saveLabel || "Save";
+    save.classList.toggle("btn-lg", saveLabel === "Save appointment" || saveLabel === "Save patient");
     save.onclick = onSave;
     $("#modal").classList.add("open");
     const first = $("#modalBody").querySelector("input,select,textarea,button");
@@ -2445,41 +2708,87 @@
     preset = preset || {};
     const sel = pid || state.selected;
     const dateVal = preset.date || state.date;
-    const timeVal = preset.time || BRIZZA.BOOKING_TIMES[0];
+    const timeVal = preset.time || "10:00";
     const provVal = preset.provider || slotProvider();
     const locVal = preset.locationId || state.locationId || BRIZZA.DEFAULT_LOCATION;
-    const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (locVal === l.id ? " selected" : "") + ">" + esc(l.name) + "</option>").join("");
-    showModal("Schedule Brizza appointment", `
-      <div class="formgrid">
-        <div class="field"><label for="fPatient">Patient <span class="req">required</span></label>
-          <select id="fPatient" required>${store.patients.map((p) => '<option value="' + p.id + '"' + (p.id === sel ? " selected" : "") + ">" + esc(p.id) + " · " + esc(p.name) + "</option>").join("")}</select></div>
-        <div class="field"><label for="fType">Appointment type <span class="req">required</span></label>
-          <select id="fType" required>${typesList().map((tp) => "<option" + ((preset && preset.type) === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("")}</select></div>
-        <div class="field full"><label>Approved reason(s)</label><div id="reasonOptions">${reasonOptionsHtml("Consultation", [])}</div>
+    const typeVal = (preset && preset.type) || "Consultation";
+    const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (locVal === l.id ? " selected" : "") + ">" + esc(l.name) + (l.synthetic ? " (synthetic)" : "") + "</option>").join("");
+    const patOpts = store.patients.map((pt) => '<option value="' + pt.id + '"' + (pt.id === sel ? " selected" : "") + ">" + esc(pt.name) + " · " + esc(fmtDob(pt.dob)) + " · " + esc(displayId(pt.id)) + "</option>").join("");
+    showModal("New appointment", `
+      <div class="book-flow">
+        <section>
+          <h3>Patient</h3>
+          <div class="field"><label for="fPatientSearch">Search</label>
+            <input id="fPatientSearch" placeholder="Name, #ID, or DOB (mm/dd/yyyy)"></div>
+          <div class="field"><label for="fPatient">Patient <span class="req">required</span></label>
+            <select id="fPatient" required>${patOpts}</select></div>
+          <button class="btn small" type="button" id="bookNewToggle">＋ New patient</button>
+          <div id="bookNewFields" hidden class="formgrid" style="margin-top:10px">
+            <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>
+            <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>
+            <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy"></div>
+            <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone"></div>
+            <div class="field full"><label for="npAddress">Address</label><input id="npAddress" placeholder="Optional"></div>
           </div>
-        <div class="field"><label for="fLocation">Location <span class="req">required</span></label>
-          <select id="fLocation" required>${locOpts}</select></div>
-        <div class="field"><label for="fDate">Date <span class="req">required</span></label><input id="fDate" type="date" required value="${esc(dateVal)}"></div>
-        <div class="field"><label for="fTime">Start time <span class="req">required</span></label>
-          <select id="fTime" required>${timeOptions(timeVal)}</select></div>
-        <div class="field"><label for="fProvider">Primary provider <span class="req">required</span></label>
-          <select id="fProvider" required>${BRIZZA.PROVIDERS.map((pv) => "<option" + (pv === provVal ? " selected" : "") + ">" + esc(pv) + "</option>").join("")}</select></div>
-        <div class="field"><label for="fRoom">Room</label>
-          <select id="fRoom">${BRIZZA.ROOMS.map((r) => "<option>" + esc(r) + "</option>").join("")}</select></div>
-        <div class="field full"><p class="row-sub" id="fDuration">Length: ${esc(durationLabelFor("Consultation", []))} (includes buffer)</p></div>
-        <div class="field full" id="consultingWrap"></div>
+        </section>
+        <section>
+          <h3>When and where</h3>
+          <div class="formgrid">
+            <div class="field"><label for="fLocation">Location <span class="req">required</span></label>
+              <select id="fLocation" required>${locOpts}</select></div>
+            <div class="field"><label for="fProvider">Provider <span class="req">required</span></label>
+              <select id="fProvider" required>${BRIZZA.PROVIDERS.map((pv) => "<option" + (pv === provVal ? " selected" : "") + ">" + esc(pv) + "</option>").join("")}</select></div>
+            <div class="field"><label for="fDate">Date <span class="req">required</span></label><input id="fDate" type="date" required value="${esc(dateVal)}"></div>
+            <div class="field"><label for="fTime">Time <span class="req">required</span></label>
+              <select id="fTime" required>${timeOptions(timeVal)}</select></div>
+          </div>
+        </section>
+        <section>
+          <h3>Appointment</h3>
+          <div class="formgrid">
+            <div class="field"><label for="fType">Type <span class="req">required</span></label>
+              <select id="fType" required>${typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("")}</select></div>
+            <div class="field"><label for="fReason">Reason <span class="req">required</span></label>
+              <div id="reasonOptions">${reasonDropdownHtml(typeVal, preset.reasons || [])}</div></div>
+            <div class="field full"><p class="row-sub" id="fDuration">Length: ${esc(durationLabelFor(typeVal, preset.reasons || []))} (includes buffer)</p></div>
+            <div class="field full" id="consultingWrap"></div>
+            <div class="field full"><label for="fPrepNotes">Notes</label><textarea id="fPrepNotes" rows="2" placeholder="Prep, packages, or other appointment notes"></textarea></div>
+          </div>
+        </section>
         <div class="field full" id="overrideWrap"></div>
         <div class="field full" id="cfWarn"></div>
         <div class="field full" id="bookWarn"></div>
-      </div>`, function () { saveAppt(); });
+      </div>`, function () { saveAppt(); }, "Save appointment");
+    $("#modal").classList.add("book-mode");
+    const filterPatients = function () {
+      const q = (($("#fPatientSearch") && $("#fPatientSearch").value) || "").trim().toLowerCase();
+      const sel = $("#fPatient");
+      if (!sel) return;
+      store.patients.forEach(function (pt) {
+        let opt = sel.querySelector('option[value="' + pt.id + '"]');
+        const hay = (pt.name + " " + displayId(pt.id) + " " + pt.id + " " + pt.dob + " " + fmtDob(pt.dob) + " " + pt.phone).toLowerCase();
+        const show = !q || hay.indexOf(q) >= 0;
+        if (opt) opt.hidden = !show;
+      });
+    };
+    if ($("#fPatientSearch")) $("#fPatientSearch").addEventListener("input", filterPatients);
+    if ($("#bookNewToggle")) $("#bookNewToggle").addEventListener("click", function () {
+      const box = $("#bookNewFields");
+      if (!box) return;
+      box.hidden = !box.hidden;
+      if (!box.hidden && $("#fPatient")) $("#fPatient").value = "";
+    });
     $("#fType").addEventListener("change", function () {
-      $("#reasonOptions").innerHTML = reasonOptionsHtml($("#fType").value, []);
+      $("#reasonOptions").innerHTML = reasonDropdownHtml($("#fType").value, []);
       updateConsultWarn();
       updateConsultingFor();
       updateBookDuration();
+      const r = $("#fReason");
+      if (r) r.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
     });
     $("#fPatient").addEventListener("change", function () { updateConsultWarn(); updateConsultingFor(); });
-    document.getElementById("reasonOptions").addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
+    const r0 = $("#fReason");
+    if (r0) r0.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
     ["fDate","fTime","fProvider"].forEach(function (id) {
       const el = document.getElementById(id);
       if (el) el.addEventListener("change", updateBookDuration);
@@ -2493,7 +2802,7 @@
     const el = $("#fDuration");
     if (!el || !$("#fType")) return;
     const type = $("#fType").value;
-    const reasons = $$('input[name="reason"]:checked').map((x) => x.value);
+    const reasons = selectedBookReasons();
     el.textContent = "Length: " + durationLabelFor(type, reasons) + " (includes buffer)";
     const wrap = $("#overrideWrap");
     if (!wrap) return;
@@ -2515,7 +2824,7 @@
     if (!wrap) return;
     const pid = $("#fPatient") && $("#fPatient").value;
     const type = $("#fType") && $("#fType").value;
-    const reasons = $$('input[name="reason"]:checked').map((x) => x.value);
+    const reasons = selectedBookReasons();
     if (!needsConsultingFor(pid, type, reasons)) { wrap.innerHTML = ""; return; }
     wrap.innerHTML = '<label for="fConsultingFor">Consulting for <span class="req">required</span></label>' +
       '<select id="fConsultingFor" required><option value="">Select</option>' +
@@ -2532,8 +2841,26 @@
   }
 
   function saveAppt() {
-    const reasons = $$('input[name="reason"]:checked').map((x) => x.value);
-    const pid = $("#fPatient") ? $("#fPatient").value : "";
+    let pid = $("#fPatient") ? $("#fPatient").value : "";
+    const newBox = $("#bookNewFields");
+    if (newBox && !newBox.hidden) {
+      const first = ($("#npFirst") && $("#npFirst").value.trim()) || "";
+      const last = ($("#npLast") && $("#npLast").value.trim()) || "";
+      const dob = parseDob($("#npDob") ? $("#npDob").value : "");
+      const phone = ($("#npPhone") && $("#npPhone").value.trim()) || "";
+      if (!first || !last || !dob || !phone) {
+        const w = $("#bookWarn");
+        if (w) w.innerHTML = '<div class="notice">New patient requires first name, last name, date of birth (mm/dd/yyyy), and phone.</div>';
+        toast("Complete the new patient fields");
+        return;
+      }
+      pid = nextPatientId();
+      store.patients.push({ id: pid, firstName: first, lastName: last, name: first + " " + last, dob: dob, sex: "Unspecified", phone: phone, email: "—", address: ($("#npAddress") && $("#npAddress").value.trim()) || "", status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
+      addAudit({ action: "Created patient record", recordType: "Patient", recordId: pid,
+        recordPath: { page: "patients", selected: pid, tab: "demographics" },
+        changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: first + " " + last }, { field: "id", before: "—", after: displayId(pid) }] });
+    }
+    const reasons = selectedBookReasons();
     const p = patient(pid);
     const type = $("#fType") ? $("#fType").value : "";
     const date = $("#fDate") ? $("#fDate").value : "";
@@ -2544,6 +2871,7 @@
     const consultingFor = $("#fConsultingFor") ? $("#fConsultingFor").value : "";
     const missing = [];
     if (!pid) missing.push("Patient");
+    if (!reasons.length) missing.push("Appointment reason");
     if (!type) missing.push("Appointment type");
     if (!locationId) missing.push("Location");
     if (!date) missing.push("Date");
@@ -2566,7 +2894,7 @@
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
     const mins = durationMinutes(type, reasons);
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: durationLabelFor(type, reasons), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", history: history, blockOverride: override || "", statusSince: nowMs() };
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: durationLabelFor(type, reasons), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", statusSince: nowMs() };
     if (state.reschedulingId) rec.replaces = state.reschedulingId;
     if (cf) rec.consultFirstFlag = true;
     store.appointments.push(rec);
@@ -2619,12 +2947,8 @@
       <div class="field" style="margin-top:14px"><label>Approved reason(s)</label><div id="reasonOptions">${reasonOptionsHtml(a.type, a.reasons || [])}</div></div>
       <div class="field" style="margin-top:12px"><label for="actionStatus">Appointment status</label>
         <select id="actionStatus">${visitStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select></div>
-      <div class="field" style="margin-top:12px"><label for="actionConsult">Consultation outcome (independent)</label>
-        <select id="actionConsult"><option value="">Not recorded</option>${BRIZZA.consultationOutcomes.map((x) => "<option" + (a.consultation === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select></div>
-      <div class="field" style="margin-top:12px"><label for="actionTreatment">Treatment status (independent)</label>
-        <select id="actionTreatment"><option value="">No treatment record</option>${BRIZZA.treatmentStatuses.map((x) => "<option" + (a.treatment === x ? " selected" : "") + ">" + esc(x) + "</option>").join("")}</select></div>
       <div class="row"><span>Invoice status</span>${inv ? invoiceBadge(a) : '<span class="row-sub">No invoice</span>'}</div>
-      <div class="notice">Payment and invoice status stay independent of visit status.</div>${openQ("This merged visit-status list supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update (Open question 23).")}
+      <div class="notice">Payment and invoice status stay independent of visit status. Consultation outcome and treatment status were removed from this window for now.</div>${openQ("This merged visit-status list supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update (Open question 23).")}
       ${optionalIdea("A non-blocking warning could appear when moving to Completed while the linked invoice is not Paid. This is undecided and is not required.")}
       <div id="statusWarn"></div>
       <div class="actions" style="margin-top:12px">
@@ -2655,21 +2979,7 @@
       a.reasons = reasons;
     }
     if (next !== a.status) setVisitStatus(a.id, next, { silent: true });
-    const consult = $("#actionConsult").value;
-    const treat = $("#actionTreatment").value;
-    if (consult !== a.consultation) {
-      addAudit({ action: "Updated consultation outcome", recordType: "Appointment", recordId: a.id,
-        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
-        changes: [{ field: "consultation", before: a.consultation || "Not recorded", after: consult || "Not recorded" }] });
-    }
-    if (treat !== a.treatment) {
-      addAudit({ action: "Updated treatment status", recordType: "Appointment", recordId: a.id,
-        recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "list" },
-        changes: [{ field: "treatment", before: a.treatment || "Not recorded", after: treat || "Not recorded" }] });
-    }
     a.status = next;
-    a.consultation = consult;
-    a.treatment = treat;
     closeModal();
     toast("Appointment history recorded");
     render();
@@ -2681,59 +2991,78 @@
     closeModal();
     openBook(old.patientId);
     $("#fType").value = old.type;
-    $("#reasonOptions").innerHTML = reasonOptionsHtml(old.type, old.reasons || []);
+    $("#reasonOptions").innerHTML = reasonDropdownHtml(old.type, old.reasons || []);
+    const r = $("#fReason");
+    if (r) r.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
     $("#fProvider").value = old.provider;
     toast("Prior appointment will be retained as Rescheduled when you save a new time");
   }
 
-  function openNewPatient() {
-    showModal("New patient", `
+  function openNewPatient(opts) {
+    opts = opts || {};
+    showModal("New Patient", `
       <div class="formgrid">
-        <div class="field"><label for="npName">Name</label><input id="npName" required></div>
-        <div class="field"><label for="npDob">Date of birth</label><input id="npDob" type="date" required></div>
-        <div class="field"><label for="npPhone">Phone</label><input id="npPhone"></div>
-        <div class="field"><label for="npEmail">Email</label><input id="npEmail"></div>
+        <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst" required autocomplete="given-name"></div>
+        <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast" required autocomplete="family-name"></div>
+        <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" required placeholder="mm/dd/yyyy" inputmode="numeric"></div>
+        <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" required></div>
+        <div class="field full"><label for="npAddress">Address</label><input id="npAddress" placeholder="Optional"></div>
+        <div class="field"><label for="npEmail">Email</label><input id="npEmail" placeholder="Optional"></div>
         <div class="field"><label for="npSex">Sex</label><select id="npSex"><option>Female</option><option>Male</option><option>Unspecified</option></select></div>
-      </div>`, function () {
-      const name = $("#npName").value.trim();
-      if (!name || !$("#npDob").value) { toast("Name and date of birth are required"); return; }
-      if (store.patients.some((p) => p.name.toLowerCase() === name.toLowerCase())) { toast("A patient with that name already exists"); return; }
-      const id = "BRZ" + String(store.patients.length + 1).padStart(4, "0");
-      store.patients.push({ id: id, name: name, dob: $("#npDob").value, sex: $("#npSex").value, phone: $("#npPhone").value || "—", email: $("#npEmail").value || "—", status: "Active", allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
+      </div>
+      <div id="npWarn"></div>`, function () {
+      const first = $("#npFirst").value.trim();
+      const last = $("#npLast").value.trim();
+      const dob = parseDob($("#npDob").value);
+      const phone = $("#npPhone").value.trim();
+      const missing = [];
+      if (!first) missing.push("First name");
+      if (!last) missing.push("Last name");
+      if (!dob) missing.push("Date of birth (mm/dd/yyyy)");
+      if (!phone) missing.push("Phone");
+      if (missing.length) {
+        $("#npWarn").innerHTML = '<div class="notice">Required: ' + esc(missing.join(", ")) + "</div>";
+        toast("Complete the required fields");
+        return;
+      }
+      const name = first + " " + last;
+      const id = nextPatientId();
+      store.patients.push({ id: id, firstName: first, lastName: last, name: name, dob: dob, sex: $("#npSex").value, phone: phone, email: $("#npEmail").value || "—", address: ($("#npAddress").value || "").trim(), status: "Active", credit: 0, accountBalance: 0, alerts: [], patientNotes: [], allergies: [], meds: [], conditions: [], notes: [], consents: { clinical: "Not yet recorded", marketing: "Not authorized" }, photos: [], documents: [], treatments: [], followups: [], demoHistory: [], registration: { idUploaded: { status: "Not uploaded", date: null }, formsCompleted: { status: "Not completed", date: null }, demographicsConfirmed: { status: "Not confirmed", date: null } } });
       addAudit({ action: "Created patient record", recordType: "Patient", recordId: id,
         recordPath: { page: "patients", selected: id, tab: "demographics" },
-        changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: name }] });
+        changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: name }, { field: "id", before: "—", after: displayId(id) }] });
       closeModal();
-      toast("Patient " + id + " created");
-      go({ page: "patients", selected: id, tab: "demographics" });
-    });
+      toast("Patient " + displayId(id) + " created");
+      if (opts.onCreated) opts.onCreated(id);
+      else go({ page: "patients", selected: id, tab: "demographics" });
+    }, "Save patient");
+    $("#modal").classList.add("book-mode");
   }
 
   function openEdit(pid) {
     const p = patient(pid);
-    showModal("Edit chart", `
+    showModal("Edit Chart", `
       <div class="formgrid">
-        <div class="field"><label>Patient number</label><input value="${esc(p.id)}" disabled></div>
+        <div class="field"><label>Patient number</label><input value="${esc(displayId(p.id))}" disabled></div>
         <div class="field"><label>Name</label><input value="${esc(p.name)}" disabled></div>
         <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(p.phone)}"></div>
         <div class="field"><label for="edEmail">Email</label><input id="edEmail" value="${esc(p.email)}"></div>
+        <div class="field full"><label for="edAddress">Address</label><input id="edAddress" value="${esc(p.address || "")}"></div>
+        <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy"></div>
       </div>
       <div class="notice">Demographic changes are audit-tracked. The patient number cannot be changed.</div>`, function () {
-      const phone = $("#edPhone").value, email = $("#edEmail").value;
+      const phone = $("#edPhone").value, email = $("#edEmail").value, address = $("#edAddress").value.trim();
+      const dob = parseDob($("#edDob").value) || p.dob;
       const changes = [];
-      if (phone !== p.phone) {
-        p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET());
-        changes.push({ field: "phone", before: p.phone, after: phone });
-      }
-      if (email !== p.email) {
-        p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET());
-        changes.push({ field: "email", before: p.email, after: email });
-      }
+      if (phone !== p.phone) { p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
+      if (email !== p.email) { p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
+      if (address !== (p.address || "")) { changes.push({ field: "address", before: p.address || "—", after: address || "—" }); }
+      if (dob !== p.dob) { changes.push({ field: "date of birth", before: fmtDob(p.dob), after: fmtDob(dob) }); }
       if (changes.length) {
         addAudit({ action: "Updated demographics", recordType: "Patient", recordId: p.id,
           recordPath: { page: "patients", selected: p.id, tab: "demographics" }, changes: changes });
       }
-      p.phone = phone; p.email = email;
+      p.phone = phone; p.email = email; p.address = address; p.dob = dob;
       closeModal(); toast("Demographic edits are audit-tracked"); render();
     });
   }
@@ -2799,11 +3128,8 @@
       recordPath: { page: "pos", invoiceId: inv.id },
       changes: [{ field: "payment status", before: "—", after: status }, { field: "invoice status", before: prev, after: inv.status }, { field: "amount", before: "—", after: amt != null ? money(amt) : "TBD" }] });
     toast("Payment recorded as " + status + (amt != null ? " · " + money(amt) : "") + " · receipt saved");
-    if ($("#modal") && $("#modal").classList.contains("pos-mode")) {
-      const apId = (inv.appointmentIds || [])[0] || state.posAppointmentId;
-      if (apId) openPosPopup(apId);
-      else render();
-    } else render();
+    if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
+    else render();
   }
 
   function finalizeInvoice(invId) {
@@ -3068,6 +3394,7 @@
     if (!n) return;
     const lock = n.locked ? badge("Locked") : "";
     showModal(esc(n.type || "Note") + " · " + (p ? p.name : pid),
+      (p ? alertsBanner(p) : "") +
       lock + " " + badge(n.status || "Draft") +
       '<div class="row-sub">' + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</div>" +
       "<p>" + esc(n.text || "") + "</p>" +
@@ -3076,6 +3403,145 @@
       function () { closeModal(); }, "Close");
   }
 
+
+  function dayNames(days) {
+    const map = { 0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
+    return (days || []).map((d) => map[d] || d).join(", ");
+  }
+  function blocksOutsideClinic(blocks) {
+    return (blocks || []).some((b) => (b.start && b.start < "10:00") || (b.end && b.end > "18:00"));
+  }
+  function renderAvailability() {
+    const head = pageHead("Availability", "Availability", "Provider schedule templates drive calendar shading and the location/hours hover.",
+      canManageAvailability() ? '<button class="btn primary" type="button" data-av-new="1">＋ Template</button>' : "");
+    if (!canManageAvailability()) {
+      const body = '<div class="card"><div class="cardbody"><div class="notice">Availability is available when acting as Clinic Manager or MD / Clinic Owner. Change Acting as in the top bar to open this module.</div></div></div>';
+      renderChrome("Availability", head, body);
+      return;
+    }
+    const rows = (store.availabilityTemplates || []).map(function (t) {
+      const locBlocks = (t.blocks || []).map(function (b) {
+        return locationShort(b.locationId) + " (" + compactTime(b.start) + "-" + compactTime(b.end) + ")";
+      }).join(" / ") || "No time blocks";
+      const flag = blocksOutsideClinic(t.blocks) ? '<span class="outside-flag">Outside clinic hours</span>' : "";
+      const end = t.endDate ? fmtDob(t.endDate) : "No end date";
+      return '<div class="card" style="margin-bottom:12px"><div class="cardhead"><h2>' + esc(t.provider) + " · " + esc(t.id) + "</h2>" +
+        historyIcon("Availability", t.id) +
+        ' <button class="btn small" type="button" data-av-edit="' + esc(t.id) + '">Edit</button>' +
+        ' <button class="btn small" type="button" data-av-delete="' + esc(t.id) + '">Delete</button></div>' +
+        '<div class="cardbody"><div class="row-sub">Starts ' + esc(fmtDob(t.startDate)) + " · Ends " + esc(end) +
+        " · Every " + esc(String(t.everyNWeeks || 1)) + " week(s) · " + esc(dayNames(t.days)) + "</div>" +
+        '<div style="margin-top:6px">' + esc(locBlocks) + " " + flag + "</div></div></div>";
+    }).join("") || '<div class="empty">No availability templates</div>';
+    const body = '<div class="card"><div class="cardbody">' +
+      '<p class="row-sub">Clinic baseline is Monday–Friday, 10:00 a.m.–6:00 p.m. ET. Templates can include earlier or later hours; those blocks are shown and flagged.</p>' +
+      openQ("Can a provider template start before or end after clinic hours? Nicole's example uses 9–11 a.m., which begins before the 10 a.m. clinic open (Open question 27).") +
+      openQ("Long Island is a synthetic second location added as an example. Real clinic locations are not confirmed (Open question 26).") +
+      "</div></div>" + rows;
+    renderChrome("Availability", head, body);
+  }
+  function availabilityBlockRow(b, i) {
+    b = b || { locationId: BRIZZA.DEFAULT_LOCATION, start: "10:00", end: "18:00" };
+    const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (b.locationId === l.id ? " selected" : "") + ">" + esc(l.name) + (l.synthetic ? " (synthetic)" : "") + "</option>").join("");
+    return '<div class="av-block" data-av-block="' + i + '"><label class="sr-only" for="avLoc' + i + '">Location</label>' +
+      '<select id="avLoc' + i + '" data-av-loc>' + locOpts + "</select>" +
+      '<label class="sr-only" for="avStart' + i + '">Start</label><input id="avStart' + i + '" data-av-start type="time" value="' + esc(b.start || "10:00") + '">' +
+      '<label class="sr-only" for="avEnd' + i + '">End</label><input id="avEnd' + i + '" data-av-end type="time" value="' + esc(b.end || "18:00") + '">' +
+      '<button type="button" class="pos-x" data-av-remove-block aria-label="Remove time block">×</button></div>';
+  }
+  function collectAvailabilityBlocks() {
+    return $$(".av-block").map(function (row) {
+      const loc = row.querySelector("[data-av-loc]");
+      const start = row.querySelector("[data-av-start]");
+      const end = row.querySelector("[data-av-end]");
+      return { locationId: loc ? loc.value : BRIZZA.DEFAULT_LOCATION, start: start ? start.value : "10:00", end: end ? end.value : "18:00" };
+    });
+  }
+  function openAvailabilityForm(id) {
+    const existing = id && (store.availabilityTemplates || []).find((t) => t.id === id);
+    const t = existing || { provider: BRIZZA.PROVIDERS[0], color: "#FFFCF6", startDate: todayET(), endDate: null, everyNWeeks: 1, days: [1, 2, 3, 4, 5], blocks: [{ locationId: BRIZZA.DEFAULT_LOCATION, start: "10:00", end: "18:00" }] };
+    const dayChecks = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [0, "Sun"]].map(function (x) {
+      return '<label><input type="checkbox" name="avDay" value="' + x[0] + '"' + ((t.days || []).indexOf(x[0]) >= 0 ? " checked" : "") + "> " + x[1] + "</label>";
+    }).join(" ");
+    const prov = BRIZZA.PROVIDERS.map((pv) => "<option" + (t.provider === pv ? " selected" : "") + ">" + esc(pv) + "</option>").join("");
+    showModal(existing ? "Edit availability template" : "New availability template", `
+      <div class="formgrid">
+        <div class="field"><label for="avProvider">Provider</label><select id="avProvider">${prov}</select></div>
+        <div class="field"><label for="avColor">Color</label><input id="avColor" type="color" value="${esc(t.color || "#FFFCF6")}"></div>
+        <div class="field"><label for="avStartDate">Start date</label><input id="avStartDate" type="date" value="${esc(t.startDate || "")}"></div>
+        <div class="field"><label for="avEndDate">End date</label><input id="avEndDate" type="date" value="${esc(t.endDate || "")}" ${t.endDate ? "" : "disabled"}>
+          <label><input type="checkbox" id="avNoEnd"${t.endDate ? "" : " checked"}> No end date</label></div>
+        <div class="field"><label for="avEvery">Every N weeks</label><input id="avEvery" type="number" min="1" value="${esc(String(t.everyNWeeks || 1))}"></div>
+        <div class="field full"><label>Weekly days</label><div>${dayChecks}</div></div>
+        <div class="field full"><label>Location and hours</label><div id="avBlocks">${(t.blocks || []).map(availabilityBlockRow).join("")}</div>
+          <button class="btn small" type="button" id="avAddBlock">＋ Add block</button></div>
+      </div>
+      <div id="avWarn"></div>
+      ${openQ("Can a provider template start before or end after clinic hours? Nicole's example uses 9–11 a.m., which begins before the 10 a.m. clinic open (Open question 27).")}`,
+      function () { saveAvailabilityTemplate(id); }, "Save");
+    const noEnd = $("#avNoEnd");
+    if (noEnd) noEnd.addEventListener("change", function () {
+      if ($("#avEndDate")) $("#avEndDate").disabled = noEnd.checked;
+    });
+    if ($("#avAddBlock")) $("#avAddBlock").addEventListener("click", function () {
+      const box = $("#avBlocks");
+      if (!box) return;
+      box.insertAdjacentHTML("beforeend", availabilityBlockRow({ locationId: BRIZZA.DEFAULT_LOCATION, start: "14:00", end: "18:00" }, box.children.length));
+    });
+  }
+  function saveAvailabilityTemplate(id) {
+    const days = $$('input[name="avDay"]:checked').map((x) => Number(x.value));
+    const blocks = collectAvailabilityBlocks().filter((b) => b.start && b.end);
+    const missing = [];
+    const provider = $("#avProvider") ? $("#avProvider").value : "";
+    const startDate = $("#avStartDate") ? $("#avStartDate").value : "";
+    const noEnd = $("#avNoEnd") && $("#avNoEnd").checked;
+    const endDate = noEnd ? null : ($("#avEndDate") && $("#avEndDate").value) || "";
+    if (!provider) missing.push("Provider");
+    if (!startDate) missing.push("Start date");
+    if (!noEnd && !endDate) missing.push("End date (or choose no end date)");
+    if (!days.length) missing.push("Weekly days");
+    if (!blocks.length) missing.push("At least one time block");
+    if (missing.length) {
+      const w = $("#avWarn");
+      if (w) w.innerHTML = '<div class="notice">Required: ' + missing.map(esc).join(", ") + "</div>";
+      toast("Complete the required fields");
+      return;
+    }
+    const rec = {
+      id: id || nextId("AVT-", store.availabilityTemplates),
+      provider: provider,
+      color: ($("#avColor") && $("#avColor").value) || "#FFFCF6",
+      startDate: startDate,
+      endDate: endDate || null,
+      everyNWeeks: Math.max(1, Number(($("#avEvery") && $("#avEvery").value) || 1)),
+      days: days,
+      blocks: blocks
+    };
+    const existing = (store.availabilityTemplates || []).find((t) => t.id === rec.id);
+    const before = existing ? JSON.stringify({ provider: existing.provider, blocks: existing.blocks, days: existing.days, startDate: existing.startDate, endDate: existing.endDate }) : "—";
+    if (existing) Object.assign(existing, rec);
+    else {
+      store.availabilityTemplates = store.availabilityTemplates || [];
+      store.availabilityTemplates.push(rec);
+    }
+    addAudit({ action: existing && id ? "Updated availability template" : "Created availability template", recordType: "Availability", recordId: rec.id,
+      recordPath: { page: "availability" },
+      changes: [{ field: "template", before: before, after: rec.provider + " · " + (rec.blocks || []).map((b) => locationShort(b.locationId) + " " + b.start + "-" + b.end).join(" / ") }] });
+    closeModal();
+    toast("Availability template saved");
+    render();
+  }
+  function deleteAvailabilityTemplate(id) {
+    const existing = (store.availabilityTemplates || []).find((t) => t.id === id);
+    if (!existing) return;
+    store.availabilityTemplates = store.availabilityTemplates.filter((t) => t.id !== id);
+    addAudit({ action: "Deleted availability template", recordType: "Availability", recordId: id,
+      recordPath: { page: "availability" },
+      changes: [{ field: "template", before: existing.provider, after: "Deleted" }] });
+    toast("Template deleted");
+    render();
+  }
 
   function render() {
     if (state.page !== "rooming") stopRoomingTick();
@@ -3089,6 +3555,7 @@
     else if (state.page === "audit") renderAudit();
     else if (state.page === "rooming") renderRooming();
     else if (state.page === "inventory") renderInventory();
+    else if (state.page === "availability") renderAvailability();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
     bindStatusStops();
@@ -3173,10 +3640,114 @@
       e.preventDefault();
       addCatalogLine(addL.getAttribute("data-pos-add-line"), $("#posCatalog") && $("#posCatalog").value, $("#posQty") && $("#posQty").value);
       const inv = invoice(addL.getAttribute("data-pos-add-line"));
-      if ($("#modal") && $("#modal").classList.contains("pos-mode") && inv && inv.appointmentIds && inv.appointmentIds[0]) openPosPopup(inv.appointmentIds[0]);
+      if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
       else render();
       return;
     }
+    const rmLine = e.target.closest("[data-remove-line]");
+    if (rmLine) {
+      e.preventDefault();
+      const inv = invoice(state.invoiceId);
+      const i = Number(rmLine.getAttribute("data-remove-line"));
+      if (inv && inv.lines && inv.lines[i] && !inv.finalized) {
+        const name = inv.lines[i].name || "line";
+        inv.lines.splice(i, 1);
+        refreshInvoiceBalance(inv);
+        addAudit({ action: "Removed POS line", recordType: "Invoice", recordId: inv.id,
+          recordPath: { page: "pos", invoiceId: inv.id },
+          changes: [{ field: "line", before: name, after: "Removed" }] });
+        toast("Line removed");
+        refreshInvoicePopup();
+      }
+      return;
+    }
+    const cred = e.target.closest("[data-apply-credit]");
+    if (cred) { e.preventDefault(); applyInvoiceCredit(cred.getAttribute("data-apply-credit")); return; }
+    const rem = e.target.closest("[data-add-remaining]");
+    if (rem) { e.preventDefault(); addRemainingToBalance(rem.getAttribute("data-add-remaining")); return; }
+    const addAlert = e.target.closest("[data-add-alert]");
+    if (addAlert) {
+      e.preventDefault();
+      const pid = addAlert.getAttribute("data-add-alert");
+      const host = addAlert.parentElement;
+      const existing = host && host.querySelector("#newAlert");
+      if (existing) {
+        const text = existing.value.trim();
+        if (!text) { toast("Enter an alert"); return; }
+        const pt = patient(pid);
+        if (!pt) return;
+        pt.alerts = pt.alerts || [];
+        const rec = { id: nextId("AL-", pt.alerts), text: text, when: nowET(), who: state.actingRole };
+        pt.alerts.push(rec);
+        addAudit({ action: "Added patient alert", recordType: "Patient", recordId: pid,
+          recordPath: { page: "patients", selected: pid, tab: "demographics" },
+          changes: [{ field: "alert", before: "—", after: text }] });
+        toast("Alert added");
+        if (state.page === "patients") render();
+        const bannerHost = document.querySelector("#modal.open #modalBody") || $("#app-root");
+        if (bannerHost) {
+          const oldB = bannerHost.querySelector(".alert-banner, .row-sub");
+        }
+        if ($("#modal") && $("#modal").classList.contains("open") && !$("#modal").classList.contains("pos-mode")) {
+          const first = $("#modalBody") && $("#modalBody").firstElementChild;
+          const html = alertsBanner(pt);
+          const prev = $("#modalBody") && $("#modalBody").querySelector(".alert-banner");
+          if (prev) prev.outerHTML = html;
+          else if ($("#modalBody")) $("#modalBody").insertAdjacentHTML("afterbegin", html);
+        }
+        return;
+      }
+      addAlert.insertAdjacentHTML("beforebegin", ' <input id="newAlert" placeholder="Allergy, preference, or other alert" aria-label="New patient alert">');
+      const inp = $("#newAlert");
+      if (inp) inp.focus();
+      addAlert.textContent = "Save alert";
+      return;
+    }
+    const rmAlert = e.target.closest("[data-remove-alert]");
+    if (rmAlert) {
+      e.preventDefault();
+      const pid = rmAlert.getAttribute("data-pid");
+      const aid = rmAlert.getAttribute("data-remove-alert");
+      const pt = patient(pid);
+      if (pt) {
+        const al = (pt.alerts || []).find((x) => x.id === aid);
+        pt.alerts = (pt.alerts || []).filter((x) => x.id !== aid);
+        addAudit({ action: "Removed patient alert", recordType: "Patient", recordId: pid,
+          recordPath: { page: "patients", selected: pid, tab: "demographics" },
+          changes: [{ field: "alert", before: al ? al.text : aid, after: "Removed" }] });
+        toast("Alert removed");
+        if (state.page === "patients") render();
+        if ($("#modal") && $("#modal").classList.contains("open") && !$("#modal").classList.contains("pos-mode") && pt) {
+          const prev = $("#modalBody") && $("#modalBody").querySelector(".alert-banner");
+          const html = alertsBanner(pt);
+          if (prev) prev.outerHTML = html;
+        }
+      }
+      return;
+    }
+    const addNote = e.target.closest("[data-add-pnote]");
+    if (addNote) {
+      e.preventDefault();
+      const pid = addNote.getAttribute("data-add-pnote");
+      const pt = patient(pid);
+      const text = ($("#pnote") && $("#pnote").value.trim()) || "";
+      if (!pt || !text) { toast("Enter a patient note"); return; }
+      pt.patientNotes = pt.patientNotes || [];
+      pt.patientNotes.push({ id: nextId("PN-", pt.patientNotes), text: text, when: nowET(), who: state.actingRole });
+      addAudit({ action: "Added patient note", recordType: "Patient", recordId: pid,
+        recordPath: { page: "patients", selected: pid, tab: "demographics" },
+        changes: [{ field: "patient note", before: "—", after: text }] });
+      toast("Patient note added");
+      render();
+      return;
+    }
+    if (e.target.closest("[data-av-new]")) { e.preventDefault(); openAvailabilityForm(); return; }
+    const avEdit = e.target.closest("[data-av-edit]");
+    if (avEdit) { e.preventDefault(); openAvailabilityForm(avEdit.getAttribute("data-av-edit")); return; }
+    const avDel = e.target.closest("[data-av-delete]");
+    if (avDel) { e.preventDefault(); deleteAvailabilityTemplate(avDel.getAttribute("data-av-delete")); return; }
+    const avRm = e.target.closest("[data-av-remove-block]");
+    if (avRm) { e.preventDefault(); const row = avRm.closest(".av-block"); if (row) row.remove(); return; }
     const cq = e.target.closest("[data-pos-convert-quote]");
     if (cq) {
       e.preventDefault();
@@ -3317,6 +3888,29 @@
         const amt = lineAmount(inv.lines[Number(e.target.dataset.lineQty)]);
         inv.lines[Number(e.target.dataset.lineQty)].amount = amt == null ? "TBD" : amt;
         refreshInvoiceBalance(inv);
+        if ($("#modal") && $("#modal").classList.contains("pos-mode")) paintInvoiceLive(inv);
+      }
+    }
+    else if (e.target.dataset.linePrice != null) {
+      const inv = invoice(state.invoiceId);
+      const i = Number(e.target.dataset.linePrice);
+      if (inv && inv.lines[i] && !inv.finalized) {
+        const raw = e.target.value.trim();
+        const prevRaw = e.target.dataset.prevPrice;
+        const before = (prevRaw == null) ? inv.lines[i].unitPrice : (prevRaw === "" ? null : Number(prevRaw));
+        const next = raw === "" ? null : Number(raw);
+        const after = (next == null || Number.isNaN(next)) ? null : next;
+        inv.lines[i].unitPrice = after;
+        const amt = lineAmount(inv.lines[i]);
+        inv.lines[i].amount = amt == null ? "TBD" : amt;
+        refreshInvoiceBalance(inv);
+        if (String(before) !== String(after)) {
+          addAudit({ action: "Edited line price", recordType: "Invoice", recordId: inv.id,
+            recordPath: { page: "pos", invoiceId: inv.id },
+            changes: [{ field: "unit price", before: before == null ? "TBD" : money(before), after: after == null ? "TBD" : money(after) }] });
+        }
+        e.target.dataset.prevPrice = after == null ? "" : String(after);
+        if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
       }
     }
     else if (e.target.dataset.roomSet) { setRoomingStatus(e.target.dataset.roomSet, e.target.value); }
@@ -3354,12 +3948,27 @@
     state.contrast = checkContrast();
     if (state.contrast.failed) console.warn("Contrast check failures", state.contrast);
     else console.info("Theme contrast: all configured text/background pairs meet their WCAG targets.");
-    if (!location.hash) history.replaceState(null, "", hashFor({ page: "patients", selected: "BRZ0001", tab: "demographics" }));
+    if (!location.hash) history.replaceState(null, "", hashFor({ page: "patients", selected: "BZ0001", tab: "demographics" }));
     window.addEventListener("hashchange", applyRoute);
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
     document.addEventListener("input", function (e) {
       if (e.target.id === "patient-search" || e.target.id === "sched-search" || e.target.id === "notes-search" || e.target.id === "patient-find" || e.target.id === "lot-trace" || e.target.dataset.cost) onChange(e);
+      if (e.target.dataset && (e.target.dataset.lineQty != null || e.target.dataset.linePrice != null)) {
+        const inv = invoice(state.invoiceId);
+        if (!inv || inv.finalized) return;
+        const i = Number(e.target.dataset.lineQty != null ? e.target.dataset.lineQty : e.target.dataset.linePrice);
+        const raw = e.target.value.trim();
+        if (e.target.dataset.lineQty != null) inv.lines[i].qty = raw === "" ? null : Number(raw);
+        if (e.target.dataset.linePrice != null) {
+          const n = raw === "" ? null : Number(raw);
+          inv.lines[i].unitPrice = (n == null || Number.isNaN(n)) ? null : n;
+        }
+        const amt = lineAmount(inv.lines[i]);
+        inv.lines[i].amount = amt == null ? "TBD" : amt;
+        refreshInvoiceBalance(inv);
+        paintInvoiceLive(inv);
+      }
     });
     document.addEventListener("focusout", function (e) {
       if (e.target && e.target.dataset && e.target.dataset.prepNotes) {
@@ -3373,6 +3982,14 @@
           recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "worklist" },
           changes: [{ field: "appointment notes", before: before || "—", after: next || "—" }] });
         toast("Appointment notes saved");
+      }
+    });
+    document.addEventListener("focusin", function (e) {
+      if (e.target && e.target.dataset && e.target.dataset.linePrice != null) {
+        const inv = invoice(state.invoiceId);
+        const i = Number(e.target.dataset.linePrice);
+        const cur = inv && inv.lines[i] ? inv.lines[i].unitPrice : null;
+        if (e.target.dataset.prevPrice == null) e.target.dataset.prevPrice = cur == null ? "" : String(cur);
       }
     });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });

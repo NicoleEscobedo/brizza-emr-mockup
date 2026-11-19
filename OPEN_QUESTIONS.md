@@ -23,7 +23,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 
 17. **Clinical note templates and who may Create / Sign notes.** The Consult template keeps the single Consultation note with procedure Yes/No (Sched §5 / §14). Toxin, Filler, Facial, and Microneedling templates are labeled **Draft templates – Open question** and are not taken from the SOPs or V1 documents. Create Note is shown only for RN / NP Injector and Aesthetician (from the V1-sourced role profiles, using Acting as). Whether MD / Clinic Owner or Medical Assistant may create or sign notes is not established.
 
-18. **Provider office availability.** Shaded in-office hours (for example Manhattan 10–12 and 1–6, with a midday gap) are synthetic sample data, not taken from the V1 documents. Official provider schedules, lunch coverage, and how availability interacts with Admin blocks remain open.
+18. **Provider office availability.** Round 7 templates (recurring weekly days, every N weeks, multiple location/time blocks) now drive calendar shading and the hours hover, replacing the earlier synthetic availability windows (kept in `_superseded/`). Official provider schedules, lunch coverage, and how availability interacts with Admin blocks remain open. See also 26 and 27.
 
 19. **Consulting for catalog.** New-patient visits require a Consulting for value drawn from `BRIZZA.consultingFor` in `assets/js/data.js` (Toxins, Fillers, Dissolve, Facial, Wax, Microneedling). That list is easy to extend, but it is not an approved catalog in the V1 documents.
 
@@ -38,3 +38,9 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 24. **Product costs and margin.** Product costs were not provided. Cost fields on the inventory catalog are editable TBD values in this session. Margin is computed only after a numeric cost is entered. Official cost sources, costing methods, and whether margin is shown to non-manager roles remain open.
 
 25. **Open-vial beyond-use dating.** Open-vial tracking records the opened date and units left. The beyond-use period after a vial is opened is not specified in the sources and is labeled in the inventory module.
+
+26. **Real clinic locations.** Long Island is a synthetic second location added from Nicole’s example and appears in location dropdowns, availability templates, and calendar hovers. It is labeled synthetic. Official clinic locations are not confirmed.
+
+27. **Provider hours versus clinic hours.** Clinic hours remain Monday–Friday, 10:00 a.m.–6:00 p.m. ET. A provider template may include earlier or later blocks (Nicole’s example uses 9–11 a.m., which starts before 10). Those blocks are shown on the schedule and flagged. Whether provider hours may exceed clinic hours is not decided.
+
+Consultation outcome and treatment status were removed from the appointment UI in Round 7. The earlier catalogs are in `_superseded/consultation-treatment-status-r6.js`. Official status design remains an open database question (see 14 and 23).

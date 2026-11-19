@@ -46,7 +46,7 @@
   --heading-tracking:-0.02em;
   --sidebar-radius:0;
   --clinic-hours:#EDE6DA;
-  --avail:#E3EDE3;
+  --avail:#F3EEE6;
   --unavail:#E8E2DC;
   --block-bg:#E4D5C4;
   --block-fg:#3A2C20;
@@ -55,11 +55,11 @@
 
 /* Appointment type colors (text/background pairs meet AA 4.5:1). */
 [data-type="Consultation"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B7C9E8}
-[data-type="Neurotoxin"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B7D4C4}
+[data-type="Neurotoxin"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E6C8B4}
 [data-type="Filler"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8C2D3}
 [data-type="Dissolve"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8D0B8}
 [data-type="Facial"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#D4C4E8}
 [data-type="Chemical Peel"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E6D6A8}
-[data-type="Microneedling"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B8D8D4}
+[data-type="Microneedling"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#D5C6DE}
 [data-type="Wax"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8C8C0}
 [data-type="Follow-up"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#C5D0DC}

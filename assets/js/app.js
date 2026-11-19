@@ -1,7 +1,7 @@
 /* Brizza Clinic EMR mockup — synthetic data only. */
 (function () {
   "use strict";
-  // Round 5 — Ready for clinical, merged visit status, wait-gold timer.
+  // Round 6 — Worklist, given prices, inventory, merged clinical profile, history pop-up.
 
   function fmtTime(t) {
     if (!t) return "";
@@ -163,8 +163,8 @@
     const ev = {
       id: nextId("AUD-", store.audit),
       when: spec.when || nowET(),
-      who: spec.who || "Alex Morgan",
-      role: spec.role || "Synthetic session user",
+      who: spec.who || actingName(),
+      role: spec.role || state.actingRole || "Synthetic session user",
       action: spec.action,
       recordType: spec.recordType,
       recordId: spec.recordId,
@@ -180,9 +180,7 @@
     return '<a class="audit-icon" href="' + href + '" title="Audit log" aria-label="Audit log">' + AUDIT_SVG + "</a>";
   }
   function auditIconFor(type, id) {
-    const evs = auditsFor(type, id);
-    if (!evs.length) return "";
-    return auditIcon(hashFor({ page: "audit", auditId: evs[evs.length - 1].id }));
+    return historyIcon(type, id);
   }
   function historyLinks(type, id, fallback) {
     return auditIconFor(type, id);
@@ -196,7 +194,8 @@
     const r = (p && p.registration) || {};
     const item = (key, label, doneWord, pendingWord) => {
       const rec = r[key] || { status: pendingWord, date: null };
-      return { key: key, label: label, status: rec.status || pendingWord, date: rec.date, ok: rec.status === doneWord };
+      const ok = rec.status === doneWord || rec.status === "Completed" || (key === "formsCompleted" && rec.status === "Checked out");
+      return { key: key, label: label, status: rec.status || pendingWord, date: rec.date, ok: ok };
     };
     return [
       item("idUploaded", "ID uploaded", "Uploaded", "Not uploaded"),
@@ -298,15 +297,14 @@
 
   const TABS = {
     demographics: "Demographics",
-    "clinical-profile": "Clinical Profile",
+    "clinical-profile": "Clinical profile",
     appointments: "Appointments",
-    "treatment-history": "Treatment History",
     photos: "Photos",
     documents: "Documents",
     ledger: "Ledger",
     quotes: "Quotes",
-    "follow-up": "Follow-Up History",
-    "clinical-notes": "Clinical Notes"
+    "follow-up": "Follow-up history",
+    "clinical-notes": "Clinical notes"
   };
 
   function parseHash() {
@@ -319,16 +317,16 @@
     const p0 = parts[0] || "patients";
     if (p0 === "schedule") {
       let i = 1;
-      let view = "list";
+      let view = "worklist";
       let calMode = state.calMode || "week";
-      if (parts[1] === "list") { view = "list"; i = 2; }
+      if (parts[1] === "list" || parts[1] === "worklist") { view = "worklist"; i = 2; }
       else if (parts[1] === "calendar") {
         view = "calendar";
         const mode = parts[2];
         if (mode === "day" || mode === "week" || mode === "month") { calMode = mode; i = 3; }
         else { calMode = "week"; i = 2; }
       }
-      let date = state.date || BRIZZA.SAMPLE_DAY;
+      let date = state.date || todayET();
       let appointmentId = null;
       if (parts[i] && /^\d{4}-\d{2}-\d{2}$/.test(parts[i])) { date = parts[i]; i += 1; }
       if (parts[i] === "appointment") appointmentId = parts[i + 1] || null;
@@ -360,6 +358,8 @@
     } else if (p0 === "rooming") {
       const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || todayET());
       route = { page: "rooming", date: date };
+    } else if (p0 === "inventory") {
+      route = { page: "inventory", invTab: parts[1] || state.invTab || "catalog" };
     }
     return route;
   }
@@ -369,10 +369,10 @@
     let path = "/patients";
     if (route.page === "schedule") {
       const date = route.date || state.date;
-      const view = route.view || state.scheduleView || "list";
+      const view = route.view || state.scheduleView || "worklist";
       const calMode = route.calMode || state.calMode || "week";
       if (view === "calendar") path = "/schedule/calendar/" + calMode + "/" + date;
-      else path = "/schedule/" + date;
+      else path = "/schedule/worklist/" + date;
       if (route.appointmentId) path += "/appointment/" + route.appointmentId;
     } else if (route.page === "patients") {
       path = route.selected ? "/patients/" + route.selected + "/" + (route.tab || "demographics") : "/patients";
@@ -392,6 +392,7 @@
     else if (route.page === "demo") path = "/demo";
     else if (route.page === "audit") path = "/audit/" + route.auditId;
     else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
+    else if (route.page === "inventory") path = "/inventory/" + (route.invTab || state.invTab || "catalog");
     return "#" + path + "?theme=01";
   }
 
@@ -408,8 +409,9 @@
     if (r.calMode) state.calMode = r.calMode;
     if (r.selected && patient(r.selected)) {
       state.selected = r.selected;
-      state.tab = TABS[r.tab] ? r.tab : "demographics";
+      state.tab = TABS[r.tab] ? r.tab : (r.tab === "treatment-history" ? "clinical-profile" : "demographics");
     }
+    if (r.invTab) state.invTab = r.invTab;
     if (r.visitId) state.visitId = r.visitId;
     if (r.invoiceId) state.invoiceId = r.invoiceId;
     state.quoteId = r.quoteId || null;
@@ -460,6 +462,695 @@
   }
 
 
+  /* —— Round 6 helpers: money, catalog, worklist, history, inventory —— */
+  function catalogItem(idOrName) {
+    const list = store.catalog || BRIZZA.CATALOG || [];
+    return list.find((c) => c.id === idOrName || c.name === idOrName) || null;
+  }
+  function lineSum(inv) {
+    let sum = 0, tbd = false;
+    (inv && inv.lines || []).forEach(function (l) {
+      const a = lineAmount(l);
+      if (a == null) tbd = true;
+      else sum += a;
+    });
+    return { sum: Math.round(sum * 100) / 100, tbd: tbd };
+  }
+  function money(n) {
+    if (n == null || n === "" || Number.isNaN(Number(n))) return "TBD";
+    const v = Number(n);
+    const sign = v < 0 ? "-" : "";
+    return sign + "$" + Math.abs(v).toFixed(2);
+  }
+  function lineAmount(l) {
+    if (!l) return null;
+    if (l.qty == null || l.qty === "" || l.unitPrice == null || l.unitPrice === "") return null;
+    const q = Number(l.qty), p = Number(l.unitPrice);
+    if (Number.isNaN(q) || Number.isNaN(p)) return null;
+    return Math.round(q * p * 100) / 100;
+  }
+  function invoicePaid(inv) {
+    let p = 0;
+    const ls = lineSum(inv);
+    (inv && inv.payments || []).forEach(function (pay) {
+      if (pay.status === "Refunded" || pay.status === "Voided") return;
+      if (typeof pay.amount === "number") p += pay.amount;
+      else if (pay.status === "Paid" && !ls.tbd) p += ls.sum;
+    });
+    return Math.round(p * 100) / 100;
+  }
+  function invoiceTotals(inv) {
+    const ls = lineSum(inv);
+    const paid = invoicePaid(inv);
+    let balance;
+    if (inv && typeof inv.balance === "number" && inv._balanceLocked) balance = inv.balance;
+    else if (!ls.tbd) balance = Math.round((ls.sum - paid) * 100) / 100;
+    else balance = null;
+    const label = ls.tbd && !ls.sum ? "TBD" : (money(ls.sum) + (ls.tbd ? " + TBD" : ""));
+    return { sum: ls.sum, tbd: ls.tbd, paid: paid, balance: balance, label: label };
+  }
+  function refreshInvoiceBalance(inv) {
+    if (!inv) return;
+    const t = invoiceTotals(inv);
+    if (t.balance == null) {
+      if (inv.status === "Paid") inv.balance = "None";
+      else if (!inv.balance || typeof inv.balance === "number") inv.balance = "Outstanding (amount TBD)";
+    } else {
+      inv.balance = t.balance;
+      if (inv.status === "Voided" || inv.status === "Refunded") return;
+      if (t.paid > 0 && t.balance <= 0 && !t.tbd) inv.status = "Paid";
+      else if (t.paid > 0 && t.balance > 0) inv.status = "Partially Paid";
+    }
+  }
+  function patientBalanceValue(pid) {
+    let sum = 0, tbd = false;
+    (store.invoices || []).filter((i) => i.patientId === pid).forEach(function (inv) {
+      refreshInvoiceBalance(inv);
+      if (typeof inv.balance === "number") sum += inv.balance;
+      else if (inv.status !== "Paid" && inv.status !== "Voided" && inv.balance !== "None") tbd = true;
+    });
+    return { sum: Math.round(sum * 100) / 100, tbd: tbd };
+  }
+  function appointmentInvoices(a) {
+    return (store.invoices || []).filter((inv) => (inv.appointmentIds || []).indexOf(a.id) >= 0 || a.invoiceId === inv.id);
+  }
+  function appointmentBalanceValue(a) {
+    const invs = appointmentInvoices(a);
+    if (!invs.length) return { sum: 0, tbd: false };
+    let sum = 0, tbd = false;
+    invs.forEach(function (inv) {
+      refreshInvoiceBalance(inv);
+      if (typeof inv.balance === "number") sum += inv.balance;
+      else if (inv.status !== "Paid" && inv.status !== "Voided" && inv.balance !== "None") tbd = true;
+    });
+    return { sum: Math.round(sum * 100) / 100, tbd: tbd };
+  }
+  function balanceBadge(val) {
+    if (!val) return '<span class="bal zero">—</span>';
+    if (val.tbd && !val.sum) return '<span class="bal due">TBD due</span>';
+    if (val.sum > 0) return '<span class="bal due">' + money(val.sum) + (val.tbd ? " + TBD" : "") + "</span>";
+    if (val.sum < 0) return '<span class="bal credit">Credit ' + money(Math.abs(val.sum)) + "</span>";
+    return '<span class="bal zero">' + money(0) + "</span>";
+  }
+  function marginDisplay(price, cost) {
+    if (price == null || cost == null || cost === "" || Number.isNaN(Number(cost))) return "—";
+    const p = Number(price), c = Number(cost);
+    if (!p) return "—";
+    const m = Math.round(((p - c) / p) * 1000) / 10;
+    return m + "%";
+  }
+
+  function canManageInventory() {
+    return (BRIZZA.INVENTORY_ROLES || []).indexOf(state.actingRole) >= 0;
+  }
+  function catalogOnHand(item) {
+    if (!item || !item.trackLots) return null;
+    return (store.lots || []).filter((l) => (l.productId === item.id || l.product === item.name) && l.status !== "Disposed")
+      .reduce((n, l) => n + (Number(l.onHand) || 0), 0);
+  }
+  function lowStockItems() {
+    return (store.catalog || BRIZZA.CATALOG || []).filter(function (c) {
+      if (c.reorderPoint == null) return false;
+      const on = catalogOnHand(c);
+      return on != null && on <= c.reorderPoint;
+    });
+  }
+
+  function historyIcon(type, id) {
+    return '<button type="button" class="audit-icon hist-icon" data-history-type="' + esc(type) + '" data-history-id="' + esc(id || "") + '" title="Audit log" aria-label="Audit log">' + AUDIT_SVG + "</button>";
+  }
+  function openHistoryPop(type, id) {
+    const evs = auditsFor(type, id).slice().reverse();
+    const title = "History · " + (type || "Record") + (id ? " " + id : "");
+    const rows = evs.length ? evs.map(function (e) {
+      const ch = (e.changes || []).map(function (c) {
+        return '<div class="hist-change"><strong>' + esc(c.field) + "</strong> · " + esc(c.before || "—") + " → " + esc(c.after || "—") + "</div>";
+      }).join("");
+      return '<div class="hist-item"><div class="when">' + esc(e.when) + " · " + esc(e.who) + " · " + esc(e.role) + '</div><div class="row-title">' + esc(e.action) + "</div>" + (ch || '<div class="row-sub">No field changes recorded</div>') + "</div>";
+    }).join("") : '<div class="empty">No history recorded for this item yet.</div>';
+    const foot = $("#modalSave");
+    const back = $("#modal");
+    $("#modalTitle").textContent = title;
+    $("#modalBody").innerHTML = '<div class="hist-list">' + rows + "</div>";
+    if (foot) { foot.textContent = "Close"; foot.onclick = function () { closeModal(); }; }
+    back.classList.add("open", "hist-mode");
+    back.classList.remove("pos-mode");
+  }
+
+  function addDocument(pid, spec) {
+    const p = patient(pid);
+    if (!p) return null;
+    p.documents = p.documents || [];
+    const doc = {
+      id: spec.id || nextId("DOC-", p.documents),
+      category: spec.category,
+      title: spec.title,
+      date: spec.date || todayET(),
+      relatedId: spec.relatedId || null,
+      invoiceId: spec.invoiceId || null,
+      kind: spec.kind || null,
+      body: spec.body || "",
+      printable: true
+    };
+    p.documents.push(doc);
+    return doc;
+  }
+
+  function printView(title, bodyHtml) {
+    const w = window.open("", "_blank", "width=800,height=900");
+    if (!w) { toast("Allow pop-ups to view or print"); return; }
+    const html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + String(title).replace(/[<>]/g, "") + "</title>" +
+      "<style>body{font:14px/1.5 sans-serif;color:#352820;padding:24px;background:#fff}h1{font-size:22px}</style></head>" +
+      '<body class="print-root"><h1 id="print-title">' + esc(title) + "</h1>" + bodyHtml +
+      '<p class="row-sub">Synthetic record · Brizza Clinic prototype</p></body></html>';
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    setTimeout(function () { try { w.focus(); } catch (e) {} }, 50);
+  }
+
+  function wlMatches(a, filters) {
+    if (!filters || !filters.length) return true;
+    const flags = wlFlags(a);
+    return filters.every((f) => flags[f]);
+  }
+  function wlFlags(a) {
+    const p = patient(a.patientId);
+    const items = registrationItems(p);
+    const missing = items.some((it) => !it.ok && (it.key === "idUploaded" || it.key === "formsCompleted"));
+    const bal = patientBalanceValue(a.patientId);
+    const unpaid = (bal.sum > 0) || bal.tbd;
+    const openQuotes = (store.quotes || []).some((q) => q.patientId === a.patientId && (q.status === "Open" || q.status === "Prepaid"));
+    return {
+      confirm: a.status === "Scheduled",
+      missing: missing,
+      checkout: a.status === "Ready for checkout",
+      unpaid: unpaid,
+      quotes: openQuotes
+    };
+  }
+  function wlFilterCounts(list) {
+    const c = { confirm: 0, missing: 0, checkout: 0, unpaid: 0, quotes: 0 };
+    list.forEach(function (a) {
+      const f = wlFlags(a);
+      Object.keys(c).forEach(function (k) { if (f[k]) c[k] += 1; });
+    });
+    return c;
+  }
+  function regMinis(p, apptId) {
+    const items = registrationItems(p);
+    const letter = { idUploaded: "ID", formsCompleted: "F", demographicsConfirmed: "D" };
+    const full = { idUploaded: "ID", formsCompleted: "Forms", demographicsConfirmed: "Demographics" };
+    const pills = items.map(function (it) {
+      return '<span class="reg-mini ' + (it.ok ? "ok" : "miss") + '" title="' + esc(full[it.key] + " · " + it.status) + '">' + letter[it.key] + "</span>";
+    }).join("");
+    const open = state.expandedAppt === apptId;
+    return '<div class="reg-minis"><button type="button" class="btn small" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button></div>";
+  }
+
+  function renderWorklist() {
+    const date = state.date;
+    const q = (state.scheduleSearch || "").trim().toLowerCase();
+    const filters = state.worklistFilters || [];
+    const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (state.locationId === l.id ? " selected" : "") + ">" + esc(l.name) + "</option>").join("");
+    const allDay = store.appointments
+      .filter((a) => a.date === date && a.status !== "Rescheduled")
+      .filter((a) => !state.locationId || a.locationId === state.locationId)
+      .sort((a, b) => a.time.localeCompare(b.time) || a.provider.localeCompare(b.provider));
+    const searched = q ? allDay.filter((a) => {
+      const p = patient(a.patientId);
+      return ((p && p.name) + " " + (p && p.dob || "") + " " + a.patientId + " " + a.type + " " + reasonText(a) + " " + a.id + " " + a.provider + " " + (a.prepNotes || "")).toLowerCase().includes(q);
+    }) : allDay;
+    const counts = wlFilterCounts(searched);
+    const visible = searched.filter((a) => wlMatches(a, filters) && a.status !== "Canceled");
+    const canceledShown = searched.filter((a) => a.status === "Canceled" && wlMatches(a, filters));
+    const rows = visible.concat(canceledShown);
+    const toggle = scheduleViewToggle();
+    const head = pageHead("Front desk", "Worklist", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours) + " · Do today’s work without leaving this page.",
+      toggle + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a> <button class="btn" type="button" data-open="block">＋ Admin block</button>');
+    const filtBtn = function (key, label, n) {
+      const on = filters.indexOf(key) >= 0;
+      return '<button type="button" class="wl-filter' + (on ? " active" : "") + '" data-wl-filter="' + key + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(label) + ' <span class="count">' + n + "</span></button>";
+    };
+    const filterBar = '<div class="wl-filters" role="group" aria-label="Task filters">' +
+      '<button type="button" class="wl-filter' + (!filters.length ? " active" : "") + '" data-wl-filter="all" aria-pressed="' + (!filters.length ? "true" : "false") + '">All <span class="count">' + searched.length + "</span></button>" +
+      filtBtn("confirm", "Needs confirmation", counts.confirm) +
+      filtBtn("missing", "Missing forms/ID", counts.missing) +
+      filtBtn("checkout", "Ready for checkout", counts.checkout) +
+      filtBtn("unpaid", "Unpaid balance", counts.unpaid) +
+      filtBtn("quotes", "Open quotes", counts.quotes) +
+      "</div>";
+    const hits = q ? scheduleSearchHits(q) : "";
+    const providers = [];
+    rows.forEach((a) => { if (providers.indexOf(a.provider) < 0) providers.push(a.provider); });
+    BRIZZA.PROVIDERS.forEach(function (pr) { if (providers.indexOf(pr) < 0 && rows.some((a) => a.provider === pr)) providers.push(pr); });
+    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>DOB</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    let groups = "";
+    if (isWeekend(date)) {
+      groups = '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    } else if (!rows.length) {
+      groups = '<div class="empty">No appointments match the current filters.</div>';
+    } else {
+      providers.forEach(function (pr) {
+        const set = rows.filter((a) => a.provider === pr);
+        if (!set.length) return;
+        const blks = dayBlocks(date).filter((b) => b.staff === pr);
+        groups += '<section class="wl-group" aria-labelledby="wl-h-' + esc(pr.replace(/\s+/g, "-")) + '">' +
+          '<h2 class="wl-group-h" id="wl-h-' + esc(pr.replace(/\s+/g, "-")) + '">' + esc(pr) + ' <span class="row-sub">' + set.length + (set.length === 1 ? " appointment" : " appointments") + (blks.length ? " · " + blks.length + " admin block" + (blks.length > 1 ? "s" : "") : "") + "</span></h2>" +
+          colHead +
+          set.map(wlRow).join("") +
+          blks.map(function (b) { return '<div class="block-card" style="margin:8px 0">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + " · Admin · " + esc(b.reason) + "</div>"; }).join("") +
+          "</section>";
+      });
+    }
+    const body = `<div class="wl" data-worklist="1">
+      <div class="card">
+        <div class="cardhead">
+          <div class="datebar">
+            <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: addDays(date, -1), view: "worklist" })}" aria-label="Previous day">‹</a>
+            <strong>${esc(fmtLong(date))}</strong> <span class="count">${esc(patientCount(date))}</span>
+            <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: addDays(date, 1), view: "worklist" })}" aria-label="Next day">›</a>
+            <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "worklist" })}">Today</a>
+            <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "worklist" })}">Sample day</a>
+          </div>
+          <div class="sched-tools">
+            <label class="sr-only" for="sched-search">Search patients and appointments</label>
+            <input id="sched-search" class="sched-search" type="search" placeholder="Search name, DOB, type…" value="${esc(state.scheduleSearch || "")}">
+            <label class="sr-only" for="locationSel">Location</label>
+            <select id="locationSel">${locOpts}</select>
+          </div>
+        </div>
+        <div class="cardbody">
+          <div class="wl-toolbar">${filterBar}</div>
+          ${hits}
+          ${typeLegend()}
+          ${groups}
+          ${openQ("Worklist task filters are a prototype of front-desk prep work. Official readiness criteria remain an open question (Open question 4).")}
+        </div>
+      </div>
+    </div>`;
+    renderChrome('<a href="' + hashFor({ page: "schedule", date: date, view: "worklist" }) + '">Worklist</a>', head, body);
+    bindStatusStops();
+  }
+
+  function suiteName(id) {
+    const s = (BRIZZA.SUITES || []).find((x) => x.id === id);
+    return s ? s.name : "—";
+  }
+  function wlRow(a) {
+    const p = patient(a.patientId);
+    const open = state.expandedAppt === a.id;
+    const suite = a.suiteId ? suiteName(a.suiteId) : "—";
+    return '<div class="wl-row" data-type="' + esc(a.type) + '" data-wl-row="' + esc(a.id) + '">' +
+      '<div class="wl-time">' + esc(fmtTime(a.time)) + "</div>" +
+      '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) + "</div>" +
+      '<div class="wl-dob">' + (p ? esc(fmtDate(p.dob)) : "—") + "</div>" +
+      '<div class="wl-prov">' + esc(a.provider) + "</div>" +
+      '<div class="wl-type">' + esc(a.type) + "</div>" +
+      '<div class="wl-reason">' + esc(reasonText(a)) + "</div>" +
+      '<div class="wl-suite">' + esc(suite) + "</div>" +
+      '<div>' + (p ? regMinis(p, a.id) : "") + "</div>" +
+      "<div>" + statusSelect(a, "wl") + "</div>" +
+      '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' +
+        '<input id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" value="' + esc(a.prepNotes || "") + '" placeholder="Prep, packages…"></div>' +
+      "<div>" + balanceBadge(patientBalanceValue(a.patientId)) + "</div>" +
+      '<div><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button></div>' +
+      (open ? '<div class="reg-expand">' + registrationPanel(a) + "</div>" : "") +
+      "</div>";
+  }
+
+  function ensureInvoiceForAppt(a) {
+    if (!a) return null;
+    let inv = a.invoiceId ? invoice(a.invoiceId) : null;
+    if (!inv) inv = (store.invoices || []).find((i) => (i.appointmentIds || []).indexOf(a.id) >= 0) || null;
+    if (inv) { a.invoiceId = inv.id; return inv; }
+    const id = nextId("INV-", store.invoices);
+    inv = { id: id, patientId: a.patientId, visitId: a.visitId || null, appointmentIds: [a.id], status: "Draft", balance: 0, lines: [], payments: [], finalized: false, finalizedAt: null, movements: [] };
+    store.invoices.push(inv);
+    a.invoiceId = id;
+    addAudit({ action: "Opened invoice from Worklist", recordType: "Invoice", recordId: id,
+      recordPath: { page: "pos", invoiceId: id },
+      changes: [{ field: "invoice", before: "—", after: id }] });
+    return inv;
+  }
+
+  function posLineEditor(inv, compact) {
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    const lines = (inv.lines || []).map(function (l, i) {
+      const amt = lineAmount(l);
+      return '<div class="row pos-lines"><div><span class="line-kind">' + esc(l.kind || "service") + "</span>" +
+        '<div class="row-title">' + esc(l.name || "") + (l.unit ? " · " + esc(l.unit) : "") + "</div></div>" +
+        (inv.finalized ? '<span>' + (amt == null ? "TBD" : money(amt)) + "</span>" :
+          '<label class="sr-only" for="qty-' + i + '">Quantity</label>' +
+          '<input class="qty" id="qty-' + i + '" data-line-qty="' + i + '" type="number" min="0" step="1" value="' + esc(l.qty == null ? "" : l.qty) + '" placeholder="Qty">' +
+          "<span>" + (l.unitPrice == null ? "TBD" : money(l.unitPrice) + " each") + " · " + (amt == null ? "TBD" : money(amt)) + "</span>") +
+        "</div>";
+    }).join("") || '<div class="empty">No lines yet.</div>';
+    const catOpts = (store.catalog || BRIZZA.CATALOG || []).map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) + "/" + esc(c.unit) : " · TBD") + "</option>").join("");
+    const quotes = (store.quotes || []).filter((q) => q.patientId === inv.patientId && (q.status === "Open" || q.status === "Prepaid"));
+    const qOpts = quotes.map((q) => '<option value="' + esc(q.id) + '">' + esc(q.name) + " · " + esc(q.status) + "</option>").join("");
+    return lines +
+      '<div class="pos-total">Total ' + esc(t.label) + (t.balance == null ? "" : " · Balance " + (t.tbd && t.balance === 0 ? "TBD" : money(t.balance))) + "</div>" +
+      (inv.finalized ? '<div class="notice">Invoice finalized. Inventory already posted.</div>' :
+      '<div class="field" style="margin-top:10px"><label for="posCatalog">Add line</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<select id="posCatalog">' + catOpts + "</select>" +
+      '<input id="posQty" class="qty" type="number" min="0" step="1" placeholder="Qty" aria-label="Quantity">' +
+      '<button class="btn small" type="button" data-pos-add-line="' + esc(inv.id) + '">Add</button></div>' +
+      '<p class="row-sub">Quantity is blank until entered. Unit counts are not prefilled.</p></div>' +
+      '<div class="field"><label for="pay-status">Take payment</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<select id="pay-status">' + BRIZZA.paymentStatuses.map((s) => "<option>" + s + "</option>").join("") + "</select>" +
+      '<input id="pay-amount" class="qty" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Payment amount" value="' + (t.balance != null && t.balance > 0 && !t.tbd ? esc(String(t.balance)) : "") + '">' +
+      '<button class="btn small primary" type="button" data-record-pay="' + esc(inv.id) + '">Record payment</button></div></div>' +
+      (qOpts ? '<div class="field"><label for="posQuote">Convert a quote</label><div style="display:flex;gap:8px;flex-wrap:wrap"><select id="posQuote">' + qOpts + '</select><button class="btn small" type="button" data-pos-convert-quote="' + esc(inv.id) + '">Convert to this invoice</button></div></div>' : "") +
+      '<button class="btn" type="button" data-finalize="' + esc(inv.id) + '">Finalize and post inventory</button>');
+  }
+
+  function openPosPopup(apptId) {
+    const a = appt(apptId);
+    if (!a) return;
+    const inv = ensureInvoiceForAppt(a);
+    const p = patient(a.patientId);
+    state.invoiceId = inv.id;
+    state.posAppointmentId = a.id;
+    $("#modalTitle").textContent = "Invoice · " + inv.id + " · " + (p ? p.name : a.patientId);
+    $("#modalBody").innerHTML = '<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>" + posLineEditor(inv, true) +
+      '<p class="row-sub" style="margin-top:12px"><a href="' + hashFor({ page: "pos", invoiceId: inv.id, posTab: "invoice" }) + '">Open full Point of Sale page</a></p>';
+    const save = $("#modalSave");
+    save.textContent = "Done";
+    save.onclick = function () { closeModal(); if (state.page === "schedule") renderWorklist(); else render(); };
+    $("#modal").classList.add("open", "pos-mode");
+    $("#modal").classList.remove("hist-mode");
+    const first = $("#modalBody").querySelector("input,select,button");
+    if (first) first.focus();
+  }
+
+  function addCatalogLine(invId, catalogId, qtyRaw) {
+    const inv = invoice(invId);
+    if (!inv || inv.finalized) return;
+    const item = catalogItem(catalogId);
+    if (!item) return;
+    const qty = (qtyRaw === "" || qtyRaw == null) ? null : Number(qtyRaw);
+    const line = { kind: item.kind, catalogId: item.id, name: item.name, unit: item.unit, qty: (qty == null || Number.isNaN(qty) ? null : qty), unitPrice: item.price, amount: "TBD" };
+    const amt = lineAmount(line);
+    if (amt != null) line.amount = amt;
+    inv.lines.push(line);
+    refreshInvoiceBalance(inv);
+    addAudit({ action: "Added POS line", recordType: "Invoice", recordId: inv.id,
+      recordPath: { page: "pos", invoiceId: inv.id },
+      changes: [{ field: "line", before: "—", after: item.name + " · qty " + (line.qty == null ? "(blank)" : line.qty) }] });
+    toast("Line added" + (amt != null ? " · " + money(amt) : " · amount TBD until quantity is entered"));
+  }
+
+
+  function fefoLots(productIdOrName) {
+    return (store.lots || []).filter((l) => (l.productId === productIdOrName || l.product === productIdOrName) && l.released && (l.onHand > 0) && l.status === "Released")
+      .sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)));
+  }
+  function postUsageToLots(inv) {
+    const movements = [];
+    (inv.lines || []).forEach(function (l) {
+      const item = catalogItem(l.catalogId || l.name);
+      if (!item || !item.trackLots) return;
+      const qty = lineAmount(l) != null ? Number(l.qty) : 1;
+      if (!qty || qty <= 0) return;
+      let left = qty;
+      fefoLots(item.id).forEach(function (lot) {
+        if (left <= 0) return;
+        const take = Math.min(lot.onHand, left);
+        lot.onHand = Math.round((lot.onHand - take) * 100) / 100;
+        if (lot.onHand <= 0) { lot.onHand = 0; lot.status = "Used"; }
+        if (inv.patientId) {
+          lot.patientIds = lot.patientIds || [];
+          if (lot.patientIds.indexOf(inv.patientId) < 0) lot.patientIds.push(inv.patientId);
+        }
+        const mov = { id: nextId("MOV-", store.inventoryMovements || []), lotId: lot.id, product: lot.product, type: "TREATMENT_USAGE", qty: -take, patientId: inv.patientId, invoiceId: inv.id, when: nowET() };
+        store.inventoryMovements = store.inventoryMovements || [];
+        store.inventoryMovements.push(mov);
+        movements.push(mov);
+        left -= take;
+      });
+    });
+    return movements;
+  }
+
+  function renderInventory() {
+    const head = pageHead("Inventory", "Inventory", "Lots follow FEFO. Usage posts when an invoice is finalized.", "");
+    if (!canManageInventory()) {
+      const body = '<div class="card"><div class="cardbody"><div class="notice">Inventory is available when acting as Clinic Manager or MD / Clinic Owner. Change Acting as in the sidebar to open this module.</div></div></div>';
+      renderChrome("Inventory", head, body);
+      return;
+    }
+    const tab = state.invTab || "catalog";
+    const tabs = [["catalog","Catalog"],["orders","Purchase orders"],["lots","Lots"],["trace","Lot trace"],["adjust","Adjustments"],["alerts","Low-stock alerts"],["audit","Inventory audit"]].map(function (x) {
+      return '<a class="tab ' + (tab === x[0] ? "active" : "") + '" href="' + hashFor({ page: "inventory", invTab: x[0] }) + '">' + x[1] + "</a>";
+    }).join("");
+    let body = '<div class="inv-tabs" role="tablist">' + tabs + "</div>";
+    if (tab === "catalog") body += invCatalogHtml();
+    else if (tab === "orders") body += invOrdersHtml();
+    else if (tab === "lots") body += invLotsHtml();
+    else if (tab === "trace") body += invTraceHtml();
+    else if (tab === "adjust") body += invAdjustHtml();
+    else if (tab === "alerts") body += invAlertsHtml();
+    else body += invAuditHtml();
+    body += openQ("Product costs were not provided. Cost fields are editable TBD values; margin appears only after a cost is entered in this session (Open question 24). Beyond-use dating for open vials is not specified (Open question 25).");
+    renderChrome("Inventory", head, body);
+  }
+  function invCatalogHtml() {
+    const rows = (store.catalog || []).map(function (c) {
+      const on = catalogOnHand(c);
+      const low = c.reorderPoint != null && on != null && on <= c.reorderPoint;
+      const costVal = c.cost == null ? "" : c.cost;
+      return "<tr" + (low ? ' class="inv-low"' : "") + "><td>" + esc(c.name) + '</td><td>' + esc(c.kind) + "</td><td>" + esc(c.unit) + "</td><td>" +
+        (c.price == null ? "TBD" : money(c.price)) + '</td><td><input class="cost-input" data-cost="' + esc(c.id) + '" placeholder="TBD" value="' + esc(costVal) + '" inputmode="decimal" aria-label="Cost for ' + esc(c.name) + '"></td><td class="margin-val">' +
+        marginDisplay(c.price, c.cost) + "</td><td>" + (on == null ? "—" : on) + "</td><td>" + (c.reorderPoint == null ? "—" : c.reorderPoint) + (low ? ' <span class="badge alert">Low</span>' : "") + "</td></tr>";
+    }).join("");
+    return '<div class="card"><div class="cardhead"><h2>Product catalog</h2></div><div class="cardbody"><table class="table"><thead><tr><th>Product</th><th>Kind</th><th>Unit</th><th>Price</th><th>Cost</th><th>Margin</th><th>On hand</th><th>Reorder point</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>";
+  }
+  function invOrdersHtml() {
+    const pos = (store.purchaseOrders || []).map(function (po) {
+      const lines = po.lines.map(function (l) {
+        const left = (l.orderedQty || 0) - (l.receivedQty || 0);
+        const recv = left > 0 && po.status !== "Received" ? '<button class="btn small" type="button" data-po-receive="' + esc(po.id) + '" data-product="' + esc(l.productId) + '">Receive</button>' : "";
+        return '<div class="row"><span>' + esc(l.name) + " · ordered " + l.orderedQty + " · received " + (l.receivedQty || 0) + "</span>" + recv + "</div>";
+      }).join("");
+      return '<div class="card" style="margin-bottom:12px"><div class="cardhead"><h2>' + esc(po.id) + " · " + esc(po.vendor) + "</h2>" + badge(po.status) + '</div><div class="cardbody"><div class="row-sub">Created ' + esc(po.created) + ' · Expected ' + esc(po.expected) + '</div>' + lines + '</div></div>';
+    }).join("");
+    return pos || '<div class="empty">No purchase orders</div>';
+  }
+  function invLotsHtml() {
+    const lots = (store.lots || []).slice().sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)));
+    const rows = lots.map(function (l) {
+      const ov = l.openVial ? ("Opened " + esc(l.openVial.openedAt) + " · units left " + esc(String(l.openVial.unitsLeft))) : "—";
+      const openBtn = (!l.openVial && l.onHand > 0 && (catalogItem(l.productId) || {}).trackOpenVial) ? '<button class="btn small" type="button" data-open-vial="' + esc(l.id) + '">Open vial</button>' : "";
+      return "<tr><td>" + esc(l.id) + "</td><td>" + esc(l.product) + "</td><td>" + esc(l.lotNumber || l.id) + "</td><td>" + esc(l.expiry) + "</td><td>" + l.onHand + "</td><td>" + esc(l.status) + "</td><td>" + ov + " " + openBtn + "</td><td>" + historyIcon("Lot", l.id) + "</td></tr>";
+    }).join("");
+    return '<div class="card"><div class="cardhead"><h2>Lots · FEFO order (earliest expiry first)</h2></div><div class="cardbody"><table class="table"><thead><tr><th>Lot</th><th>Product</th><th>Lot no.</th><th>Expiry</th><th>On hand</th><th>Status</th><th>Open vial</th><th></th></tr></thead><tbody>' + rows + "</tbody></table>" +
+      openQ("Open-vial tracking records the opened date and units left. The beyond-use period after opening is not specified (Open question 25).") + "</div></div>";
+  }
+  function invTraceHtml() {
+    const q = (state.lotTrace || "").trim().toLowerCase();
+    const movs = (store.inventoryMovements || []).filter(function (m) {
+      if (!q) return true;
+      const p = m.patientId ? patient(m.patientId) : null;
+      return (m.lotId + " " + m.product + " " + (m.patientId || "") + " " + (p && p.name || "") + " " + (m.invoiceId || "")).toLowerCase().includes(q);
+    }).slice().reverse();
+    const rows = movs.map(function (m) {
+      const p = m.patientId ? patient(m.patientId) : null;
+      return "<tr><td>" + esc(m.when) + "</td><td>" + esc(m.lotId) + "</td><td>" + esc(m.product) + "</td><td>" + esc(m.type) + "</td><td>" + esc(String(m.qty)) + "</td><td>" + (p ? patientLink(p) : "—") + "</td><td>" + esc(m.invoiceId || m.reason || "—") + "</td></tr>";
+    }).join("") || '<tr><td colspan="7">No movements match.</td></tr>';
+    return '<div class="card"><div class="cardhead"><h2>Lot-to-patient traceability</h2></div><div class="cardbody">' +
+      '<label class="sr-only" for="lot-trace">Search by lot, product, or patient</label>' +
+      '<input id="lot-trace" class="searchbox" type="search" placeholder="Search lot, product, patient (recall)" value="' + esc(state.lotTrace || "") + '">' +
+      '<table class="table"><thead><tr><th>When</th><th>Lot</th><th>Product</th><th>Type</th><th>Qty</th><th>Patient</th><th>Source</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>";
+  }
+  function invAdjustHtml() {
+    const lotOpts = (store.lots || []).filter((l) => l.status === "Released" || l.onHand > 0).map((l) => '<option value="' + esc(l.id) + '">' + esc(l.id) + " · " + esc(l.product) + " · on hand " + l.onHand + "</option>").join("");
+    const reasonOpts = (BRIZZA.ADJUST_REASONS || []).map((r) => "<option>" + esc(r) + "</option>").join("");
+    const list = (store.adjustments || []).slice().reverse().map(function (a) {
+      return '<div class="row"><div><div class="row-title">' + esc(a.id) + " · " + esc(a.product) + " · " + esc(String(a.qty)) + '</div><div class="row-sub">' + esc(a.reason) + " · " + esc(a.when) + " · " + esc(a.who) + "</div></div></div>";
+    }).join("") || '<div class="empty">No adjustments yet</div>';
+    return '<div class="card"><div class="cardhead"><h2>Adjustments</h2></div><div class="cardbody">' +
+      '<div class="formgrid"><div class="field"><label for="adj-lot">Lot <span class="req">required</span></label><select id="adj-lot">' + lotOpts + "</select></div>" +
+      '<div class="field"><label for="adj-qty">Quantity change <span class="req">required</span></label><input id="adj-qty" type="number" step="1" placeholder="e.g. -1"></div>' +
+      '<div class="field"><label for="adj-reason">Reason <span class="req">required</span></label><select id="adj-reason">' + reasonOpts + "</select></div>" +
+      '<div class="field full"><label for="adj-note">Note</label><input id="adj-note" placeholder="Optional detail"></div></div>' +
+      '<button class="btn primary" type="button" data-inv-adjust="1">Record adjustment</button>' +
+      '<h3 class="section-title" style="margin-top:18px">History</h3>' + list + "</div></div>";
+  }
+  function invAlertsHtml() {
+    const items = lowStockItems();
+    const cards = items.map(function (c) {
+      return '<div class="inv-alert"><strong>' + esc(c.name) + "</strong> · on hand " + catalogOnHand(c) + " · reorder point " + c.reorderPoint + "</div>";
+    }).join("") || '<div class="empty">No low-stock alerts.</div>';
+    return '<div class="card"><div class="cardhead"><h2>Low-stock alerts</h2></div><div class="cardbody">' + cards + "</div></div>";
+  }
+  function invAuditHtml() {
+    const evs = (store.audit || []).filter((e) => e.recordType === "Inventory" || e.recordType === "Lot" || e.recordType === "PurchaseOrder" || e.recordType === "Adjustment").slice().reverse();
+    const rows = evs.map(function (e) {
+      const ch = (e.changes || []).map((c) => esc(c.field) + ": " + esc(c.before) + " → " + esc(c.after)).join("; ");
+      return '<div class="hist-item"><div class="when">' + esc(e.when) + " · " + esc(e.who) + " · " + esc(e.role) + '</div><div class="row-title">' + esc(e.action) + '</div><div class="hist-change">' + esc(ch) + '</div></div>';
+    }).join("") || '<div class="empty">No inventory audit events yet.</div>';
+    return '<div class="card"><div class="cardhead"><h2>Inventory audit log</h2></div><div class="cardbody">' + rows + "</div></div>";
+  }
+
+  function receivePoLine(poId, productId) {
+    const po = (store.purchaseOrders || []).find((x) => x.id === poId);
+    if (!po) return;
+    const line = po.lines.find((l) => l.productId === productId);
+    if (!line) return;
+    const remaining = (line.orderedQty || 0) - (line.receivedQty || 0);
+    showModal("Receive " + line.name + " · " + po.id, `
+      <div class="formgrid">
+        <div class="field"><label for="recv-lot">Lot number <span class="req">required</span></label><input id="recv-lot" required></div>
+        <div class="field"><label for="recv-exp">Expiration date <span class="req">required</span></label><input id="recv-exp" type="date" required></div>
+        <div class="field"><label for="recv-qty">Quantity <span class="req">required</span></label><input id="recv-qty" type="number" min="1" max="${remaining}" value="${remaining > 0 ? remaining : 1}"></div>
+      </div>
+      <p class="row-sub">Partial receiving is allowed. Remaining on this line: ${remaining}.</p>
+    `, function () {
+      const lotNo = ($("#recv-lot") && $("#recv-lot").value.trim()) || "";
+      const exp = ($("#recv-exp") && $("#recv-exp").value) || "";
+      const qty = Number($("#recv-qty") && $("#recv-qty").value);
+      if (!lotNo || !exp || !qty || qty <= 0) { toast("Lot number, expiration date, and quantity are required"); return; }
+      const take = Math.min(qty, remaining);
+      const item = catalogItem(productId);
+      const lot = { id: nextId("LOT-", store.lots), productId: productId, product: item ? item.name : line.name, lotNumber: lotNo, onHand: take, originalQty: take, expiry: exp, status: "Released", released: true, receivedAt: todayET(), poId: po.id, openVial: null, patientIds: [] };
+      store.lots.push(lot);
+      line.receivedQty = (line.receivedQty || 0) + take;
+      const open = po.lines.some((l) => (l.receivedQty || 0) < (l.orderedQty || 0));
+      const done = po.lines.every((l) => (l.receivedQty || 0) >= (l.orderedQty || 0));
+      po.status = done ? "Received" : "Partial";
+      store.inventoryMovements = store.inventoryMovements || [];
+      store.inventoryMovements.push({ id: nextId("MOV-", store.inventoryMovements), lotId: lot.id, product: lot.product, type: "RECEIVE", qty: take, poId: po.id, when: nowET() });
+      addAudit({ action: "Received purchase-order line", recordType: "PurchaseOrder", recordId: po.id,
+        recordPath: { page: "inventory", invTab: "orders" },
+        changes: [{ field: "lot", before: "—", after: lot.id + " · " + lotNo }, { field: "quantity", before: "0", after: String(take) }, { field: "PO status", before: open && !done ? "Open" : po.status, after: po.status }] });
+      addAudit({ action: "Created lot from receiving", recordType: "Lot", recordId: lot.id,
+        recordPath: { page: "inventory", invTab: "lots" },
+        changes: [{ field: "on hand", before: "—", after: String(take) }, { field: "expiry", before: "—", after: exp }] });
+      closeModal();
+      toast("Received " + take + " into " + lot.id);
+      render();
+    }, "Receive");
+  }
+
+  function recordAdjustment() {
+    const lotId = $("#adj-lot") && $("#adj-lot").value;
+    const qty = Number($("#adj-qty") && $("#adj-qty").value);
+    const reason = $("#adj-reason") && $("#adj-reason").value;
+    const note = ($("#adj-note") && $("#adj-note").value.trim()) || "";
+    if (!lotId || !reason || !$("#adj-qty").value || Number.isNaN(qty) || qty === 0) { toast("Lot, quantity, and reason are required"); return; }
+    const lot = (store.lots || []).find((l) => l.id === lotId);
+    if (!lot) return;
+    const before = lot.onHand;
+    lot.onHand = Math.max(0, Math.round((lot.onHand + qty) * 100) / 100);
+    if (lot.onHand === 0) lot.status = (reason === "Expired" || reason === "Waste" || reason === "Damaged") ? reason : "Used";
+    const adj = { id: nextId("ADJ-", store.adjustments || []), lotId: lot.id, productId: lot.productId, product: lot.product, qty: qty, reason: reason, note: note, when: nowET(), who: actingName(), role: state.actingRole };
+    store.adjustments = store.adjustments || [];
+    store.adjustments.push(adj);
+    store.inventoryMovements = store.inventoryMovements || [];
+    store.inventoryMovements.push({ id: nextId("MOV-", store.inventoryMovements), lotId: lot.id, product: lot.product, type: "ADJUSTMENT", qty: qty, reason: reason, when: nowET() });
+    addAudit({ action: "Inventory adjustment · " + reason, recordType: "Adjustment", recordId: adj.id,
+      recordPath: { page: "inventory", invTab: "adjust" },
+      changes: [{ field: "on hand", before: String(before), after: String(lot.onHand) }, { field: "reason", before: "—", after: reason }] });
+    addAudit({ action: "Inventory adjustment · " + reason, recordType: "Lot", recordId: lot.id,
+      recordPath: { page: "inventory", invTab: "lots" },
+      changes: [{ field: "on hand", before: String(before), after: String(lot.onHand) }] });
+    toast("Adjustment recorded");
+    render();
+  }
+
+  function openVial(lotId) {
+    const lot = (store.lots || []).find((l) => l.id === lotId);
+    if (!lot) return;
+    showModal("Open vial · " + lot.id, `
+      <div class="field"><label for="ov-units">Units left in the opened vial</label><input id="ov-units" type="number" min="0" step="1"></div>
+      ${openQ("The beyond-use period after a vial is opened is not specified (Open question 25). This records the opened date and units left only.")}
+    `, function () {
+      const units = $("#ov-units").value === "" ? null : Number($("#ov-units").value);
+      lot.openVial = { openedAt: todayET(), unitsLeft: units, beyondUseNote: null };
+      addAudit({ action: "Opened vial", recordType: "Lot", recordId: lot.id,
+        recordPath: { page: "inventory", invTab: "lots" },
+        changes: [{ field: "opened date", before: "—", after: todayET() }, { field: "units left", before: "—", after: units == null ? "—" : String(units) }] });
+      closeModal(); toast("Open vial recorded"); render();
+    }, "Save");
+  }
+
+  function notesListHtml() {
+    const q = (state.notesSearch || "").trim().toLowerCase();
+    const all = [];
+    store.patients.forEach(function (p) {
+      (p.notes || []).forEach(function (n) { all.push({ p: p, n: n }); });
+    });
+    all.sort((a, b) => String(b.n.date).localeCompare(String(a.n.date)));
+    const rows = all.filter((x) => !q || (x.p.name + " " + x.p.id + " " + (x.n.type || "") + " " + (x.n.status || "") + " " + (x.n.text || "")).toLowerCase().includes(q));
+    const list = rows.map(function (x) {
+      const n = x.n, p = x.p;
+      const st = n.status || "Open";
+      const canEdit = st === "Open";
+      return '<div class="row"><div><div class="row-title">' + esc(fmtDate(n.date)) + " · " + patientLink(p) + '</div><div class="row-sub">' + esc(n.type || "Note") + " · " + esc(n.provider || "") + "</div></div>" +
+        badge(st) +
+        '<div class="actions">' +
+        (canEdit ? '<button class="btn small" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '">Edit</button>' : '<span class="row-sub">Edit</span>') +
+        '<button class="btn small" type="button" data-print-note="' + p.id + '" data-nid="' + n.id + '">View/Print</button></div></div>';
+    }).join("") || '<div class="empty">No clinical notes match.</div>';
+    return `<div class="card notes-list"><div class="cardhead"><h2>Clinical notes</h2>
+      <a class="btn small" href="#modal-new-patient" data-open="new-patient">＋ New patient</a></div>
+      <div class="cardbody" style="padding:12px">
+        <label class="sr-only" for="notes-search">Search clinical notes</label>
+        <input id="notes-search" class="searchbox" placeholder="Search notes, patient, status" value="${esc(state.notesSearch || "")}">
+        <p class="row-sub">Patient search also lives on the Worklist and calendar.</p>
+        <div>${list}</div>
+      </div></div>`;
+  }
+
+  function findPatientHtml() {
+    const q = (state.patientFind || "").trim().toLowerCase();
+    const hits = q ? store.patients.filter((p) => (p.name + " " + p.id + " " + p.dob + " " + p.phone).toLowerCase().includes(q)).slice(0, 8) : [];
+    const list = hits.map((p) => '<a class="row" href="' + hashFor({ page: "patients", selected: p.id, tab: state.tab || "demographics" }) + '"><div><div class="row-title">' + esc(p.name) + '</div><div class="row-sub">' + esc(p.id) + " · " + esc(p.dob) + "</div></div></a>").join("");
+    return '<div class="field find-patient"><label class="sr-only" for="patient-find">Find patient</label><input id="patient-find" class="searchbox" placeholder="Find patient (name, DOB, ID)" value="' + esc(state.patientFind || "") + '">' + (q ? '<div>' + (list || '<div class="empty">No match</div>') + "</div>" : "") + "</div>";
+  }
+
+  function documentsHtml(p) {
+    const groups = BRIZZA.DOC_CATEGORIES || ["Patient Intake", "Consent", "Payment", "Quotes"];
+    return groups.map(function (cat) {
+      const docs = (p.documents || []).filter((d) => (d.category || "Patient Intake") === cat);
+      const rows = docs.map(function (d) {
+        return '<div class="row"><div><div class="row-title">' + esc(d.title) + '</div><div class="row-sub">' + esc(d.date || "") + (d.relatedId ? " · " + esc(d.relatedId) : "") + "</div></div>" +
+          '<button class="btn small" type="button" data-print-doc="' + p.id + '" data-did="' + esc(d.id) + '">View/Print</button></div>';
+      }).join("") || '<div class="empty">No ' + esc(cat).toLowerCase() + " documents</div>";
+      return '<div class="doc-group"><h3 class="section-title">' + esc(cat) + "</h3>" + rows + "</div>";
+    }).join("");
+  }
+
+  function printNote(pid, nid) {
+    const p = patient(pid); if (!p) return;
+    const n = (p.notes || []).find((x) => x.id === nid); if (!n) return;
+    printView("Clinical note · " + p.name, "<p><strong>" + esc(n.type || "Note") + "</strong> · " + esc(n.status || "") + " · " + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</p><p>" + esc(n.text || "") + "</p>");
+  }
+  function printDoc(pid, did) {
+    const p = patient(pid); if (!p) return;
+    const d = (p.documents || []).find((x) => x.id === did); if (!d) return;
+    let extra = d.body || "";
+    if (d.kind === "receipt" && d.invoiceId) {
+      const inv = invoice(d.invoiceId);
+      if (inv) {
+        extra += "<h2>Receipt</h2><p>Invoice " + esc(inv.id) + " · " + esc(inv.status) + "</p>" +
+          (inv.lines || []).map((l) => "<div>" + esc(l.name) + " · " + (lineAmount(l) == null ? "TBD" : money(lineAmount(l))) + "</div>").join("") +
+          "<p>Total " + esc(invoiceTotals(inv).label) + "</p>";
+      }
+    }
+    if (d.kind === "quote" && d.relatedId) {
+      const q = (store.quotes || []).find((x) => x.id === d.relatedId);
+      if (q) extra += "<h2>Quote</h2><p>" + esc(q.name) + " · " + esc(q.status) + "</p>" +
+        (q.lines || []).map((l) => "<div>" + esc(l.name) + " · qty " + (l.qty == null ? "(blank)" : esc(String(l.qty))) + " · " + (lineAmount(l) == null ? "TBD" : money(lineAmount(l))) + "</div>").join("");
+    }
+    printView(d.title, "<p>" + esc(d.category) + " · " + esc(d.date || "") + "</p>" + extra);
+  }
+
+
+
+
   function renderChrome(crumb, titleArea, body) {
     const nav = (href, key, label, icon) => {
       const active = (key === "patients" && (state.page === "patients" || state.page === "visit" || state.page === "demo")) ||
@@ -467,6 +1158,7 @@
         (key === "queue" && state.page === "queue") ||
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
+        (key === "inventory" && state.page === "inventory") ||
         (key === "types" && (state.page === "types" || state.page === "reasons")) ||
         (key === "configuration" && state.page === "configuration");
       return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
@@ -483,6 +1175,7 @@
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Work queue", "☷")}
             ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
             ${nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰")}
+            ${nav(hashFor({ page: "inventory" }), "inventory", "Inventory", "▦")}
           </nav>
           <div class="nav-label">Clinic</div>
           <nav class="nav" aria-label="Clinic">
@@ -558,20 +1251,21 @@
         <label class="sr-only" for="pstatus">Patient status</label>
         <select id="pstatus" data-set-status="${p.id}">${BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("")}</select>
         <div class="notice">One centralized chart. Patient number is immutable and never reused.</div>
-        ${auditsFor("Patient", p.id).length ? '<h3 class="section-title">' + auditIconFor("Patient", p.id) + ' Audit log</h3><div class="timeline">' + timelineHtml("Patient", p.id) + "</div>" : ""}
+        <button class="btn primary" type="button" data-confirm-demo="${p.id}" style="margin-top:12px">Confirm Demographics</button>
+        <h3 class="section-title">' + historyIcon("Patient", p.id) + ' History</h3>
+        <div class="timeline">' + timelineHtml("Patient", p.id) + '</div>
         </div></div>`;
     } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
-      body = `<div class="two"><div><h3 class="section-title">Medical history</h3>${rows(p.conditions, "No history items recorded")}
+      body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3>${rows(p.conditions, "No history items recorded")}
         <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}</div>
-        <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}</div></div>`;
+        <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}</div></div></div>
+        <div class="profile-block"><h3 class="section-title">Treatment history</h3>${p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}</div>`;
     } else if (state.tab === "appointments") {
       const list = apptsFor(p).slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
       body = `<div class="labelrow"><h3 class="section-title">Appointment history</h3>
         <a class="btn small primary" href="#modal-book" data-open="book" data-pid="${p.id}">＋ Schedule appointment</a></div>
         <div class="scroll-list">${list.map(appointmentRow).join("") || '<div class="empty">No appointments</div>'}</div>`;
-    } else if (state.tab === "treatment-history") {
-      body = `<h3 class="section-title">Delivered care</h3>${p.treatments.length ? p.treatments.map((t) => '<div class="row"><span>' + esc(t) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}`;
     } else if (state.tab === "photos") {
       body = `<div class="two"><div><h3 class="section-title">Clinical photography</h3>${p.photos.length ? p.photos.map((x) => '<div class="row"><span>' + esc(x) + "</span></div>").join("") : '<div class="empty">No clinical photos</div>'}</div>
         <div><h3 class="section-title">Authorization records</h3>
@@ -579,12 +1273,14 @@
         <div class="row"><span>Marketing photo authorization</span>${badge(p.consents.marketing)}</div>
         <div class="notice">Clinical photography consent is separate from marketing photo authorization.</div></div></div>`;
     } else if (state.tab === "documents") {
-      body = `<h3 class="section-title">Patient documents</h3>${p.documents.length ? p.documents.map((d) => '<div class="row"><span>' + esc(d) + "</span></div>").join("") : '<div class="empty">No documents uploaded</div>'}`;
+      body = `<h3 class="section-title">Patient documents</h3>
+        <p class="row-sub">Receipts are saved when a payment is recorded. Saved quotes appear under Quotes. View/Print opens a printable page.</p>
+        ${documentsHtml(p)}`;
     } else if (state.tab === "ledger") {
       const invs = store.invoices.filter((i) => i.patientId === p.id);
       body = `<h3 class="section-title">Patient ledger</h3>
         <div class="notice">Payment status is independent of appointment status. Amounts are TBD. The balance lives on the invoice.</div>
-        ${invs.map((inv) => '<a class="row" href="' + hashFor({ page: "checkout", invoiceId: inv.id }) + '"><div><div class="row-title">' + esc(inv.id) + '</div><div class="row-sub">Balance: ' + esc(inv.balance) + "</div></div>" + badge(inv.status) + "</a>").join("") || '<div class="empty">No invoices</div>'}`;
+        ${invs.map((inv) => '<a class="row" href="' + hashFor({ page: "checkout", invoiceId: inv.id }) + '"><div><div class="row-title">' + esc(inv.id) + '</div><div class="row-sub">Balance: ' + esc(typeof inv.balance === 'number' ? money(inv.balance) : inv.balance) + "</div></div>" + badge(inv.status) + "</a>").join("") || '<div class="empty">No invoices</div>'}`;
     } else if (state.tab === "quotes") {
       const qs = (store.quotes || []).filter((q) => q.patientId === p.id);
       body = `<h3 class="section-title">Quotes</h3>
@@ -618,7 +1314,7 @@
       '<a class="tab ' + (state.tab === k ? "active" : "") + '" href="' + hashFor({ page: "patients", selected: p.id, tab: k }) + '">' + esc(label) + "</a>"
     ).join("");
     const upcoming = apptsFor(p).filter((a) => ACTIVE.has(a.status) && a.date >= BRIZZA.SAMPLE_DAY).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-    const head = pageHead("Patient-centered chart", "Patient chart", "", '<a class="btn small" href="#modal-edit" data-open="edit" data-pid="' + p.id + '">Edit chart</a><a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
+    const head = pageHead("Patient-centered chart", "Patient chart", findPatientHtml(), '<a class="btn small" href="#modal-edit" data-open="edit" data-pid="' + p.id + '">Edit chart</a><a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
     const body = `<div class="grid">
       <div class="card">
         <div class="cardbody">
@@ -644,7 +1340,7 @@
           <div class="cardhead"><h2>Next appointments</h2><a class="btn small" href="${hashFor({ page: "schedule", date: state.date })}">Schedule</a></div>
           <div class="cardbody">${upcoming.map((a) => '<div class="row"><div><div class="row-title">' + esc(a.type) + '</div><div class="row-sub">' + esc(a.date) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.provider) + "</div></div>" + badge(a.status) + "</div>").join("") || '<div class="empty">None scheduled</div>'}</div>
         </div>
-        ${patientListHtml()}
+        ${notesListHtml()}
       </div>
     </div>`;
     renderChrome('<a href="' + hashFor({ page: "patients" }) + '">Patients</a> / ' + esc(p.name), head, body);
@@ -742,7 +1438,7 @@
     return '<button class="badge paperwork-badge' + (on ? " on" : "") + '" type="button" data-toggle-paperwork="' + esc(a.id) + '" aria-pressed="' + (on ? "true" : "false") + '">Completing paperwork</button>';
   }
   function bindStatusStops() {
-    $$(".status-dd, [data-toggle-paperwork], .audit-icon").forEach((el) => {
+    $$(".status-dd, [data-toggle-paperwork], .wl-note").forEach((el) => {
       el.addEventListener("click", function (e) { e.stopPropagation(); });
       el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
     });
@@ -1243,6 +1939,9 @@
       renderCalendar();
       return;
     }
+    renderWorklist();
+    return;
+    /* superseded list view kept in _superseded/schedule-list-r5.js */
     const list = dayAppointments(state.date);
     const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (state.locationId === l.id ? " selected" : "") + ">" + esc(l.name) + "</option>").join("");
     const toggle = scheduleViewToggle();
@@ -1313,9 +2012,9 @@
   }
 
   function scheduleViewToggle() {
-    const listHref = hashFor({ page: "schedule", date: state.date, view: "list" });
+    const listHref = hashFor({ page: "schedule", date: state.date, view: "worklist" });
     const calHref = hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode || "week" });
-    return '<div class="view-toggle" role="group" aria-label="Schedule view"><a href="' + listHref + '" class="' + (state.scheduleView !== "calendar" ? "active" : "") + '">List</a><a href="' + calHref + '" class="' + (state.scheduleView === "calendar" ? "active" : "") + '">Calendar</a></div>';
+    return '<div class="view-toggle" role="group" aria-label="Schedule view"><a href="' + listHref + '" class="' + (state.scheduleView !== "calendar" ? "active" : "") + '">Worklist</a><a href="' + calHref + '" class="' + (state.scheduleView === "calendar" ? "active" : "") + '">Calendar</a></div>';
   }
 
   function calendarModeToggle() {
@@ -1714,7 +2413,7 @@
   function closeModal(opts) {
     opts = opts || {};
     const back = $("#modal");
-    if (back) back.classList.remove("open");
+    if (back) back.classList.remove("open", "pos-mode", "hist-mode", "hide-foot");
     if (opts.cancelPending) state.reschedulingId = null;
     if (state.appointmentId && state.page === "schedule") {
       state.appointmentId = null;
@@ -2079,42 +2778,57 @@
 
   function recordPayment(invId) {
     const inv = invoice(invId);
-    const status = $("#pay-status").value;
+    if (!inv) return;
+    const status = ($("#pay-status") && $("#pay-status").value) || "Paid";
     const prev = inv.status;
-    inv.payments.push({ id: nextId("PAY-", inv.payments), method: "Card (processor reference only)", status: status, recorded: nowET() });
-    if (status === "Paid") { inv.status = "Paid"; inv.balance = "None"; }
-    else if (status === "Partially Paid") { inv.status = "Partially Paid"; inv.balance = "Outstanding (amount TBD)"; }
-    else if (status === "Refunded") { inv.status = "Refunded"; }
-    else if (status === "Voided") { inv.status = "Voided"; }
-    else { inv.status = "Issued"; }
+    const t = invoiceTotals(inv);
+    let amt = null;
+    const raw = $("#pay-amount") && $("#pay-amount").value;
+    if (raw !== undefined && raw !== null && String(raw).trim() !== "") amt = Number(raw);
+    else if (status === "Paid" && t.balance != null && !t.tbd) amt = t.balance;
+    const pay = { id: nextId("PAY-", inv.payments || []), method: "Card (processor reference only)", status: status, recorded: nowET(), amount: (amt != null && !Number.isNaN(amt) ? amt : undefined) };
+    inv.payments = inv.payments || [];
+    inv.payments.push(pay);
+    if (status === "Refunded") inv.status = "Refunded";
+    else if (status === "Voided") inv.status = "Voided";
+    else if (status === "Unpaid") inv.status = "Issued";
+    refreshInvoiceBalance(inv);
+    if (status === "Paid" && (typeof inv.balance !== "number" || inv.balance <= 0)) { inv.status = "Paid"; if (typeof inv.balance !== "number") inv.balance = "None"; }
+    addDocument(inv.patientId, { category: "Payment", title: "Receipt · " + pay.id + " · " + inv.id, date: todayET(), relatedId: pay.id, invoiceId: inv.id, kind: "receipt" });
     addAudit({ action: "Recorded payment " + status, recordType: "Invoice", recordId: inv.id,
-      recordPath: { page: "checkout", invoiceId: inv.id },
-      changes: [{ field: "payment status", before: "—", after: status }, { field: "invoice status", before: prev, after: inv.status }] });
-    toast("Payment recorded as " + status);
-    render();
+      recordPath: { page: "pos", invoiceId: inv.id },
+      changes: [{ field: "payment status", before: "—", after: status }, { field: "invoice status", before: prev, after: inv.status }, { field: "amount", before: "—", after: amt != null ? money(amt) : "TBD" }] });
+    toast("Payment recorded as " + status + (amt != null ? " · " + money(amt) : "") + " · receipt saved");
+    if ($("#modal") && $("#modal").classList.contains("pos-mode")) {
+      const apId = (inv.appointmentIds || [])[0] || state.posAppointmentId;
+      if (apId) openPosPopup(apId);
+      else render();
+    } else render();
   }
 
   function finalizeInvoice(invId) {
     const inv = invoice(invId);
+    if (!inv) return;
     if (inv.finalized) { toast("Already finalized"); return; }
-    const product = productForInvoice(inv);
-    const lot = product ? fefoLot(product) : null;
-    if (lot) {
-      lot.onHand = Math.max(0, lot.onHand - 1);
-      if (lot.onHand === 0) lot.status = "Used";
-      inv.movements.push({ lotId: lot.id, product: lot.product, type: "TREATMENT_USAGE", posted: nowET() });
-    }
+    const movs = postUsageToLots(inv);
+    inv.movements = (inv.movements || []).concat(movs.map(function (m) { return { lotId: m.lotId, product: m.product, type: m.type, posted: m.when, qty: m.qty }; }));
     inv.finalized = true;
     inv.finalizedAt = nowET();
     if (inv.status === "Draft") inv.status = "Issued";
+    refreshInvoiceBalance(inv);
+    const lotIds = movs.map((m) => m.lotId).join(", ") || "—";
     addAudit({ action: "Finalized invoice and posted inventory", recordType: "Invoice", recordId: inv.id,
-      recordPath: { page: "checkout", invoiceId: inv.id },
+      recordPath: { page: "pos", invoiceId: inv.id },
       changes: [
         { field: "finalized", before: "No", after: "Yes" },
-        { field: "inventory movement", before: "None", after: lot ? lot.id : "—" }
+        { field: "inventory movement", before: "None", after: lotIds }
       ] });
-    toast(lot ? "Invoice finalized · inventory posted from " + lot.id : "Invoice finalized · no lot posted");
-    render();
+    addAudit({ action: "Inventory posted from invoice finalization", recordType: "Inventory", recordId: inv.id,
+      recordPath: { page: "inventory", invTab: "trace" },
+      changes: [{ field: "lots", before: "—", after: lotIds }] });
+    toast(movs.length ? "Invoice finalized · inventory posted from " + lotIds : "Invoice finalized · no lot posted");
+    if ($("#modal") && $("#modal").classList.contains("pos-mode")) openPosPopup((inv.appointmentIds || [])[0] || state.posAppointmentId);
+    else render();
   }
 
   function paintDemoPanel() {
@@ -2136,7 +2850,10 @@
   }
   function lineHtml(l) {
     const conceptMark = l.kind === "membership" ? " " + concept("Memberships are deferred in the DB design.") : "";
-    return '<div class="row"><div><span class="line-kind">' + esc(l.kind || "service") + '</span><div class="row-title">' + esc(l.name || l.service || "") + "</div></div><span>Amount: TBD</span>" + conceptMark + "</div>";
+    const amt = lineAmount(l);
+    const qty = l.qty == null || l.qty === "" ? "qty blank" : ("qty " + l.qty);
+    const unit = l.unitPrice == null ? "TBD" : money(l.unitPrice) + (l.unit ? "/" + l.unit : "");
+    return '<div class="row"><div><span class="line-kind">' + esc(l.kind || "service") + '</span><div class="row-title">' + esc(l.name || l.service || "") + '</div><div class="row-sub">' + esc(qty) + ' · ' + esc(unit) + '</div></div><span>' + (amt == null ? "TBD" : money(amt)) + "</span>" + conceptMark + "</div>";
   }
   function renderPOS() {
     if (state.posTab === "quotes" || state.quoteId) { renderQuotes(); return; }
@@ -2154,14 +2871,9 @@
     const templates = (BRIZZA.QUOTE_TEMPLATES || []).map((tpl) => '<option value="' + esc(tpl.id) + '">' + esc(tpl.name) + "</option>").join("");
     const kinds = (BRIZZA.POS_LINE_KINDS || []).map((k) => "<option>" + esc(k) + "</option>").join("");
     const body = posTabs("invoice") +
-      concept("All POS amounts are TBD. No prices are shown. Invoice and payment statuses stay independent of appointment status.") +
+      concept("Nicole-given prices are used when a quantity is entered. Other items stay TBD. Invoice and payment statuses stay independent of appointment status.") +
       '<div class="grid"><div class="card"><div class="cardhead"><h2>Invoice</h2>' + (inv ? badge(inv.status) : "") + '</div><div class="cardbody">' +
-      (inv ? '<div class="row"><span>Balance</span><strong>' + esc(inv.balance) + "</strong></div><div class=\"row\"><span>Linked appointments</span><span>" + apptLinks + "</span></div>" : '<div class="empty">No invoice yet for this appointment.</div>') +
-      '<h3 class="section-title">Lines</h3>' + lines +
-      (inv && !inv.finalized ? '<div class="field" style="margin-top:12px"><label for="posKind">Add line</label><div class="actions"><select id="posKind">' + kinds + '</select><input id="posLineName" type="text" placeholder="Description"><button class="btn small" type="button" data-pos="add-line">Add · Amount TBD</button></div><p class="row-sub">Membership lines are labeled Concept.</p></div>' : "") +
-      '<h3 class="section-title">Payment records</h3><p class="row-sub">Five labels: Unpaid, Partially Paid, Paid, Refunded, Voided. The balance stays on the invoice.</p>' +
-      (payments || '<div class="empty">No payment recorded</div>') +
-      (inv && inv.status !== "Paid" && !inv.finalized ? '<div class="field" style="margin-top:12px"><label for="pay-status">Record payment status</label><div class="actions"><select id="pay-status">' + BRIZZA.paymentStatuses.map((s) => "<option>" + s + "</option>").join("") + '</select><button class="btn small" data-record-pay="' + inv.id + '">Record payment</button></div></div>' : "") +
+      (inv ? '<div class="row"><span>Linked appointments</span><span>' + apptLinks + "</span></div>" + posLineEditor(inv) + '<h3 class="section-title">Payment records</h3>' + (payments || '<div class="empty">No payment recorded</div>') : '<div class="empty">No invoice yet for this appointment.</div>') +
       "</div></div><div class=\"card\"><div class=\"cardhead\"><h2>Quote for the room</h2></div><div class=\"cardbody\">" +
       openQ("The after-consult quote-to-room workflow is a prototype of the coordinator / clinician handoff (Open question 20).") +
       '<div class="field"><label for="quoteTpl">Quote template</label><select id="quoteTpl">' + templates + '</select></div>' +
@@ -2190,7 +2902,7 @@
       '<div class="card"><div class="cardbody">' +
       (q.broughtToRoom ? '<div class="notice">Brought to the room' + (q.broughtAt ? " · " + esc(q.broughtAt) : "") + ".</div>" : "") +
       q.lines.map(lineHtml).join("") +
-      '<p class="row-sub">Amount: TBD on every line.</p>' +
+      '<p class="row-sub">Prices are per unit or vial when known. Quantity stays blank until entered. Total: ' + esc(invoiceTotals({ lines: q.lines }).label) + '</p>' +
       (a ? '<div class="row"><span>From appointment</span><a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id }) + '">' + esc(a.id) + " · " + esc(fmtTime(a.time)) + "</a></div>" : "") +
       (q.invoiceId ? '<div class="row"><span>Invoice</span><a href="' + hashFor({ page: "pos", invoiceId: q.invoiceId, posTab: "invoice" }) + '">' + esc(q.invoiceId) + "</a></div>" : "") +
       '<div class="actions" style="margin-top:14px">' +
@@ -2211,6 +2923,7 @@
     const rec = { id: id, patientId: pid, appointmentId: apptId || null, templateId: tpl.id, name: tpl.name, status: "Open",
       lines: tpl.lines.map((l) => Object.assign({}, l, { amount: "TBD" })), created: todayET(), broughtToRoom: false, invoiceId: null };
     store.quotes.push(rec);
+    addDocument(pid, { category: "Quotes", title: "Quote · " + rec.name + " · " + rec.id, date: rec.created, relatedId: rec.id, kind: "quote" });
     addAudit({ action: "Saved quote", recordType: "Quote", recordId: id,
       recordPath: { page: "pos", posTab: "quotes", quoteId: id },
       changes: [{ field: "status", before: "—", after: "Open" }, { field: "template", before: "—", after: tpl.name }] });
@@ -2375,6 +3088,7 @@
     else if (state.page === "checkout" || state.page === "pos") renderPOS();
     else if (state.page === "audit") renderAudit();
     else if (state.page === "rooming") renderRooming();
+    else if (state.page === "inventory") renderInventory();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
     bindStatusStops();
@@ -2400,6 +3114,86 @@
           recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: state.scheduleView },
           changes: [{ field: "paperwork", before: before, after: a.paperwork ? "Yes" : "No" }] });
         render();
+      }
+      return;
+    }
+    const hist = e.target.closest("[data-history-type]");
+    if (hist) {
+      e.preventDefault();
+      e.stopPropagation();
+      openHistoryPop(hist.getAttribute("data-history-type"), hist.getAttribute("data-history-id"));
+      return;
+    }
+    const wlF = e.target.closest("[data-wl-filter]");
+    if (wlF) {
+      e.preventDefault();
+      const key = wlF.getAttribute("data-wl-filter");
+      if (key === "all") state.worklistFilters = [];
+      else {
+        const cur = state.worklistFilters || [];
+        state.worklistFilters = cur.indexOf(key) >= 0 ? cur.filter((k) => k !== key) : cur.concat([key]);
+      }
+      render();
+      return;
+    }
+    const posOpen = e.target.closest("[data-open-pos]");
+    if (posOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPosPopup(posOpen.getAttribute("data-open-pos"));
+      return;
+    }
+    const confirmD = e.target.closest("[data-confirm-demo]");
+    if (confirmD) {
+      e.preventDefault();
+      const p = patient(confirmD.getAttribute("data-confirm-demo"));
+      if (p) {
+        p.registration = p.registration || {};
+        const prev = (p.registration.demographicsConfirmed && p.registration.demographicsConfirmed.status) || "Not confirmed";
+        p.registration.demographicsConfirmed = { status: "Confirmed", date: todayET() };
+        addAudit({ action: "Demographics manually confirmed", recordType: "Patient", recordId: p.id,
+          recordPath: { page: "patients", selected: p.id, tab: "demographics" },
+          changes: [{ field: "demographics confirmed", before: prev, after: "Confirmed" }] });
+        toast("Demographics confirmed");
+        render();
+      }
+      return;
+    }
+    const pn = e.target.closest("[data-print-note]");
+    if (pn) { e.preventDefault(); printNote(pn.getAttribute("data-print-note"), pn.getAttribute("data-nid")); return; }
+    const pd = e.target.closest("[data-print-doc]");
+    if (pd) { e.preventDefault(); printDoc(pd.getAttribute("data-print-doc"), pd.getAttribute("data-did")); return; }
+    const recv = e.target.closest("[data-po-receive]");
+    if (recv) { e.preventDefault(); receivePoLine(recv.getAttribute("data-po-receive"), recv.getAttribute("data-product")); return; }
+    const ov = e.target.closest("[data-open-vial]");
+    if (ov) { e.preventDefault(); openVial(ov.getAttribute("data-open-vial")); return; }
+    if (e.target.closest("[data-inv-adjust]")) { e.preventDefault(); recordAdjustment(); return; }
+    const addL = e.target.closest("[data-pos-add-line]");
+    if (addL) {
+      e.preventDefault();
+      addCatalogLine(addL.getAttribute("data-pos-add-line"), $("#posCatalog") && $("#posCatalog").value, $("#posQty") && $("#posQty").value);
+      const inv = invoice(addL.getAttribute("data-pos-add-line"));
+      if ($("#modal") && $("#modal").classList.contains("pos-mode") && inv && inv.appointmentIds && inv.appointmentIds[0]) openPosPopup(inv.appointmentIds[0]);
+      else render();
+      return;
+    }
+    const cq = e.target.closest("[data-pos-convert-quote]");
+    if (cq) {
+      e.preventDefault();
+      const qid = $("#posQuote") && $("#posQuote").value;
+      const inv = invoice(cq.getAttribute("data-pos-convert-quote"));
+      const q = qid && (store.quotes || []).find((x) => x.id === qid);
+      if (q && inv) {
+        (q.lines || []).forEach(function (l) { inv.lines.push(Object.assign({}, l)); });
+        q.status = "Converted"; q.invoiceId = inv.id;
+        if ((inv.appointmentIds || [])[0]) q.appointmentId = inv.appointmentIds[0];
+        refreshInvoiceBalance(inv);
+        addAudit({ action: "Converted quote onto invoice", recordType: "Quote", recordId: q.id,
+          recordPath: { page: "pos", invoiceId: inv.id },
+          changes: [{ field: "status", before: "Open", after: "Converted" }] });
+        toast("Quote converted onto " + inv.id);
+        if ($("#modal") && $("#modal").classList.contains("pos-mode")) openPosPopup((inv.appointmentIds || [])[0] || state.posAppointmentId);
+        else render();
       }
       return;
     }
@@ -2481,6 +3275,50 @@
       const el = $("#sched-search");
       if (el) { el.focus(); el.setSelectionRange(hold, hold); }
     }
+    else if (e.target.id === "notes-search") {
+      state.notesSearch = e.target.value;
+      const hold = e.target.selectionStart;
+      render();
+      const el = $("#notes-search");
+      if (el) { el.focus(); el.setSelectionRange(hold, hold); }
+    }
+    else if (e.target.id === "patient-find") {
+      state.patientFind = e.target.value;
+      const hold = e.target.selectionStart;
+      render();
+      const el = $("#patient-find");
+      if (el) { el.focus(); el.setSelectionRange(hold, hold); }
+    }
+    else if (e.target.id === "lot-trace") {
+      state.lotTrace = e.target.value;
+      const hold = e.target.selectionStart;
+      render();
+      const el = $("#lot-trace");
+      if (el) { el.focus(); el.setSelectionRange(hold, hold); }
+    }
+    else if (e.target.dataset.cost) {
+      const item = catalogItem(e.target.dataset.cost);
+      if (item) {
+        const v = e.target.value.trim();
+        item.cost = v === "" ? null : Number(v);
+        if (item.cost != null && Number.isNaN(item.cost)) item.cost = null;
+        const hold = e.target.selectionStart;
+        const id = e.target.dataset.cost;
+        render();
+        const el = document.querySelector('[data-cost="' + id + '"]');
+        if (el) { el.focus(); try { el.setSelectionRange(hold, hold); } catch (err) {} }
+      }
+    }
+    else if (e.target.dataset.lineQty != null) {
+      const inv = invoice(state.invoiceId);
+      if (inv && inv.lines[Number(e.target.dataset.lineQty)]) {
+        const raw = e.target.value.trim();
+        inv.lines[Number(e.target.dataset.lineQty)].qty = raw === "" ? null : Number(raw);
+        const amt = lineAmount(inv.lines[Number(e.target.dataset.lineQty)]);
+        inv.lines[Number(e.target.dataset.lineQty)].amount = amt == null ? "TBD" : amt;
+        refreshInvoiceBalance(inv);
+      }
+    }
     else if (e.target.dataset.roomSet) { setRoomingStatus(e.target.dataset.roomSet, e.target.value); }
     else if (e.target.dataset.suiteSet) { setRoomingSuite(e.target.dataset.suiteSet, e.target.value || null); }
     else if (e.target.dataset.visitStatus) { setVisitStatus(e.target.dataset.visitStatus, e.target.value); }
@@ -2520,7 +3358,23 @@
     window.addEventListener("hashchange", applyRoute);
     document.addEventListener("click", onClick);
     document.addEventListener("change", onChange);
-    document.addEventListener("input", function (e) { if (e.target.id === "patient-search" || e.target.id === "sched-search") onChange(e); });
+    document.addEventListener("input", function (e) {
+      if (e.target.id === "patient-search" || e.target.id === "sched-search" || e.target.id === "notes-search" || e.target.id === "patient-find" || e.target.id === "lot-trace" || e.target.dataset.cost) onChange(e);
+    });
+    document.addEventListener("focusout", function (e) {
+      if (e.target && e.target.dataset && e.target.dataset.prepNotes) {
+        const a = appt(e.target.dataset.prepNotes);
+        if (!a) return;
+        const next = e.target.value;
+        const before = a.prepNotes || "";
+        if (next === before) return;
+        a.prepNotes = next;
+        addAudit({ action: "Updated appointment notes", recordType: "Appointment", recordId: a.id,
+          recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "worklist" },
+          changes: [{ field: "appointment notes", before: before || "—", after: next || "—" }] });
+        toast("Appointment notes saved");
+      }
+    });
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
     $("#modalClose").addEventListener("click", function () { closeModal({ cancelPending: true }); });
     $("#modalCancel").addEventListener("click", function () { closeModal({ cancelPending: true }); });

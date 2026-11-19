@@ -12,7 +12,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 8. **Cancellation reasons and initiator.** Not defined in V1 documents (patient vs clinic; fee amounts are also not established).
 9. **Decisions 435–440** (product taxation, checkout discounts, staff-level retail sales reporting, product images/descriptions, online catalog visibility, staff inventory display) and related inventory costing / bill-reopen rules. Checkout / FEFO posting is labeled **Concept**.
 10. **Inactivity timeout value, backup RPO/RTO, and customizable permission groups (DB-088)** remain unset or unapproved. This mockup has no sign-in.
-11. **Service prices and appointment durations.** Dropdowns show TBD. No prices, pay rates, or doses are displayed.
+11. **Service prices and appointment durations.** Nicole provided prices for Botox, Jeuveau, Juvederm, Mini Facial, Hydrafacial, Clarifying Facial, Chemical Peel, Eyebrow Wax, Lip Wax, and Eyebrow Tint. Those appear in the catalog and POS when a quantity is entered. Other services and products stay TBD. Pay rates and doses are not displayed; quote and POS quantities stay blank until staff enter them.
 12. **Brand and logo.** The runtime theme is 01 Quiet Atelier (DRAFT, not a finalized identity). Lapis Conservatory and Architectural Classic were retired to `_superseded/`. Wordmarks are type tests, not logos.
 13. **Fiscal calendar, weekly cutoff, and reporting audiences** remain open in the reporting architecture (out of scope here).
 
@@ -34,3 +34,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 22. **Medical-history snapshots on clinical notes.** Storing a snapshot at signing and highlighting later changes is a prototype behavior, not an approved Records rule.
 
 23. **Merged visit-status list.** The list (Scheduled, Confirmed, Checked in, No-show, Canceled, Ready for clinical, With clinical, Ready for provider, With provider, Ready for checkout, Checked out) supersedes the earlier independent appointment, consultation, and treatment status design (DB decisions), pending a database update. Payment and invoice status stay independent.
+
+24. **Product costs and margin.** Product costs were not provided. Cost fields on the inventory catalog are editable TBD values in this session. Margin is computed only after a numeric cost is entered. Official cost sources, costing methods, and whether margin is shown to non-manager roles remain open.
+
+25. **Open-vial beyond-use dating.** Open-vial tracking records the opened date and units left. The beyond-use period after a vial is opened is not specified in the sources and is labeled in the inventory module.

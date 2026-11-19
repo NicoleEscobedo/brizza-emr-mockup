@@ -54,12 +54,12 @@
 }
 
 /* Appointment type colors (text/background pairs meet AA 4.5:1). */
-[data-type="Consultation"]{--type-bg:#D6E4F5;--type-fg:#163A66;--type-bar:#2A5EA8}
-[data-type="Neurotoxin"]{--type-bg:#D5EBDD;--type-fg:#1B3D2A;--type-bar:#2E7A4F}
-[data-type="Filler"]{--type-bg:#F3DDE4;--type-fg:#5A2233;--type-bar:#A44D68}
-[data-type="Dissolve"]{--type-bg:#F3E1C8;--type-fg:#5A3510;--type-bar:#C4843A}
-[data-type="Facial"]{--type-bg:#E7DCF3;--type-fg:#3A1F5C;--type-bar:#6B4CA0}
-[data-type="Chemical Peel"]{--type-bg:#E8DCC0;--type-fg:#3F2E0C;--type-bar:#8A6A28}
-[data-type="Microneedling"]{--type-bg:#D3E8E8;--type-fg:#123D3D;--type-bar:#2A7A7A}
-[data-type="Wax"]{--type-bg:#F4D9CC;--type-fg:#5C2614;--type-bar:#C46A45}
-[data-type="Follow-up"]{--type-bg:#D9E0E8;--type-fg:#1E3044;--type-bar:#4A6A7A}
+[data-type="Consultation"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B7C9E8}
+[data-type="Neurotoxin"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B7D4C4}
+[data-type="Filler"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8C2D3}
+[data-type="Dissolve"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8D0B8}
+[data-type="Facial"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#D4C4E8}
+[data-type="Chemical Peel"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E6D6A8}
+[data-type="Microneedling"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#B8D8D4}
+[data-type="Wax"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#E8C8C0}
+[data-type="Follow-up"]{--type-bg:#FFFCF6;--type-fg:#352820;--type-bar:#C5D0DC}

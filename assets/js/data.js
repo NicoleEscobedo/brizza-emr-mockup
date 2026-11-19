@@ -1,4 +1,5 @@
-/* Synthetic sample data only. No real patients, no prices, pay rates, or doses. */
+/* Synthetic sample data only. No real patients. No pay rates or doses.
+   Nicole-given service/product prices may be shown; product costs were not given and stay TBD. */
 window.BRIZZA = window.BRIZZA || {};
 
 BRIZZA.SAMPLE_DAY = "2026-11-16";
@@ -30,16 +31,9 @@ BRIZZA.CONTRAST_PAIRS = {
     { fg: "#F4F0E9", bg: "#352820", use: "sidebar and primary button", min: 4.5 },
     { fg: "#352820", bg: "#FBF8F3", use: "ink on paper", min: 4.5 },
     { fg: "#6E6055", bg: "#FBF8F3", use: "muted on paper", min: 4.5 },
-    { fg: "#163A66", bg: "#D6E4F5", use: "Consultation type chip", min: 4.5 },
-    { fg: "#1B3D2A", bg: "#D5EBDD", use: "Neurotoxin type chip", min: 4.5 },
-    { fg: "#5A2233", bg: "#F3DDE4", use: "Filler type chip", min: 4.5 },
-    { fg: "#5A3510", bg: "#F3E1C8", use: "Dissolve type chip", min: 4.5 },
-    { fg: "#3A1F5C", bg: "#E7DCF3", use: "Facial type chip", min: 4.5 },
-    { fg: "#3F2E0C", bg: "#E8DCC0", use: "Chemical Peel type chip", min: 4.5 },
-    { fg: "#123D3D", bg: "#D3E8E8", use: "Microneedling type chip", min: 4.5 },
-    { fg: "#5C2614", bg: "#F4D9CC", use: "Wax type chip", min: 4.5 },
-    { fg: "#1E3044", bg: "#D9E0E8", use: "Follow-up type chip", min: 4.5 },
-    { fg: "#3A2C20", bg: "#E4D5C4", use: "Admin block", min: 4.5 },
+    { fg: "#352820", bg: "#FFFCF6", use: "ink on creamy appointment card", min: 4.5 },
+    { fg: "#6E6055", bg: "#FFFCF6", use: "muted on creamy appointment card", min: 4.5 },
+    { fg: "#352820", bg: "#E4D5C4", use: "Admin block", min: 4.5 },
     { fg: "#352820", bg: "#E8C547", use: "rooming wait timer gold (≥15 min)", min: 4.5 }
   ]
 };
@@ -78,23 +72,50 @@ BRIZZA.appointmentTypes = [
   { id: "follow-up", name: "Follow-up", minutes: 15, confirmName: "Follow-up", confirmDraft: true, reasonIds: ["follow-up", "botox", "jeuveau", "juvederm", "volbella", "mini-facial", "facial", "hydrafacial", "chemical-peel", "microneedling", "toxin-touch-up"] }
 ];
 
+/* Type color is a left stripe only. Cards use a creamy light white; text is ink (AA). */
+BRIZZA.CARD_CREAM = "#FFFCF6";
 BRIZZA.TYPE_COLORS = {
-  "Consultation": { bg: "#D6E4F5", fg: "#163A66" },
-  "Neurotoxin": { bg: "#D5EBDD", fg: "#1B3D2A" },
-  "Filler": { bg: "#F3DDE4", fg: "#5A2233" },
-  "Dissolve": { bg: "#F3E1C8", fg: "#5A3510" },
-  "Facial": { bg: "#E7DCF3", fg: "#3A1F5C" },
-  "Chemical Peel": { bg: "#E8DCC0", fg: "#3F2E0C" },
-  "Microneedling": { bg: "#D3E8E8", fg: "#123D3D" },
-  "Wax": { bg: "#F4D9CC", fg: "#5C2614" },
-  "Follow-up": { bg: "#D9E0E8", fg: "#1E3044" }
+  "Consultation": { bg: "#FFFCF6", fg: "#352820", bar: "#B7C9E8" },
+  "Neurotoxin": { bg: "#FFFCF6", fg: "#352820", bar: "#B7D4C4" },
+  "Filler": { bg: "#FFFCF6", fg: "#352820", bar: "#E8C2D3" },
+  "Dissolve": { bg: "#FFFCF6", fg: "#352820", bar: "#E8D0B8" },
+  "Facial": { bg: "#FFFCF6", fg: "#352820", bar: "#D4C4E8" },
+  "Chemical Peel": { bg: "#FFFCF6", fg: "#352820", bar: "#E6D6A8" },
+  "Microneedling": { bg: "#FFFCF6", fg: "#352820", bar: "#B8D8D4" },
+  "Wax": { bg: "#FFFCF6", fg: "#352820", bar: "#E8C8C0" },
+  "Follow-up": { bg: "#FFFCF6", fg: "#352820", bar: "#C5D0DC" }
 };
 
-BRIZZA.QUOTE_TEMPLATES = [
-  { id: "full-face-toxin", name: "Full-face toxin", lines: [{ kind: "service", name: "Full-face toxin", amount: "TBD" }] },
-  { id: "lip-filler", name: "Lip filler", lines: [{ kind: "service", name: "Lip filler", amount: "TBD" }] },
-  { id: "facial-series-3", name: "Facial series of 3", lines: [{ kind: "package", name: "Facial series of 3", amount: "TBD" }] }
+/* Nicole-given prices (2026-11-18). Costs were not given — cost stays null/TBD. Quantity is entered by staff. */
+BRIZZA.CATALOG = [
+  { id: "botox", name: "Botox", kind: "product", unit: "unit", price: 21, cost: null, reorderPoint: 10, trackLots: true, trackOpenVial: true },
+  { id: "jeuveau", name: "Jeuveau", kind: "product", unit: "unit", price: 21, cost: null, reorderPoint: 8, trackLots: true, trackOpenVial: true },
+  { id: "juvederm", name: "Juvederm", kind: "product", unit: "vial", price: 900, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: true },
+  { id: "volbella", name: "Volbella", kind: "product", unit: "vial", price: null, cost: null, reorderPoint: 1, trackLots: true, trackOpenVial: true },
+  { id: "mini-facial", name: "Mini Facial", kind: "service", unit: "session", price: 150, cost: null, reorderPoint: null, trackLots: false },
+  { id: "hydrafacial", name: "Hydrafacial", kind: "service", unit: "session", price: 275, cost: null, reorderPoint: null, trackLots: false },
+  { id: "clarifying-facial", name: "Clarifying Facial", kind: "service", unit: "session", price: 275, cost: null, reorderPoint: null, trackLots: false },
+  { id: "facial", name: "Facial", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
+  { id: "chemical-peel", name: "Chemical Peel", kind: "service", unit: "session", price: 295, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: false },
+  { id: "eyebrow-wax", name: "Eyebrow Wax", kind: "service", unit: "session", price: 35, cost: null, reorderPoint: null, trackLots: false },
+  { id: "lip-wax", name: "Lip Wax", kind: "service", unit: "session", price: 20, cost: null, reorderPoint: null, trackLots: false },
+  { id: "eyebrow-tint", name: "Eyebrow Tint", kind: "service", unit: "session", price: 25, cost: null, reorderPoint: null, trackLots: false },
+  { id: "consultation", name: "Consultation", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
+  { id: "dissolve", name: "Dissolve", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
+  { id: "microneedling", name: "Microneedling", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false }
 ];
+
+BRIZZA.QUOTE_TEMPLATES = [
+  { id: "full-face-toxin", name: "Full-face toxin", lines: [{ kind: "product", catalogId: "botox", name: "Botox", unit: "unit", unitPrice: 21, qty: null }] },
+  { id: "lip-filler", name: "Lip filler", lines: [{ kind: "product", catalogId: "juvederm", name: "Juvederm", unit: "vial", unitPrice: 900, qty: null }] },
+  { id: "facial-series-3", name: "Facial series of 3", lines: [{ kind: "package", catalogId: "hydrafacial", name: "Hydrafacial", unit: "session", unitPrice: 275, qty: null }] }
+];
+
+BRIZZA.ADJUST_REASONS = ["Waste", "Expired", "Damaged", "Count correction", "Return to vendor", "Other"];
+BRIZZA.DOC_CATEGORIES = ["Patient Intake", "Consent", "Payment", "Quotes"];
+BRIZZA.NOTE_STATUSES = ["Open", "Signed", "Locked"];
+BRIZZA.INVENTORY_ROLES = ["MD / Clinic Owner", "Clinic Manager"];
+BRIZZA.VENDORS = ["Allergan (sample vendor)", "SkinMedica (sample vendor)", "Clinic supply (sample)"];
 
 BRIZZA.POS_LINE_KINDS = ["service", "product", "membership", "package", "prepayment", "quote"];
 BRIZZA.QUOTE_STATUSES = ["Open", "Prepaid", "Converted", "Expired"];
@@ -139,7 +160,7 @@ BRIZZA.paymentStatuses = ["Unpaid", "Partially Paid", "Paid", "Refunded", "Voide
 BRIZZA.invoiceStatuses = ["Draft", "Issued", "Partially Paid", "Paid", "Overdue", "Voided", "Refunded"];
 BRIZZA.BOOKING_TIMES = ["10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00"];
 BRIZZA.ROOMS = ["No room assigned", "Room 1", "Room 2", "Room 3"];
-BRIZZA.PROVIDERS = ["Dr. Elena Ruiz", "Dr. Samir Shah"]; /* Open question: which of the seven roles these names hold. */
+BRIZZA.PROVIDERS = ["Dr. Elena Ruiz", "Dr. Samir Shah", "Lina Park"]; /* Open question: which of the seven roles these names hold. Lina Park is a synthetic aesthetician placeholder, same class as the two physician names. */
 
 
 BRIZZA.ROLES = [
@@ -170,7 +191,8 @@ BRIZZA.SUITES = [
 /* Synthetic provider availability by office. Not sourced from V1 docs. */
 BRIZZA.availability = [
   { provider: "Dr. Elena Ruiz", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "12:00"], ["13:00", "18:00"]] },
-  { provider: "Dr. Samir Shah", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "12:00"], ["13:30", "18:00"]] }
+  { provider: "Dr. Samir Shah", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "12:00"], ["13:30", "18:00"]] },
+  { provider: "Lina Park", locationId: "LOC-MANHATTAN", days: [1, 2, 3, 4, 5], windows: [["10:00", "18:00"]] }
 ];
 
 
@@ -338,7 +360,7 @@ BRIZZA.seed = function () {
         consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],
         treatments:[],followups:[{id:"F-1",text:"Check in after consultation",due:"2026-11-25"}],demoHistory:[],
-        registration:{idUploaded:{status:"Uploaded",date:"2026-10-28"},formsCompleted:{status:"Checked out",date:"2026-10-28"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-28"}}},
+        registration:{idUploaded:{status:"Uploaded",date:"2026-10-28"},formsCompleted:{status:"Completed",date:"2026-10-28"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-28"}}},
       {id:"BRZ0002",name:"Jordan Patel",dob:"1976-09-02",sex:"Male",phone:"(212) 555-0132",email:"j.patel@example.com",status:"Active",
         allergies:["No known allergies"],meds:[],conditions:["Skin sensitivity"],
         notes:[{id:"N-2",date:"2026-11-03",type:"Consultation",procedurePerformed:"Yes",provider:"Dr. Elena Ruiz",status:"Ready for review",
@@ -346,7 +368,7 @@ BRIZZA.seed = function () {
         consents:{clinical:"Current · signed Nov 3, 2026",marketing:"Not authorized"},
         photos:["Clinical before/after · Nov 3, 2026"],documents:["Treatment consent · Nov 3, 2026"],
         treatments:["Botox · Completed Nov 3, 2026"],followups:[{id:"F-2",text:"Two-week follow-up",due:"2026-11-17"}],demoHistory:[],
-        registration:{idUploaded:{status:"Uploaded",date:"2026-10-09"},formsCompleted:{status:"Checked out",date:"2026-10-09"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-09"}}},
+        registration:{idUploaded:{status:"Uploaded",date:"2026-10-09"},formsCompleted:{status:"Completed",date:"2026-10-09"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-09"}}},
       {id:"BRZ0003",name:"Sofia Williams",dob:"1994-12-21",sex:"Female",phone:"(917) 555-0127",email:"sofia.w@example.com",status:"Active",
         allergies:["Latex"],meds:[],conditions:[],notes:[],
         consents:{clinical:"Not yet recorded",marketing:"Not authorized"},photos:[],
@@ -354,13 +376,40 @@ BRIZZA.seed = function () {
         registration:{idUploaded:{status:"Not uploaded",date:null},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}},
       {id:"BRZ0004",name:"Ava Thompson",dob:"1997-07-09",sex:"Female",phone:"(646) 555-0148",email:"ava.thompson@example.com",status:"Inactive",
         allergies:["No known allergies"],meds:[],conditions:[],
-        notes:[{id:"N-3",date:"2026-03-12",type:"Consultation",procedurePerformed:"Yes",provider:"Dr. Samir Shah",status:"Ready for review",
+        notes:[{id:"N-3",date:"2026-03-12",type:"Consultation",procedurePerformed:"Yes",provider:"Dr. Samir Shah",status:"Signed",
           text:"Consultation and same-day chemical peel documented; consent and aftercare instructions recorded. No activity since; status set to Inactive.",visitId:"V-1001"}],
         consents:{clinical:"Signed Mar 12, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Mar 12, 2026"],
         documents:["Intake and medical history · Mar 12, 2026","Treatment consent · Mar 12, 2026"],
         treatments:["Chemical Peel · Completed Mar 12, 2026"],followups:[],demoHistory:[],
-        registration:{idUploaded:{status:"Uploaded",date:"2026-03-12"},formsCompleted:{status:"Checked out",date:"2026-03-12"},demographicsConfirmed:{status:"Confirmed",date:"2026-03-12"}}}
+        registration:{idUploaded:{status:"Uploaded",date:"2026-03-12"},formsCompleted:{status:"Completed",date:"2026-03-12"},demographicsConfirmed:{status:"Confirmed",date:"2026-03-12"}}},
+      {id:"BRZ0005",name:"Noah Kim",dob:"1985-03-11",sex:"Male",phone:"(212) 555-0190",email:"noah.kim@example.com",status:"Active",
+        allergies:["No known allergies"],meds:[],conditions:[],notes:[],
+        consents:{clinical:"Current · signed Nov 2, 2026",marketing:"Not authorized"},photos:[],
+        documents:[{id:"DOC-BRZ0005-1",category:"Patient Intake",title:"Intake and medical history · Nov 2, 2026",date:"2026-11-02",printable:true},
+                   {id:"DOC-BRZ0005-2",category:"Consent",title:"Treatment consent · Nov 2, 2026",date:"2026-11-02",printable:true}],
+        treatments:[],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-11-02"},formsCompleted:{status:"Completed",date:"2026-11-02"},demographicsConfirmed:{status:"Confirmed",date:"2026-11-02"}}},
+      {id:"BRZ0006",name:"Riley Brooks",dob:"1991-06-04",sex:"Female",phone:"(646) 555-0177",email:"riley.brooks@example.com",status:"Active",
+        allergies:[],meds:[],conditions:[],notes:[],
+        consents:{clinical:"Not yet recorded",marketing:"Not authorized"},photos:[],
+        documents:[],treatments:[],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Not uploaded",date:null},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}},
+      {id:"BRZ0007",name:"Priya Shah",dob:"1982-01-28",sex:"Female",phone:"(917) 555-0161",email:"priya.shah@example.com",status:"Active",
+        allergies:["No known allergies"],meds:[],conditions:[],
+        notes:[{id:"N-4",date:"2026-11-10",type:"Aesthetician Consult",status:"Open",provider:"Lina Park",role:"Aesthetician",
+          text:"Skin goals reviewed. Mini Facial recommended."}],
+        consents:{clinical:"Current · signed Nov 10, 2026",marketing:"Not authorized"},photos:[],
+        documents:[{id:"DOC-BRZ0007-1",category:"Patient Intake",title:"Intake and medical history · Nov 10, 2026",date:"2026-11-10",printable:true},
+                   {id:"DOC-BRZ0007-2",category:"Consent",title:"Treatment consent · Nov 10, 2026",date:"2026-11-10",printable:true}],
+        treatments:[],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-11-10"},formsCompleted:{status:"Completed",date:"2026-11-10"},demographicsConfirmed:{status:"Confirmed",date:"2026-11-10"}}},
+      {id:"BRZ0008",name:"Chloe Martin",dob:"1999-08-15",sex:"Female",phone:"(212) 555-0114",email:"chloe.martin@example.com",status:"Active",
+        allergies:[],meds:[],conditions:[],notes:[],
+        consents:{clinical:"Not yet recorded",marketing:"Not authorized"},photos:[],
+        documents:[{id:"DOC-BRZ0008-1",category:"Patient Intake",title:"Partial intake · Nov 17, 2026",date:"2026-11-17",printable:true}],
+        treatments:[],followups:[],demoHistory:[],
+        registration:{idUploaded:{status:"Uploaded",date:"2026-11-17"},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}}
     ],
     appointments: [
       {id:"A-6201",time:"11:00",patientId:"BRZ0004",type:"Consultation",reasons:["New Patient"],provider:"Dr. Samir Shah",durationLabel:"15 min",durationMinutes:15,status:"Checked out",consultation:"Treatment performed during visit",treatment:"",room:"Room 3",date:"2026-03-12",visitId:"V-1001",invoiceId:"INV-1001",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
@@ -384,7 +433,12 @@ BRIZZA.seed = function () {
       {id:"A-6218",time:"14:30",patientId:"BRZ0003",type:"Facial",reasons:["Hydrafacial"],provider:"Dr. Elena Ruiz",durationLabel:"75 min",durationMinutes:75,status:"Scheduled",consultation:"",treatment:"",room:"Room 3",date:"2026-12-03",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
       {id:"A-6219",time:"15:00",patientId:"BRZ0002",type:"Follow-up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"15 min",durationMinutes:15,status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-12-10",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
       {id:"A-6220",time:"10:00",patientId:"BRZ0002",type:"Follow-up",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"15 min",durationMinutes:15,status:"Ready for clinical",consultation:"",treatment:"",room:"Room 2",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Ready for clinical"]},
-      {id:"A-6221",time:"14:00",patientId:"BRZ0003",type:"Follow-up",reasons:["Facial"],provider:"Dr. Samir Shah",durationLabel:"15 min",durationMinutes:15,status:"With provider",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",suiteId:"SUITE-2",history:["Scheduled → Confirmed","Confirmed → With provider"]}
+      {id:"A-6221",time:"14:00",patientId:"BRZ0003",type:"Follow-up",reasons:["Facial"],provider:"Dr. Samir Shah",durationLabel:"15 min",durationMinutes:15,status:"With provider",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",suiteId:"SUITE-2",history:["Scheduled → Confirmed","Confirmed → With provider"]},
+      {id:"A-6230",time:"10:30",patientId:"BRZ0006",type:"Wax",reasons:["Eyebrows"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Scheduled",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",prepNotes:"New guest — confirm ID at check-in.",history:["Scheduled"]},
+      {id:"A-6231",time:"12:00",patientId:"BRZ0005",type:"Facial",reasons:["Hydrafacial"],provider:"Dr. Samir Shah",durationLabel:"75 min",durationMinutes:75,status:"Ready for checkout",consultation:"",treatment:"",room:"Room 3",date:"2026-11-18",locationId:"LOC-MANHATTAN",invoiceId:"INV-1010",prepNotes:"Package: first Hydrafacial of a series — confirm remaining visits.",history:["Scheduled → Confirmed","Confirmed → Ready for checkout"]},
+      {id:"A-6232",time:"13:00",patientId:"BRZ0007",type:"Neurotoxin",reasons:["Botox"],provider:"Dr. Elena Ruiz",durationLabel:"30 min",durationMinutes:30,status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-18",locationId:"LOC-MANHATTAN",prepNotes:"Wants upper face discussed; no unit count recorded.",history:["Scheduled"]},
+      {id:"A-6233",time:"11:30",patientId:"BRZ0008",type:"Facial",reasons:["Mini Facial"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6234",time:"15:30",patientId:"BRZ0007",type:"Wax",reasons:["Eyebrow Tint"],provider:"Lina Park",durationLabel:"30 min",durationMinutes:30,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-18",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]}
         ],
     visits: [
       {id:"V-1001",patientId:"BRZ0004",date:"2026-03-12",appointmentIds:["A-6201","A-6202"],invoiceId:"INV-1001",noteId:"N-3",label:"Same-day consult and Chemical Peel"},
@@ -400,23 +454,54 @@ BRIZZA.seed = function () {
         payments:[{id:"PAY-1002",method:"Card (processor reference only)",status:"Paid",recorded:"2026-11-03"}],
         finalized:true,finalizedAt:"2026-11-03 16:05 ET",movements:[{lotId:"LOT-BTX-031",product:"Botox",type:"TREATMENT_USAGE",posted:"2026-11-03 16:05 ET"}]},
       {id:"INV-1003",patientId:"BRZ0003",visitId:"V-1002",appointmentIds:["A-6207","A-6210"],status:"Issued",balance:"Outstanding (amount TBD)",
-        lines:[{kind:"service",name:"Consultation · New Patient",amount:"TBD"},{kind:"service",name:"Facial",amount:"TBD"}],
+        lines:[{kind:"service",name:"Consultation · New Patient",amount:"TBD",catalogId:"consultation",qty:null,unitPrice:null},
+               {kind:"service",name:"Facial",amount:"TBD",catalogId:"facial",qty:null,unitPrice:null}],
+        payments:[],finalized:false,finalizedAt:null,movements:[]},
+      {id:"INV-1010",patientId:"BRZ0005",visitId:null,appointmentIds:["A-6231"],status:"Issued",balance:275,
+        lines:[{kind:"service",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",qty:1,unitPrice:275,amount:275}],
         payments:[],finalized:false,finalizedAt:null,movements:[]}
     ],
     quotes: [
       {id:"Q-1001",patientId:"BRZ0001",appointmentId:"A-6203",templateId:"full-face-toxin",name:"Full-face toxin",status:"Open",
-        lines:[{kind:"service",name:"Full-face toxin",amount:"TBD"}],created:"2026-10-28",broughtToRoom:false,invoiceId:null,visitKind:null},
+        lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"}],created:"2026-10-28",broughtToRoom:false,invoiceId:null,visitKind:null},
       {id:"Q-1002",patientId:"BRZ0003",appointmentId:"A-6207",templateId:"facial-series-3",name:"Facial series of 3",status:"Open",
-        lines:[{kind:"package",name:"Facial series of 3",amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
+        lines:[{kind:"package",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:275,qty:null,amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
     ],
     lots: [
-      {id:"LOT-BTX-031",product:"Botox",onHand:0,expiry:"2026-10-20",status:"Used",released:true},
-      {id:"LOT-BTX-038",product:"Botox",onHand:2,expiry:"2026-11-30",status:"Released",released:true},
-      {id:"LOT-BTX-041",product:"Botox",onHand:4,expiry:"2026-12-15",status:"Released",released:true},
-      {id:"LOT-PEEL-08",product:"Chemical Peel",onHand:0,expiry:"2026-09-01",status:"Used",released:true},
-      {id:"LOT-PEEL-12",product:"Chemical Peel",onHand:3,expiry:"2026-12-01",status:"Released",released:true},
-      {id:"LOT-FACE-04",product:"Facial",onHand:5,expiry:"2027-02-15",status:"Released",released:true},
-      {id:"LOT-FACE-02",product:"Facial",onHand:1,expiry:"2026-12-20",status:"Released",released:true}
+      {id:"LOT-BTX-031",productId:"botox",product:"Botox",lotNumber:"BTX-031",onHand:0,originalQty:1,expiry:"2026-10-20",status:"Used",released:true,receivedAt:"2026-08-01",poId:"PO-1000",
+        openVial:null, patientIds:["BRZ0002"]},
+      {id:"LOT-BTX-038",productId:"botox",product:"Botox",lotNumber:"BTX-038",onHand:2,originalQty:2,expiry:"2026-11-30",status:"Released",released:true,receivedAt:"2026-09-15",poId:"PO-1001",
+        openVial:{openedAt:"2026-11-16",unitsLeft:22,beyondUseNote:null}, patientIds:[]},
+      {id:"LOT-BTX-041",productId:"botox",product:"Botox",lotNumber:"BTX-041",onHand:4,originalQty:4,expiry:"2026-12-15",status:"Released",released:true,receivedAt:"2026-10-01",poId:"PO-1001",
+        openVial:null, patientIds:[]},
+      {id:"LOT-JUV-014",productId:"juvederm",product:"Juvederm",lotNumber:"JUV-014",onHand:1,originalQty:1,expiry:"2027-03-01",status:"Released",released:true,receivedAt:"2026-10-20",poId:"PO-1002",
+        openVial:null, patientIds:[]},
+      {id:"LOT-PEEL-08",productId:"chemical-peel",product:"Chemical Peel",lotNumber:"PEEL-08",onHand:0,originalQty:2,expiry:"2026-09-01",status:"Used",released:true,receivedAt:"2026-02-01",poId:"PO-1000",
+        openVial:null, patientIds:["BRZ0004"]},
+      {id:"LOT-PEEL-12",productId:"chemical-peel",product:"Chemical Peel",lotNumber:"PEEL-12",onHand:3,originalQty:3,expiry:"2026-12-01",status:"Released",released:true,receivedAt:"2026-08-20",poId:"PO-1001",
+        openVial:null, patientIds:[]},
+      {id:"LOT-FACE-04",productId:"facial",product:"Facial",lotNumber:"FACE-04",onHand:5,originalQty:5,expiry:"2027-02-15",status:"Released",released:true,receivedAt:"2026-09-01",poId:"PO-1002",
+        openVial:null, patientIds:[]},
+      {id:"LOT-FACE-02",productId:"facial",product:"Facial",lotNumber:"FACE-02",onHand:1,originalQty:2,expiry:"2026-12-20",status:"Released",released:true,receivedAt:"2026-08-15",poId:"PO-1001",
+        openVial:null, patientIds:[]}
+    ],
+    purchaseOrders: [
+      {id:"PO-1000",vendor:"Allergan (sample vendor)",status:"Received",created:"2026-08-01",expected:"2026-08-10",
+        lines:[{productId:"botox",name:"Botox",orderedQty:1,receivedQty:1},{productId:"chemical-peel",name:"Chemical Peel",orderedQty:2,receivedQty:2}]},
+      {id:"PO-1001",vendor:"Allergan (sample vendor)",status:"Received",created:"2026-09-10",expected:"2026-09-20",
+        lines:[{productId:"botox",name:"Botox",orderedQty:6,receivedQty:6},{productId:"chemical-peel",name:"Chemical Peel",orderedQty:3,receivedQty:3},{productId:"facial",name:"Facial",orderedQty:2,receivedQty:2}]},
+      {id:"PO-1002",vendor:"SkinMedica (sample vendor)",status:"Partial",created:"2026-10-15",expected:"2026-10-25",
+        lines:[{productId:"juvederm",name:"Juvederm",orderedQty:3,receivedQty:1},{productId:"facial",name:"Facial",orderedQty:5,receivedQty:5}]},
+      {id:"PO-1003",vendor:"Allergan (sample vendor)",status:"Open",created:"2026-11-12",expected:"2026-11-25",
+        lines:[{productId:"jeuveau",name:"Jeuveau",orderedQty:4,receivedQty:0},{productId:"botox",name:"Botox",orderedQty:6,receivedQty:0}]}
+    ],
+    adjustments: [
+      {id:"ADJ-1001",lotId:"LOT-FACE-02",productId:"facial",product:"Facial",qty:-1,reason:"Waste",note:"Opened in error (sample)",when:"2026-11-10 11:20 ET",who:"Alex Morgan",role:"Clinic Manager"}
+    ],
+    inventoryMovements: [
+      {id:"MOV-1001",lotId:"LOT-PEEL-08",product:"Chemical Peel",type:"TREATMENT_USAGE",qty:-2,patientId:"BRZ0004",invoiceId:"INV-1001",when:"2026-03-12 15:10 ET"},
+      {id:"MOV-1002",lotId:"LOT-BTX-031",product:"Botox",type:"TREATMENT_USAGE",qty:-1,patientId:"BRZ0002",invoiceId:"INV-1002",when:"2026-11-03 16:05 ET"},
+      {id:"MOV-1003",lotId:"LOT-FACE-02",product:"Facial",type:"ADJUSTMENT",qty:-1,reason:"Waste",when:"2026-11-10 11:20 ET"}
     ],
     reservations: [
       {id:"RES-1",invoiceId:"INV-1003",lotId:"LOT-FACE-02",product:"Facial",status:"Suggested"}
@@ -450,6 +535,48 @@ BRIZZA.seed = function () {
     data.appointmentTypes = JSON.parse(JSON.stringify(BRIZZA.appointmentTypes));
   data.appointmentReasons = JSON.parse(JSON.stringify(BRIZZA.appointmentReasons));
   if (!data.quotes) data.quotes = [];
+  if (!data.catalog) data.catalog = JSON.parse(JSON.stringify(BRIZZA.CATALOG));
+  if (!data.purchaseOrders) data.purchaseOrders = [];
+  if (!data.adjustments) data.adjustments = [];
+  if (!data.inventoryMovements) data.inventoryMovements = [];
+  (data.patients || []).forEach(function (pt, pi) {
+    (pt.notes || []).forEach(function (n) {
+      if (n.locked) n.status = "Locked";
+      else if (n.status === "Signed") n.status = "Signed";
+      else n.status = "Open";
+    });
+    const docs = [];
+    (pt.documents || []).forEach(function (d, di) {
+      if (d && typeof d === "object") { docs.push(d); return; }
+      const title = String(d || "Document");
+      let category = "Patient Intake";
+      if (/consent/i.test(title)) category = "Consent";
+      if (/receipt|payment/i.test(title)) category = "Payment";
+      if (/quote/i.test(title)) category = "Quotes";
+      docs.push({ id: "DOC-" + pt.id + "-" + (di + 1), category: category, title: title, date: (pt.registration && pt.registration.idUploaded && pt.registration.idUploaded.date) || "", printable: true });
+    });
+    pt.documents = docs;
+  });
+  (data.quotes || []).forEach(function (q) {
+    const pt = data.patients.find((x) => x.id === q.patientId);
+    if (!pt) return;
+    const exists = (pt.documents || []).some((d) => d.relatedId === q.id || (d.category === "Quotes" && d.title && d.title.indexOf(q.name) >= 0));
+    if (!exists) {
+      pt.documents = pt.documents || [];
+      pt.documents.push({ id: "DOC-" + q.id, category: "Quotes", title: "Quote · " + q.name + " · " + q.id, date: q.created, relatedId: q.id, kind: "quote", printable: true });
+    }
+  });
+  (data.invoices || []).forEach(function (inv) {
+    (inv.payments || []).forEach(function (pay) {
+      const pt = data.patients.find((x) => x.id === inv.patientId);
+      if (!pt) return;
+      const exists = (pt.documents || []).some((d) => d.relatedId === pay.id);
+      if (!exists) {
+        pt.documents = pt.documents || [];
+        pt.documents.push({ id: "DOC-" + pay.id, category: "Payment", title: "Receipt · " + pay.id + " · " + inv.id, date: (pay.recorded || "").slice(0, 10), relatedId: pay.id, invoiceId: inv.id, kind: "receipt", printable: true });
+      }
+    });
+  });
   return data;
 };
 

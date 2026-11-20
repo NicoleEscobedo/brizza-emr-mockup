@@ -415,7 +415,12 @@
   function registrationPanel(a) {
     const p = patient(a.patientId);
     const items = registrationItems(p);
-    const rows = items.map((it) => '<div class="reg-item"><div><div class="row-title">' + esc(it.label) + '</div><div class="row-sub">' + (it.date ? esc(fmtDate(it.date)) : "No date recorded") + "</div></div>" + badge(it.status) + "</div>").join("");
+    const rows = items.map(function (it) {
+      const st = (it.key === "demographicsConfirmed" && !it.ok)
+        ? '<button type="button" class="reg-not-confirmed" data-open-demo="' + esc(p.id) + '">' + esc(it.status) + "</button>"
+        : badge(it.status);
+      return '<div class="reg-item"><div><div class="row-title">' + esc(it.label) + '</div><div class="row-sub">' + (it.date ? esc(fmtDate(it.date)) : "No date recorded") + "</div></div>" + st + "</div>";
+    }).join("");
     return '<div class="reg-panel" id="reg-panel-' + esc(a.id) + '"><h3 class="section-title">Registration status</h3>' + rows +
       openQ("The official visit-readiness and registration checklist is not named in the sources (Open question 4). ID uploaded, intake/consent forms, and demographics confirmed are prototype indicators only.") + "</div>";
   }
@@ -512,6 +517,7 @@
     appointments: "Appointments",
     photos: "Photos",
     documents: "Documents",
+    forms: "Forms",
     ledger: "Ledger",
     quotes: "Quotes",
     "follow-up": "Follow-up history"
@@ -642,11 +648,12 @@
       startDemo();
       return;
     }
+    clearReturnStack();
     render();
     if (r.page === "schedule" && r.appointmentId && appt(r.appointmentId)) {
       openAppointmentModal(r.appointmentId);
     } else if ($("#modal") && $("#modal").classList.contains("open")) {
-      closeModal({ cancelPending: true });
+      closeModal({ cancelPending: true, skipRestore: true });
     }
   }
 
@@ -801,6 +808,8 @@
     return '<button type="button" class="audit-icon hist-icon" data-history-type="' + esc(type) + '" data-history-id="' + esc(id || "") + '" title="Audit log" aria-label="Audit log">' + AUDIT_SVG + "</button>";
   }
   function openHistoryPop(type, id) {
+    if (!modalIsOpen()) pushReturnContext({ kind: "history" });
+    else pushReturnContext({ kind: "history", reopen: currentModalReopen() });
     const evs = auditsFor(type, id).slice().reverse();
     const title = "History · " + (type || "Record") + (id ? " " + id : "");
     const rows = evs.length ? evs.map(function (e) {
@@ -813,7 +822,7 @@
     const back = $("#modal");
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = '<div class="hist-list">' + rows + "</div>";
-    if (foot) { foot.textContent = "Close"; foot.onclick = function () { closeModal(); }; }
+    if (foot) { foot.textContent = "Close"; foot.disabled = false; foot.onclick = function () { closeModal(); }; }
     back.classList.add("open", "hist-mode");
     back.classList.remove("pos-mode");
   }
@@ -887,7 +896,11 @@
       return '<span class="reg-mini ' + (it.ok ? "ok" : "miss") + '" title="' + esc(full[it.key] + " · " + it.status) + '">' + letter[it.key] + "</span>";
     }).join("");
     const open = state.expandedAppt === apptId;
-    return '<div class="reg-minis"><button type="button" class="btn small" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button></div>";
+    const demo = items.find(function (it) { return it.key === "demographicsConfirmed"; });
+    const notConf = (demo && !demo.ok)
+      ? ' <button type="button" class="reg-not-confirmed" data-open-demo="' + esc(p.id) + '">Not confirmed</button>'
+      : "";
+    return '<div class="reg-minis"><button type="button" class="btn small" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button>" + notConf + "</div>";
   }
 
   function wlBucketFor(a) {
@@ -1077,7 +1090,7 @@
     const hits = q ? scheduleSearchHits(q) : "";
     const timed = rows.slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
     const goldId = nextPendingId(timed);
-    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
     const collapsed = wlBucketState();
     let groups = "";
     if (isWeekend(date)) {
@@ -1158,6 +1171,7 @@
       '<div class="wl-suite">' + esc(suite) + "</div>" +
       '<div>' + (p ? regMinis(p, a.id) : "") + "</div>" +
       "<div>" + statusSelect(a, "wl") + "</div>" +
+      clinicalNoteCell(a) +
       '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' + tip + "</div>" +
       "<div>" + balanceBadge(patientBalanceValue(a.patientId)) + "</div>" +
       '<div class="wl-checkout-btns"><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button>' +
@@ -1374,8 +1388,13 @@
       changes: [{ field: "invoice", before: "—", after: id }] });
     return inv;
   }
-  function openInvoicePopup(inv, apptId) {
+  function openInvoicePopup(inv, apptId, opts) {
     if (!inv) return;
+    opts = opts || {};
+    if (!opts.skipPush) {
+      const alreadyPos = modalIsOpen() && $("#modal").classList.contains("pos-mode");
+      if (!alreadyPos) pushReturnContext({ kind: "invoice", reopen: currentModalReopen() });
+    }
     const p = patient(inv.patientId);
     const a = apptId ? appt(apptId) : appt((inv.appointmentIds || [])[0]);
     state.invoiceId = inv.id;
@@ -1389,7 +1408,8 @@
     bindPosSearch(inv);
     const save = $("#modalSave");
     save.textContent = "Done";
-    save.onclick = function () { closeModal(); if (state.page === "schedule") renderWorklist(); else render(); };
+    save.disabled = false;
+    save.onclick = function () { closeModal(); };
     $("#modal").classList.add("open", "pos-mode");
     $("#modal").classList.remove("hist-mode");
   }
@@ -1776,12 +1796,11 @@
       });
       sentences.push("Areas marked on the face map: " + named.join("; ") + ".");
     }
-    return sentences.join(" ");
+    if (!sentences.length) return "";
+    return "This visit note records only the details that were selected or entered. " + sentences.join(" ");
   }
   function faceMapEnabled(tpl) {
-    return !!(tpl && (tpl.id === "inj-procedure" || (tpl.sections || []).some(function (s) {
-      return (s.fields || []).some(function (f) { return f.id === "areasTreated"; });
-    })));
+    return !!(tpl && tpl.id === "inj-procedure");
   }
   function faceRegions() {
     return [
@@ -2098,6 +2117,42 @@
     </div>`;
   }
 
+  function formStatusOf(p, key) {
+    const rec = (p.forms || []).find(function (f) { return f.id === key; });
+    if (rec && rec.status) return rec.status;
+    if (key === "procedure" && p.consents && p.consents.clinical && !/not yet/i.test(p.consents.clinical)) return "Signed";
+    if (key === "marketing" && p.consents && p.consents.marketing && /author/i.test(p.consents.marketing) && !/not /i.test(p.consents.marketing)) return "Signed";
+    if (key === "hipaa" && p.registration && p.registration.formsCompleted && p.registration.formsCompleted.status === "Completed") return "Signed";
+    return "Pending";
+  }
+  function patientFormsList(p) {
+    return [
+      { id: "hipaa", title: "HIPAA consent" },
+      { id: "procedure", title: "Procedure consent" },
+      { id: "aftercare", title: "Aftercare consent" },
+      { id: "marketing", title: "Marketing consent" }
+    ].map(function (f) {
+      return { id: f.id, title: f.title, status: formStatusOf(p, f.id), body: "Placeholder, to be written by compliance." };
+    });
+  }
+  function patientFormsHtml(p) {
+    return patientFormsList(p).map(function (f) {
+      return '<div class="row"><div><div class="row-title">' + esc(f.title) + '</div>' +
+        '<div class="row-sub">Placeholder, to be written by compliance.</div></div>' +
+        badge(f.status) +
+        ' <button class="btn small" type="button" data-open-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '">View</button></div>';
+    }).join("");
+  }
+  function openFormPlaceholder(pid, fid) {
+    const p = patient(pid);
+    const f = patientFormsList(p || {}).find(function (x) { return x.id === fid; });
+    if (!f) return;
+    showModal(f.title + (p ? " · " + p.name : ""),
+      '<p class="row-sub">' + esc(f.status) + "</p>" +
+      '<div class="notice"><strong>Placeholder</strong> Placeholder, to be written by compliance. This is not legal text.</div>',
+      function () { closeModal(); }, "Close");
+  }
+
   function chartSection(p) {
     let body = "";
     if (state.tab === "demographics") {
@@ -2138,6 +2193,10 @@
       body = `<h3 class="section-title">Patient documents</h3>
         <p class="row-sub">Receipts are saved when a payment is recorded. Saved quotes appear under Quotes. View/Print opens a printable page.</p>
         ${documentsHtml(p)}`;
+    } else if (state.tab === "forms") {
+      body = '<h3 class="section-title">Forms and consents</h3>' +
+        '<p class="row-sub">These are labeled placeholders only, to be written by compliance. This tab does not contain legal text.</p>' +
+        patientFormsHtml(p);
     } else if (state.tab === "ledger") {
       const invs = store.invoices.filter((i) => i.patientId === p.id);
       const pays = (p.ledgerPayments || []).slice().reverse();
@@ -2178,6 +2237,7 @@
     const nextLabel = next ? fmtDate(next.date) : "None scheduled";
     const nextSub = next ? next.time + " · " + next.type : "";
     const lastProv = last ? last.provider : "—";
+    const nextTime = next ? (fmtTime(next.time) + " · " + next.type) : "";
     const tabs = Object.entries(TABS).map(([k, label]) =>
       '<a class="tab ' + (state.tab === k ? "active" : "") + '" href="' + hashFor({ page: "patients", selected: p.id, tab: k }) + '">' + esc(label) + "</a>"
     ).join("");
@@ -2185,7 +2245,7 @@
     const head = pageHead("Patient-centered chart", "Patient chart", findPatientHtml(), '<a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
     const body = `<div class="grid">
       <div class="card">
-        <div class="cardbody">
+        <div class="cardbody patient-header">
           ${alertsBanner(p)}
           <div class="patient-banner">
             <div class="patient-avatar">${esc(initials(p.name))}</div>
@@ -2193,25 +2253,30 @@
               <div class="patient-name">${esc(p.name)} ${badge(p.status)}
                 <a class="btn small" href="#modal-edit" data-open="edit" data-pid="${p.id}">Edit Chart</a>
               </div>
-              <div class="patient-meta"><span class="pid">${esc(displayId(p.id))}</span><span>${esc(fmtDob(p.dob))} · ${age(p.dob)} yrs · ${esc(p.sex)}</span><span>${esc(p.phone)}</span><span>${esc(p.email)}</span></div>
+              <div class="patient-meta">
+                <span class="pid">${esc(displayId(p.id))}</span>
+                <span>${esc(fmtDob(p.dob))} · ${age(p.dob)} yrs · ${esc(p.sex)}</span>
+                <span>${esc(p.phone)}</span>
+                <span>${esc(p.email)}</span>
+              </div>
             </div>
           </div>
           <div class="summary-strip">
-            <div class="metric"><label>Last completed appointment</label><strong>${esc(lastLabel)}</strong><div class="sub">${esc(lastSub)}</div></div>
-            <div class="metric"><label>Next appointment</label><strong>${esc(nextLabel)}</strong><div class="sub">${esc(nextSub)}</div></div>
-            <div class="metric"><label>Last provider</label><strong>${esc(lastProv)}</strong></div>
             <div class="metric"><label>Patient number</label><strong class="pid">${esc(displayId(p.id))}</strong></div>
+            <div class="metric"><label>Last provider</label><strong>${esc(lastProv)}</strong></div>
+            <div class="metric"><label>Last appointment</label><strong>${esc(lastLabel)}</strong><div class="sub">${esc(lastSub)}</div></div>
+            <div class="metric"><label>Next appointment</label><strong>${esc(nextLabel)}</strong><div class="sub">${esc(nextTime || nextSub)}</div></div>
           </div>
         </div>
         <div class="tabs" role="tablist">${tabs}</div>
         <div class="cardbody">${chartSection(p)}</div>
       </div>
       <div>
-        <div class="card" style="margin-bottom:16px">
-          <div class="cardhead"><h2>Next appointments</h2><a class="btn small" href="${hashFor({ page: "schedule", date: state.date })}">Schedule</a></div>
-          <div class="cardbody">${upcoming.map((a) => '<div class="row"><div><div class="row-title">' + esc(a.type) + '</div><div class="row-sub">' + esc(a.date) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.provider) + "</div></div>" + badge(a.status) + "</div>").join("") || '<div class="empty">None scheduled</div>'}</div>
-        </div>
         ${notesListHtml(p)}
+        <div class="card" style="margin-top:16px">
+          <div class="cardhead"><h2>Next appointment</h2><div class="actions"><a class="btn small" href="${hashFor({ page: "schedule", date: state.date })}">Schedule</a> <button type="button" class="btn small" data-open="book" data-pid="${p.id}">+ Apt</button></div></div>
+          <div class="cardbody">${upcoming.map((a) => '<div class="row"><div><div class="row-title">' + esc(a.type) + '</div><div class="row-sub">' + esc(fmtDate(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.provider) + "</div></div>" + badge(a.status) + "</div>").join("") || '<div class="empty">None scheduled</div>'}</div>
+        </div>
       </div>
     </div>`;
     renderChrome('<a href="' + hashFor({ page: "patients" }) + '">Patients</a> / ' + esc(p.name), head, body);
@@ -2220,7 +2285,7 @@
   function dayAppointments(date, locationId) {
     const loc = activeLocationId(locationId);
     return store.appointments
-      .filter((a) => a.date === date && a.status !== "Rescheduled" && a.status !== "Canceled")
+      .filter((a) => a.date === date && a.status !== "Rescheduled" && appointmentVisibleOnCalendar(a))
       .filter((a) => !shouldFilterProvider() || providerMatches(a.provider))
       .filter((a) => !loc || a.locationId === loc)
       .sort((a, b) => a.time.localeCompare(b.time));
@@ -2297,6 +2362,54 @@
     return (BRIZZA.ROOMING_BOARD_STATUSES || []).indexOf(s) >= 0;
   }
   function visitStatuses() { return BRIZZA.VISIT_STATUSES || BRIZZA.appointmentStatuses || []; }
+  function frontDeskStatuses() { return ["Scheduled", "Confirmed", "Checked in", "Checked out", "No-show", "Canceled"]; }
+  function isClinicalVisitStatus(s) {
+    return ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"].indexOf(s) >= 0;
+  }
+  function hideCanceledOn() {
+    if (state.hideCanceled == null) {
+      try { state.hideCanceled = localStorage.getItem("brizza-emr-hide-canceled") === "1"; } catch (e) { state.hideCanceled = false; }
+    }
+    return !!state.hideCanceled;
+  }
+  function setHideCanceled(on) {
+    state.hideCanceled = !!on;
+    try { localStorage.setItem("brizza-emr-hide-canceled", on ? "1" : "0"); } catch (e) {}
+  }
+  function appointmentVisibleOnCalendar(a) {
+    if (!a) return false;
+    if (a.status === "Canceled" && hideCanceledOn()) return false;
+    return true;
+  }
+  function hideCanceledToggleHtml() {
+    const on = hideCanceledOn();
+    return '<label class="hide-canceled"><input type="checkbox" id="hideCanceled" data-hide-canceled="1"' + (on ? " checked" : "") + "> Hide canceled</label>";
+  }
+  function noteForAppointment(a) {
+    if (!a) return null;
+    const p = patient(a.patientId);
+    if (!p) return null;
+    const notes = p.notes || [];
+    const byAppt = notes.find(function (n) { return n.appointmentId === a.id; });
+    if (byAppt) return byAppt;
+    if (a.visitId) {
+      const byVisit = notes.find(function (n) { return n.visitId === a.visitId; });
+      if (byVisit) return byVisit;
+    }
+    const sameDay = notes.filter(function (n) { return n.date === a.date; });
+    return sameDay.length === 1 ? sameDay[0] : null;
+  }
+  function clinicalNoteCell(a) {
+    const n = noteForAppointment(a);
+    if (!n) return '<div class="wl-clinote"><span class="dash" title="No clinical note for this visit">—</span></div>';
+    const st = n.status || "Open";
+    const signed = isNoteSigned(n);
+    const canEdit = isNoteEditable(n) && isClinicalRole();
+    const attr = canEdit
+      ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(a.patientId) + '"'
+      : ' data-open="note-view" data-pid="' + esc(a.patientId) + '" data-nid="' + esc(n.id) + '"';
+    return '<div class="wl-clinote"><button type="button" class="btn small" ' + attr + '>' + esc(st) + "</button></div>";
+  }
   function statusColor(status) {
     return (BRIZZA.STATUS_DOTS || {})[status] || "#6E6055";
   }
@@ -2323,6 +2436,13 @@
     const id = "visit-status-" + a.id + (idSuffix ? "-" + idSuffix : "");
     const color = statusColor(a.status);
     const ink = statusInk(color);
+    if (idSuffix === "wl") {
+      if (isClinicalVisitStatus(a.status)) {
+        return '<span class="status-ro" style="background:' + color + ";color:" + ink + '">' + esc(a.status) + "</span>";
+      }
+      return '<label class="sr-only" for="' + id + '">Visit status</label><select id="' + id + '" class="status-dd status-dd-colored" data-visit-status="' + esc(a.id) + '" style="background:' + color + ";color:" + ink + ";border-color:" + color + '">' +
+        frontDeskStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+    }
     return '<label class="sr-only" for="' + id + '">Visit status</label><select id="' + id + '" class="status-dd status-dd-colored" data-visit-status="' + esc(a.id) + '" style="background:' + color + ";color:" + ink + ";border-color:" + color + '">' +
       visitStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
   }
@@ -2772,7 +2892,13 @@
         });
       });
     }
-    zone("[data-drop-status]", function (id, el) { setVisitStatus(id, el.getAttribute("data-drop-status")); });
+    zone("[data-drop-status]", function (id, el) {
+      const raw = el.getAttribute("data-drop-status") || "";
+      const parts = raw.split("|").filter(Boolean);
+      const a = appt(id);
+      const next = (a && parts.indexOf(a.status) >= 0) ? a.status : (parts[0] || raw);
+      setVisitStatus(id, next);
+    });
     zone("[data-drop-role]", function (id, el) {
       const suiteId = el.getAttribute("data-drop-suite");
       const role = el.getAttribute("data-drop-role");
@@ -2812,8 +2938,44 @@
   function linesToList(s) {
     return String(s || "").split(/\n|;/).map(function (x) { return x.trim(); }).filter(Boolean);
   }
-  function noteHistoryConfirmHtml(p) {
+  function hxLockLabel(lock) {
+    if (!lock) return "";
+    return esc((lock.who || "") + (lock.role ? ", " + lock.role : "") + (lock.when ? " · " + lock.when : ""));
+  }
+  function persistHxReviewState() {
+    const draft = state.noteDraft;
+    if (!draft) return;
+    const box = $("#hxReviewed");
+    if (box) draft.hxReviewed = !!(box.checked || draft.hxConfirmLock);
+    else draft.hxReviewed = !!draft.hxConfirmLock;
+    if (!draft.noteId) return;
+    const p = patient(draft.pid);
+    const rec = p && (p.notes || []).find(function (n) { return n.id === draft.noteId; });
+    if (!rec) return;
+    rec.hxReviewed = !!draft.hxReviewed;
+    rec.hxConfirmLock = draft.hxConfirmLock || null;
+  }
+  function paintHxLockUi() {
+    const draft = state.noteDraft || {};
+    const box = $("#hxReviewed");
+    const lock = draft.hxConfirmLock;
+    if (box) {
+      box.checked = !!(draft.hxReviewed || lock);
+      box.disabled = !!lock;
+    }
+    const meta = $("#hxLockMeta");
+    const btn = $("#hxLockBtn");
+    if (meta) {
+      meta.hidden = !lock;
+      meta.textContent = lock ? ("Confirmation locked by " + (lock.who || "") + (lock.role ? ", " + lock.role : "") + (lock.when ? " · " + lock.when : "")) : "";
+    }
+    if (btn) btn.hidden = !!lock;
+  }
+  function noteHistoryConfirmHtml(p, draft) {
     p = p || {};
+    draft = draft || state.noteDraft || {};
+    const locked = !!draft.hxConfirmLock;
+    const checked = !!(draft.hxReviewed || locked);
     return '<section class="note-hx" id="noteHx">' +
       '<h3 class="section-title">Medical history confirm</h3>' +
       '<p class="row-sub">These details live on the chart and carry into every future note. Check Reviewed, no changes when nothing is new.</p>' +
@@ -2822,8 +2984,13 @@
       '<div class="field full"><label for="hxHistory">Medical history</label><textarea id="hxHistory" data-hx="conditions">' + esc(listToLines(p.conditions)) + "</textarea></div>" +
       '<div class="field full"><label for="hxPharmacy">Pharmacy <span class="row-sub">(if applicable)</span></label>' +
       '<input id="hxPharmacy" data-hx="pharmacy" value="' + esc(p.pharmacy || "") + '"></div>' +
-      '<label class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
-      '<input type="checkbox" id="hxReviewed"> <span>Reviewed, no changes</span></label>' +
+      '<div class="hx-review">' +
+      '<input type="checkbox" id="hxReviewed"' + (checked ? " checked" : "") + (locked ? " disabled" : "") + '>' +
+      '<label for="hxReviewed">Reviewed, no changes</label></div>' +
+      '<div class="hx-lock">' +
+      '<button type="button" class="btn small" id="hxLockBtn"' + (locked ? " hidden" : "") + ">Lock confirmation</button>" +
+      '<p class="row-sub" id="hxLockMeta"' + (locked ? "" : " hidden") + ">" + (locked ? ("Confirmation locked by " + hxLockLabel(draft.hxConfirmLock)) : "") + "</p>" +
+      "</div>" +
       '<div id="hxWarn"></div></section>';
   }
   function readHxFromForm() {
@@ -2928,9 +3095,11 @@
           preview: existing.text || "",
           previewEdited: !!existing.text,
           facePoints: (existing.facePoints || []).map(function (pt) { return Object.assign({}, pt); }),
-          fromConsultId: existing.fromConsultId || null
+          fromConsultId: existing.fromConsultId || null,
+          hxReviewed: !!(existing.hxReviewed || existing.hxConfirmLock),
+          hxConfirmLock: existing.hxConfirmLock || null
         }
-      : { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {}, preview: "", previewEdited: false, facePoints: [] };
+      : { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {}, preview: "", previewEdited: false, facePoints: [], hxReviewed: false, hxConfirmLock: null };
     paintNoteComposer();
   }
   function paintNoteComposer() {
@@ -2955,7 +3124,7 @@
       const proc = (isConsultNote({ templateId: tpl.id, type: tpl.name }) && isClinicalRole())
         ? '<div style="margin-top:14px"><button class="btn small" type="button" data-proc-from-draft="1">Create procedure note</button></div>'
         : "";
-      sections = flag + face + fields + preview + noteHistoryConfirmHtml(p) + proc;
+      sections = flag + face + fields + preview + noteHistoryConfirmHtml(p, draft) + proc;
     }
     const title = (draft.noteId ? "Edit note · " : "Create note · ") + (p ? p.name : draft.pid);
     showModal(title, (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
@@ -2982,9 +3151,26 @@
     $$("[data-hx]").forEach(function (el) {
       el.addEventListener("input", function () {
         const box = $("#hxReviewed");
-        if (box) box.checked = false;
+        if (state.noteDraft) state.noteDraft.hxConfirmLock = null;
+        if (box) { box.checked = false; box.disabled = false; }
+        paintHxLockUi();
+        persistHxReviewState();
       });
     });
+    const hxBox = $("#hxReviewed");
+    if (hxBox) hxBox.addEventListener("change", function () {
+      if (state.noteDraft) state.noteDraft.hxReviewed = !!hxBox.checked;
+      persistHxReviewState();
+    });
+    const lockBtn = $("#hxLockBtn");
+    if (lockBtn) lockBtn.addEventListener("click", function () {
+      if (!state.noteDraft) return;
+      state.noteDraft.hxReviewed = true;
+      state.noteDraft.hxConfirmLock = { who: actingName(), role: state.actingRole, when: nowET() };
+      paintHxLockUi();
+      persistHxReviewState();
+    });
+    paintHxLockUi();
     if (typeof bindFaceMap === "function") bindFaceMap(draft);
     if (typeof bindNoteBuilder === "function") bindNoteBuilder(draft);
   }
@@ -3052,9 +3238,12 @@
       rec.signedAt = nowET();
       rec.historySnapshot = historySnapshotOf(p);
       rec.hxReviewed = true;
+      if (draft.hxConfirmLock) rec.hxConfirmLock = draft.hxConfirmLock;
     } else {
       rec.status = "Open";
       rec.locked = false;
+      rec.hxReviewed = !!(draft.hxReviewed || ($("#hxReviewed") && $("#hxReviewed").checked));
+      rec.hxConfirmLock = draft.hxConfirmLock || rec.hxConfirmLock || null;
     }
     if (rec.visitId) {
       const v = visit(rec.visitId);
@@ -3100,21 +3289,25 @@
     const n = p && (p.notes || []).find(function (x) { return x.id === nid; });
     if (!n) return;
     const fields = noteFieldsOf(n);
-    const values = {
-      areasTreated: fields.areasDiscussed || fields.areasTreated || "",
-      consentConfirmed: fields.consentConfirmed || ""
-    };
+    const procId = procedureTemplateId(n);
+    const values = {};
+    if (procId === "inj-procedure") {
+      values.areasTreated = fields.areasDiscussed || fields.areasTreated || "";
+    }
+    if (fields.consentConfirmed) values.consentConfirmed = fields.consentConfirmed;
     closeModal();
     state.noteDraft = {
       pid: pid,
       apptId: n.appointmentId || null,
       visitId: n.visitId || null,
-      templateId: procedureTemplateId(n),
+      templateId: procId,
       values: values,
       preview: "",
       previewEdited: false,
-      facePoints: (n.facePoints || []).map(function (pt) { return Object.assign({}, pt, { units: "" }); }),
-      fromConsultId: n.id
+      facePoints: procId === "inj-procedure" ? (n.facePoints || []).map(function (pt) { return Object.assign({}, pt, { units: "" }); }) : [],
+      fromConsultId: n.id,
+      hxReviewed: false,
+      hxConfirmLock: null
     };
     paintNoteComposer();
   }
@@ -3174,10 +3367,11 @@
         ${controls}
       </div>`;
     };
-    const cols = (BRIZZA.ROOMING_BOARD_STATUSES || []).map((status) => {
-      const here = records.filter((a) => a.status === status);
+    const buckets = BRIZZA.ROOMING_FLOW_BUCKETS || (BRIZZA.ROOMING_BOARD_STATUSES || []).map(function (s) { return { label: s, statuses: [s] }; });
+    const cols = buckets.map(function (bk) {
+      const here = records.filter((a) => (bk.statuses || []).indexOf(a.status) >= 0);
       const cards = here.map((a) => cardHtml(a, "flow")).join("") || '<div class="empty">None</div>';
-      return '<div class="room-col" data-drop-status="' + esc(status) + '"><h2>' + esc(status) + " · " + here.length + "</h2>" + cards + "</div>";
+      return '<div class="room-col" data-drop-status="' + esc((bk.statuses || []).join("|")) + '"><h2>' + esc(bk.label) + " · " + here.length + "</h2>" + cards + "</div>";
     }).join("");
     const suites = (BRIZZA.SUITES || []).map((s) => {
       const occ = occupantInSuite(s.id, date, null);
@@ -3270,7 +3464,7 @@
     const people = store.patients.filter((p) => (p.name + " " + p.id + " " + p.phone + " " + (p.dob || "")).toLowerCase().includes(q));
     const aps = store.appointments.filter((a) => {
       const p = patient(a.patientId);
-      return ((p && p.name) + " " + (p && p.dob || "") + " " + a.patientId + " " + a.id + " " + a.type + " " + reasonText(a) + " " + a.provider + " " + a.date).toLowerCase().includes(q) && a.status !== "Rescheduled" && a.status !== "Canceled";
+      return ((p && p.name) + " " + (p && p.dob || "") + " " + a.patientId + " " + a.id + " " + a.type + " " + reasonText(a) + " " + a.provider + " " + a.date).toLowerCase().includes(q) && a.status !== "Rescheduled" && appointmentVisibleOnCalendar(a);
     }).slice(0, 8);
     const plist = people.map((p) => '<a class="row" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '"><span>' + esc(p.name) + '</span><span class="row-sub">' + esc(p.id) + "</span></a>").join("") || '<div class="row-sub">No matching patients</div>';
     const alist = aps.map((a) => {
@@ -3373,13 +3567,15 @@
 
   function calendarEvent(a) {
     const p = patient(a.patientId);
-    const href = hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "calendar", calMode: state.calMode });
+    const href = hashFor({ page: "schedule", date: state.date, appointmentId: a.id, view: "calendar", calMode: state.calMode });
     const dd = (state.calMode === "month") ? "" : statusSelect(a, "cal");
     const color = statusColor(a.status);
     const locked = isApptLocked(a);
     const tip = [p ? p.name : a.patientId, cardTypeLabel(a), fmtTime(a.time), a.status].join(" · ");
-    return '<div class="cal-event" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked ? "false" : "true") + '" style="--status-bar:' + color + ";border-left-color:" + color + '">' +
-      '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + "</span>" +
+    const canceled = a.status === "Canceled";
+    const cancelBadge = canceled ? ' <span class="badge canceled-badge">Canceled</span>' : "";
+    return '<div class="cal-event' + (canceled ? " is-canceled" : "") + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked || canceled ? "false" : "true") + '" style="--status-bar:' + color + ";border-left-color:" + color + '">' +
+      '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + cancelBadge + "</span>" +
       '<span class="cal-event-mid"><a href="' + href + '">' + esc(cardTypeLabel(a)) + "</a></span>" +
       '<span class="row-sub">' + esc(a.provider) + "</span>" + dd +
       '<span class="appt-pop" role="tooltip">' + esc(tip) + "</span></div>";
@@ -3388,7 +3584,7 @@
   function rangeAppointments(start, end, locationId) {
     const loc = activeLocationId(locationId);
     return store.appointments
-      .filter((a) => a.date >= start && a.date <= end && a.status !== "Rescheduled" && a.status !== "Canceled")
+      .filter((a) => a.date >= start && a.date <= end && a.status !== "Rescheduled" && appointmentVisibleOnCalendar(a))
       .filter((a) => !shouldFilterProvider() || providerMatches(a.provider))
       .filter((a) => !loc || a.locationId === loc)
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
@@ -3413,7 +3609,7 @@
       <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "calendar", calMode: state.calMode })}">Sample day</a>
       <a class="btn small" href="${hashFor({ page: "schedule", date: demoClockDate(), view: "calendar", calMode: state.calMode })}">Demo day</a>
     </div>`;
-    const tools = '<div class="cal-tools">' + locationToggleHtml() + providerChipsHtml() +
+    const tools = '<div class="cal-tools">' + locationToggleHtml() + providerChipsHtml() + hideCanceledToggleHtml() +
       '<label class="sr-only" for="sched-search">Search patients and appointments</label>' +
       '<input id="sched-search" class="sched-search" type="search" placeholder="Search patients and appointments" value="' + esc(state.scheduleSearch || "") + '">' +
       "</div>";
@@ -3859,23 +4055,131 @@
     state.demo.timer = setTimeout(() => { state.demo.index += 1; runDemoStep(); }, step.ms);
   }
 
+  function modalIsOpen() {
+    const back = $("#modal");
+    return !!(back && back.classList.contains("open"));
+  }
+  function currentModalReopen() {
+    if (!modalIsOpen()) return null;
+    if ($("#modal").classList.contains("pos-mode") && state.invoiceId) {
+      return { type: "invoice", id: state.invoiceId, apptId: state.posAppointmentId || null };
+    }
+    if (state.appointmentId && document.querySelector("[data-appt-card]")) {
+      return { type: "appointment", id: state.appointmentId };
+    }
+    return null;
+  }
+  function screenRouteFromState() {
+    const view = (state.scheduleView === "list") ? "worklist" : (state.scheduleView || "worklist");
+    return {
+      page: state.page,
+      date: state.page === "rooming" ? (state.roomingDate || state.date) : state.date,
+      view: view,
+      calMode: state.calMode,
+      selected: state.selected,
+      tab: state.tab,
+      notesDash: state.notesDash,
+      invTab: state.invTab,
+      posTab: state.posTab,
+      invoiceId: state.page === "pos" ? state.invoiceId : null,
+      visitId: state.page === "visit" ? state.visitId : null,
+      auditId: state.page === "audit" ? state.auditId : null,
+      quoteId: state.page === "pos" ? state.quoteId : null,
+      appointmentId: null
+    };
+  }
+  function captureReturnContext(extra) {
+    const main = $("#main");
+    const cal = document.querySelector(".cal-grid-week, .cal-grid, .cal-month, .cal-day");
+    const wl = document.querySelector(".wl, [data-worklist]");
+    return Object.assign({
+      hash: hashFor(screenRouteFromState()),
+      page: state.page,
+      scheduleView: state.scheduleView,
+      calMode: state.calMode,
+      date: state.date,
+      roomingDate: state.roomingDate,
+      locationId: state.locationId,
+      compareLocations: !!state.compareLocations,
+      providerChips: (state.providerChips || []).slice(),
+      selected: state.selected,
+      tab: state.tab,
+      notesDash: state.notesDash,
+      invTab: state.invTab,
+      posTab: state.posTab,
+      invoiceId: state.invoiceId,
+      quoteId: state.quoteId,
+      appointmentId: null,
+      reopen: null,
+      scrollY: window.scrollY || 0,
+      mainScroll: main ? main.scrollTop : 0,
+      calScroll: cal ? cal.scrollTop : 0,
+      wlScroll: wl ? wl.scrollTop : 0
+    }, extra || {});
+  }
+  var returnStack = [];
+  function pushReturnContext(extra) {
+    returnStack.push(captureReturnContext(extra));
+  }
+  function clearReturnStack() {
+    returnStack.length = 0;
+  }
+  function reopenModal(desc) {
+    if (!desc) return;
+    if (desc.type === "appointment" && desc.id) openAppointmentModal(desc.id, { skipPush: true });
+    else if (desc.type === "invoice" && desc.id) openInvoicePopup(invoice(desc.id), desc.apptId, { skipPush: true });
+  }
+  function restoreReturnContext() {
+    const ctx = returnStack.pop();
+    if (!ctx) return;
+    state.page = ctx.page;
+    state.scheduleView = ctx.scheduleView;
+    state.calMode = ctx.calMode;
+    state.date = ctx.date;
+    state.roomingDate = ctx.roomingDate;
+    if (ctx.locationId) state.locationId = ctx.locationId;
+    state.compareLocations = !!ctx.compareLocations;
+    if (ctx.providerChips && ctx.providerChips.length) state.providerChips = ctx.providerChips.slice();
+    if (ctx.selected) state.selected = ctx.selected;
+    if (ctx.tab) state.tab = ctx.tab;
+    if (ctx.notesDash) state.notesDash = ctx.notesDash;
+    if (ctx.invTab) state.invTab = ctx.invTab;
+    if (ctx.posTab) state.posTab = ctx.posTab;
+    state.appointmentId = null;
+    const nextHash = ctx.hash || hashFor(screenRouteFromState());
+    if (location.hash !== nextHash) history.replaceState(null, "", nextHash);
+    render();
+    const main = $("#main");
+    if (main && ctx.mainScroll) main.scrollTop = ctx.mainScroll;
+    if (ctx.scrollY) window.scrollTo(0, ctx.scrollY);
+    const cal = document.querySelector(".cal-grid-week, .cal-grid, .cal-month, .cal-day");
+    if (cal && ctx.calScroll) cal.scrollTop = ctx.calScroll;
+    const wl = document.querySelector(".wl, [data-worklist]");
+    if (wl && ctx.wlScroll) wl.scrollTop = ctx.wlScroll;
+    if (ctx.reopen) reopenModal(ctx.reopen);
+  }
   function closeModal(opts) {
     opts = opts || {};
     clearNoteFootButtons();
     const back = $("#modal");
     if (back) back.classList.remove("open", "pos-mode", "hist-mode", "book-mode", "hide-foot");
     if (opts.cancelPending) state.reschedulingId = null;
-    if (state.appointmentId && state.page === "schedule") {
+    if (opts.skipRestore) {
       state.appointmentId = null;
-      history.replaceState(null, "", hashFor({ page: "schedule", date: state.date }));
+      return;
     }
+    restoreReturnContext();
   }
   function showModal(title, body, onSave, saveLabel) {
+    const skip = !!(state._skipModalPush);
+    state._skipModalPush = false;
+    if (!skip && !modalIsOpen()) pushReturnContext({ kind: "dialog" });
     clearNoteFootButtons();
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     const save = $("#modalSave");
     save.textContent = saveLabel || "Save";
+    save.disabled = false;
     save.classList.toggle("btn-lg", saveLabel === "Save appointment" || saveLabel === "Save patient");
     save.onclick = onSave;
     $("#modal").classList.add("open");
@@ -4240,9 +4544,11 @@
   function openQuotesFor(pid) {
     return (store.quotes || []).filter(function (q) { return q.patientId === pid && (q.status === "Open" || q.status === "Prepaid"); });
   }
-  function openAppointmentModal(id) {
+  function openAppointmentModal(id, opts) {
     const a = appt(id);
     if (!a) return;
+    opts = opts || {};
+    if (opts.skipPush) state._skipModalPush = true;
     state.appointmentId = id;
     const p = patient(a.patientId);
     const locked = isApptLocked(a);
@@ -4499,6 +4805,54 @@
       p.phone = phone; p.email = email; p.addressParts = parts; p.address = address; p.dob = dob;
       closeModal(); toast("Demographic edits are audit-tracked"); render();
     });
+  }
+
+  function applyDemographicEdits(p) {
+    if (!p || !$("#edPhone")) return false;
+    const phone = formatPhoneMask($("#edPhone").value), email = $("#edEmail").value;
+    const dob = parseDob($("#edDob").value) || p.dob;
+    const parts = readAddressFields(document);
+    const address = formatAddressText(parts);
+    const changes = [];
+    if (phone !== p.phone) { p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
+    if (email !== p.email) { p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
+    if (address !== formatAddressText(addressPartsOf(p))) { changes.push({ field: "address", before: formatAddressText(addressPartsOf(p)) || "—", after: address || "—" }); }
+    if (dob !== p.dob) { changes.push({ field: "date of birth", before: fmtDob(p.dob), after: fmtDob(dob) }); }
+    if (changes.length) {
+      addAudit({ action: "Updated demographics", recordType: "Patient", recordId: p.id,
+        recordPath: { page: "patients", selected: p.id, tab: "demographics" }, changes: changes });
+    }
+    p.phone = phone; p.email = email; p.addressParts = parts; p.address = address; p.dob = dob;
+    return changes.length > 0;
+  }
+  function confirmDemographics(p) {
+    if (!p) return;
+    p.registration = p.registration || {};
+    const prev = (p.registration.demographicsConfirmed && p.registration.demographicsConfirmed.status) || "Not confirmed";
+    p.registration.demographicsConfirmed = { status: "Confirmed", date: todayET() };
+    addAudit({ action: "Demographics manually confirmed", recordType: "Patient", recordId: p.id,
+      recordPath: { page: "patients", selected: p.id, tab: "demographics" },
+      changes: [{ field: "demographics confirmed", before: prev, after: "Confirmed" }] });
+  }
+  function openDemographicsPopup(pid) {
+    const p = patient(pid);
+    if (!p) return;
+    const confirmed = p.registration && p.registration.demographicsConfirmed && p.registration.demographicsConfirmed.status === "Confirmed";
+    showModal("Demographics · " + p.name, `
+      <div class="formgrid">
+        <div class="field"><label>Patient number</label><input value="${esc(displayId(p.id))}" disabled></div>
+        <div class="field"><label>Name</label><input value="${esc(p.name)}" disabled></div>
+        <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(formatPhoneMask(p.phone))}" data-mask="phone" inputmode="tel" autocomplete="tel"></div>
+        <div class="field"><label for="edEmail">Email</label><input id="edEmail" value="${esc(p.email)}"></div>
+        <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy" data-mask="dob" inputmode="numeric"></div>
+        <div class="field full"><label>Address</label>${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
+      </div>
+      <p class="row-sub">Demographics are ${confirmed ? "confirmed" : "not confirmed"}. You can edit the fields and confirm them here.</p>
+      ${confirmed ? "" : '<div style="margin-top:10px"><button type="button" class="btn primary" data-confirm-demo-modal="' + esc(p.id) + '">Confirm demographics</button></div>'}
+      <div class="notice">Demographic changes are audit-tracked. The patient number cannot be changed.</div>`, function () {
+      applyDemographicEdits(p);
+      closeModal(); toast("Demographic edits are audit-tracked"); render();
+    }, "Save");
   }
 
   function openFollowup(pid) {
@@ -5003,13 +5357,27 @@
       });
     });
     items.sort(function (a, b) { return String(b.n.date || "").localeCompare(String(a.n.date || "")); });
+    const from = state.notesFrom || "";
+    const to = state.notesTo || "";
+    const ranged = items.filter(function (item) {
+      const d = item.n.date || "";
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
     const head = pageHead("Provider", "Notes",
       mode === "pending" ? "Unsigned clinical notes waiting for completion or signature." : "Signed clinical notes.",
       "");
     const toggle = '<div class="notes-dash-toggle" role="tablist" aria-label="Note lists">' +
       '<button type="button" class="btn small' + (mode === "pending" ? " primary" : "") + '" data-notes-dash="pending" aria-pressed="' + (mode === "pending" ? "true" : "false") + '">Pending clinical notes</button>' +
       '<button type="button" class="btn small' + (mode === "signed" ? " primary" : "") + '" data-notes-dash="signed" aria-pressed="' + (mode === "signed" ? "true" : "false") + '">Signed notes</button></div>';
-    const list = items.map(function (item) {
+    const range = '<div class="notes-range">' +
+      '<label for="notesFrom">From</label><input id="notesFrom" type="date" value="' + esc(from) + '">' +
+      '<label for="notesTo">To</label><input id="notesTo" type="date" value="' + esc(to) + '">' +
+      '<button type="button" class="btn small" data-notes-today="1">Today</button>' +
+      (from || to ? '<button type="button" class="btn small" data-notes-range-clear="1">All dates</button>' : "") +
+      "</div>";
+    const list = ranged.map(function (item) {
       const n = item.n, p = item.p;
       const open = isNoteEditable(n)
         ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"'
@@ -5019,7 +5387,7 @@
         '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + " · " + esc(displayId(p.id)) + "</div></div>" +
         badge(n.status || "Open") + "</button>";
     }).join("") || '<div class="empty">' + (mode === "pending" ? "No unsigned clinical notes." : "No signed clinical notes.") + "</div>";
-    renderChrome('<a href="' + hashFor({ page: "notes" }) + '">Notes</a>', head, '<div class="card"><div class="cardbody notes-dash">' + toggle + list + "</div></div>");
+    renderChrome('<a href="' + hashFor({ page: "notes" }) + '">Notes</a>', head, '<div class="card"><div class="cardbody notes-dash">' + toggle + range + list + "</div></div>");
   }
   function render() {
     if (state.page !== "rooming") stopRoomingTick();
@@ -5125,20 +5493,44 @@
     if (ledPay) { e.preventDefault(); openLedgerPayment(ledPay.getAttribute("data-ledger-payment")); return; }
     const nd = e.target.closest("[data-notes-dash]");
     if (nd) { e.preventDefault(); go({ page: "notes", notesDash: nd.getAttribute("data-notes-dash") }); return; }
+    const notesToday = e.target.closest("[data-notes-today]");
+    if (notesToday) {
+      e.preventDefault();
+      const day = demoClockDate();
+      state.notesFrom = day;
+      state.notesTo = day;
+      render();
+      return;
+    }
+    const notesClear = e.target.closest("[data-notes-range-clear]");
+    if (notesClear) { e.preventDefault(); state.notesFrom = ""; state.notesTo = ""; render(); return; }
+    const openForm = e.target.closest("[data-open-form]");
+    if (openForm) { e.preventDefault(); openFormPlaceholder(openForm.getAttribute("data-pid"), openForm.getAttribute("data-open-form")); return; }
     const confirmD = e.target.closest("[data-confirm-demo]");
     if (confirmD) {
       e.preventDefault();
       const p = patient(confirmD.getAttribute("data-confirm-demo"));
+      if (p) { confirmDemographics(p); toast("Demographics confirmed"); render(); }
+      return;
+    }
+    const confirmM = e.target.closest("[data-confirm-demo-modal]");
+    if (confirmM) {
+      e.preventDefault();
+      const p = patient(confirmM.getAttribute("data-confirm-demo-modal"));
       if (p) {
-        p.registration = p.registration || {};
-        const prev = (p.registration.demographicsConfirmed && p.registration.demographicsConfirmed.status) || "Not confirmed";
-        p.registration.demographicsConfirmed = { status: "Confirmed", date: todayET() };
-        addAudit({ action: "Demographics manually confirmed", recordType: "Patient", recordId: p.id,
-          recordPath: { page: "patients", selected: p.id, tab: "demographics" },
-          changes: [{ field: "demographics confirmed", before: prev, after: "Confirmed" }] });
+        applyDemographicEdits(p);
+        confirmDemographics(p);
+        closeModal();
         toast("Demographics confirmed");
         render();
       }
+      return;
+    }
+    const openDemo = e.target.closest("[data-open-demo]");
+    if (openDemo) {
+      e.preventDefault();
+      e.stopPropagation();
+      openDemographicsPopup(openDemo.getAttribute("data-open-demo"));
       return;
     }
     const pn = e.target.closest("[data-print-note]");
@@ -5393,7 +5785,14 @@
   function onChange(e) {
     if (e.target.id === "prov") { state.providerFilter = e.target.value; render(); }
     else if (e.target.id === "locationSel") { state.locationId = e.target.value; render(); }
+    else if (e.target.id === "hideCanceled" || e.target.closest("[data-hide-canceled]")) {
+      const box = e.target.id === "hideCanceled" ? e.target : e.target.closest("[data-hide-canceled]");
+      setHideCanceled(!!(box && box.checked));
+      render();
+    }
     else if (e.target.id === "actingRole") { state.actingRole = e.target.value; render(); }
+    else if (e.target.id === "notesFrom") { state.notesFrom = e.target.value; render(); }
+    else if (e.target.id === "notesTo") { state.notesTo = e.target.value; render(); }
     else if (e.target.id === "sched-search") {
       state.scheduleSearch = e.target.value;
       const hold = e.target.selectionStart;

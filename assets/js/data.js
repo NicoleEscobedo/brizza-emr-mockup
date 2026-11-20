@@ -180,7 +180,14 @@ BRIZZA.VISIT_STATUSES = [
   "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"
 ];
 BRIZZA.SCHEDULE_ONLY_STATUSES = ["Scheduled", "Confirmed", "Checked in", "No-show", "Canceled"];
-BRIZZA.ROOMING_BOARD_STATUSES = ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"];
+BRIZZA.ROOMING_BOARD_STATUSES = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"];
+BRIZZA.ROOMING_FLOW_BUCKETS = [
+  { id: "arrive", label: "Checked in / Ready for clinical", statuses: ["Checked in", "Ready for clinical"] },
+  { id: "with-clinical", label: "With clinical", statuses: ["With clinical"] },
+  { id: "ready-provider", label: "Ready for provider", statuses: ["Ready for provider"] },
+  { id: "with-provider", label: "With provider", statuses: ["With provider"] },
+  { id: "checkout", label: "Ready for checkout / Checked out", statuses: ["Ready for checkout", "Checked out"] }
+];
 BRIZZA.STATUS_DOTS = {
   "Scheduled": "#B8AA9B",
   "Confirmed": "#6E6055",
@@ -268,18 +275,13 @@ BRIZZA.NOTE_TEMPLATES = [
         { id: "areasDiscussed", label: "Areas discussed", required: true, type: "text" },
         { id: "recommendations", label: "Recommendations", required: true, type: "textarea" }
       ]},
-      { id: "consent", title: "Consent", fields: [
-        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
-        { id: "questionsAddressed", label: "Questions addressed", required: true, type: "select", options: ["Yes", "No"] }
-      ]}
     ]},
   { id: "inj-followup", name: "Injectables Follow-up", draft: true, source: "Draft templates – Open question.",
     sections: [
       { id: "visit", title: "Visit", fields: [
         { id: "visitReason", label: "Visit reason", required: true, type: "text" },
         { id: "responseSince", label: "Response since last visit", required: true, type: "textarea" },
-        { id: "plan", label: "Plan", required: true, type: "textarea" },
-        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] }
+        { id: "plan", label: "Plan", required: true, type: "textarea" }
       ]}
     ]},
   { id: "inj-procedure", name: "Injectables Procedure", draft: true, source: "Draft templates – Open question.",
@@ -300,8 +302,7 @@ BRIZZA.NOTE_TEMPLATES = [
       { id: "visit", title: "Visit", fields: [
         { id: "chiefConcern", label: "Chief concern", required: true, type: "text" },
         { id: "skinObservations", label: "Skin observations", required: true, type: "textarea" },
-        { id: "recommendedService", label: "Recommended service", required: true, type: "text" },
-        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] }
+        { id: "recommendedService", label: "Recommended service", required: true, type: "text" }
       ]}
     ]},
   { id: "aes-followup", name: "Aesthetician Follow-up", draft: true, source: "Draft templates – Open question.",
@@ -316,13 +317,15 @@ BRIZZA.NOTE_TEMPLATES = [
   { id: "aes-procedure", name: "Aesthetician Procedure", draft: true, source: "Draft templates – Open question.",
     sections: [
       { id: "treatment", title: "Treatment", fields: [
-        { id: "areasTreated", label: "Areas treated", required: true, type: "text" },
+        { id: "skinType", label: "Skin type / Fitzpatrick", required: true, type: "select", options: ["Fitzpatrick I", "Fitzpatrick II", "Fitzpatrick III", "Fitzpatrick IV", "Fitzpatrick V", "Fitzpatrick VI"] },
+        { id: "skinConcerns", label: "Skin concerns", required: true, type: "textarea" },
         { id: "servicePerformed", label: "Service performed", required: true, type: "text" },
-        { id: "productLot", label: "Product / lot", required: false, type: "text" }
+        { id: "treatmentSettings", label: "Treatment / settings", required: false, type: "textarea" },
+        { id: "tolerability", label: "Tolerability", required: true, type: "select", options: ["Well tolerated", "Some discomfort was recorded", "Other"] },
+        { id: "postCare", label: "Post-care", required: true, type: "textarea" }
       ]},
-      { id: "consent", title: "Consent and aftercare", fields: [
-        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] },
-        { id: "aftercareGiven", label: "Aftercare given", required: true, type: "select", options: ["Yes", "No"] }
+      { id: "consent", title: "Consent", fields: [
+        { id: "consentConfirmed", label: "Consent confirmed", required: true, type: "select", options: ["Yes", "No"] }
       ]}
     ]}
 ];
@@ -332,113 +335,106 @@ BRIZZA.NOTE_BUILDER = {
   "inj-consult": [
     { id: "chiefConcernTopic", label: "Chief concern", type: "select", required: true,
       options: ["Wrinkle relaxation", "Volume", "Facial balancing", "Skin quality", "Other"],
-      sentence: "The chief concern recorded for this visit is {chiefConcernTopic}." },
+      sentence: "The chief concern documented for this visit is {chiefConcernTopic}." },
     { id: "chiefConcern", label: "Chief concern in the patient's words", type: "text", required: true,
       showIf: { field: "chiefConcernTopic", filled: true },
-      sentence: "In the patient's words: {chiefConcern}." },
+      sentence: "In the patient's words, the concern was described as follows: {chiefConcern}." },
     { id: "areasDiscussed", label: "Areas discussed", type: "select", required: true,
       options: ["Upper face", "Midface", "Lower face", "Neck", "More than one area", "Other"],
-      sentence: "Areas discussed: {areasDiscussed}." },
+      sentence: "The areas discussed during this visit were recorded as {areasDiscussed}." },
     { id: "areasDiscussedDetail", label: "Which areas were discussed?", type: "text", required: true,
       showIf: { field: "areasDiscussed", in: ["More than one area", "Other"] },
-      sentence: "Detail recorded: {areasDiscussedDetail}." },
+      sentence: "Additional detail about the areas discussed was recorded as follows: {areasDiscussedDetail}." },
     { id: "recommendationsKind", label: "Recommendations", type: "select", required: true,
       options: ["Review options at a later visit", "Treatment options were discussed", "Other"] },
     { id: "recommendations", label: "Recommendation detail", type: "textarea", required: true,
       showIf: { field: "recommendationsKind", filled: true },
-      sentence: "Recommendations recorded: {recommendations}." },
-    { id: "consentConfirmed", label: "Consent confirmed", type: "select", required: true,
-      options: ["Yes", "No"],
-      sentence: "Consent confirmed: {consentConfirmed}." },
-    { id: "questionsAddressed", label: "Questions addressed", type: "select", required: true,
-      options: ["Yes", "No"],
-      showIf: { field: "consentConfirmed", equals: "Yes" },
-      sentence: "Questions addressed: {questionsAddressed}." },
-    { id: "consentNote", label: "What was recorded about consent?", type: "text", required: true,
-      showIf: { field: "consentConfirmed", equals: "No" },
-      sentence: "What was recorded about consent: {consentNote}." }
+      sentence: "The recommendation documented for this visit is as follows: {recommendations}." }
   ],
   "inj-followup": [
     { id: "visitReason", label: "Visit reason", type: "select", required: true,
       options: ["Planned follow-up", "Concern since last visit", "Other"],
-      sentence: "Visit reason: {visitReason}." },
+      sentence: "The reason documented for this follow-up visit is {visitReason}." },
     { id: "visitReasonDetail", label: "Visit reason detail", type: "text", required: true,
       showIf: { field: "visitReason", in: ["Concern since last visit", "Other"] },
-      sentence: "Detail recorded: {visitReasonDetail}." },
+      sentence: "Additional detail about the visit reason was recorded as follows: {visitReasonDetail}." },
     { id: "responseSince", label: "Response since last visit", type: "textarea", required: true,
-      sentence: "Response since last visit: {responseSince}." },
+      sentence: "The response since the last visit was recorded as follows: {responseSince}." },
     { id: "plan", label: "Plan", type: "textarea", required: true,
-      sentence: "Plan recorded: {plan}." },
-    { id: "consentConfirmed", label: "Consent confirmed", type: "select", required: true,
-      options: ["Yes", "No"],
-      sentence: "Consent confirmed: {consentConfirmed}." }
+      sentence: "The plan documented for this visit is as follows: {plan}." }
   ],
   "inj-procedure": [
     { id: "areasTreated", label: "Areas treated", type: "text", required: true,
-      sentence: "Areas treated: {areasTreated}." },
+      sentence: "The areas treated were recorded as {areasTreated}." },
     { id: "productLot", label: "Product / lot", type: "text", required: true,
-      sentence: "Product / lot recorded: {productLot}." },
+      sentence: "The product and lot information documented for this visit is {productLot}." },
     { id: "unitsDocumented", label: "Units documented", type: "text", required: false,
-      sentence: "Units documented: {unitsDocumented}." },
+      sentence: "Units were documented as {unitsDocumented}." },
     { id: "techniqueNotes", label: "Technique notes", type: "textarea", required: true,
-      sentence: "Technique notes: {techniqueNotes}." },
+      sentence: "Technique notes were recorded as follows: {techniqueNotes}." },
     { id: "consentConfirmed", label: "Consent confirmed", type: "select", required: true,
       options: ["Yes", "No"],
-      sentence: "Consent confirmed: {consentConfirmed}." },
+      sentence: "Consent confirmed was recorded as {consentConfirmed}." },
     { id: "aftercareGiven", label: "Aftercare given", type: "select", required: true,
       options: ["Yes", "No"],
-      sentence: "Aftercare given: {aftercareGiven}." }
+      sentence: "Aftercare given was recorded as {aftercareGiven}." }
   ],
   "aes-consult": [
     { id: "chiefConcernTopic", label: "Chief concern", type: "select", required: true,
       options: ["Skin texture", "Tone", "Dryness", "Other"],
-      sentence: "The chief concern recorded for this visit is {chiefConcernTopic}." },
+      sentence: "The chief concern documented for this visit is {chiefConcernTopic}." },
     { id: "chiefConcern", label: "Chief concern in the patient's words", type: "text", required: true,
       showIf: { field: "chiefConcernTopic", filled: true },
-      sentence: "In the patient's words: {chiefConcern}." },
+      sentence: "In the patient's words, the concern was described as follows: {chiefConcern}." },
     { id: "skinObservations", label: "Skin observations", type: "textarea", required: true,
-      sentence: "Skin observations recorded: {skinObservations}." },
+      sentence: "Skin observations documented for this visit were recorded as follows: {skinObservations}." },
     { id: "recommendedService", label: "Recommended service", type: "select", required: true,
       options: ["Mini Facial", "Facial", "Hydrafacial", "Wax", "Other"],
-      sentence: "Recommended service: {recommendedService}." },
+      sentence: "The recommended service documented for this visit is {recommendedService}." },
     { id: "recommendedServiceDetail", label: "Recommended service detail", type: "text", required: true,
       showIf: { field: "recommendedService", equals: "Other" },
-      sentence: "Detail recorded: {recommendedServiceDetail}." },
-    { id: "consentConfirmed", label: "Consent confirmed", type: "select", required: true,
-      options: ["Yes", "No"],
-      sentence: "Consent confirmed: {consentConfirmed}." }
+      sentence: "Additional detail about the recommended service was recorded as follows: {recommendedServiceDetail}." }
   ],
   "aes-followup": [
     { id: "visitReason", label: "Visit reason", type: "select", required: true,
       options: ["Planned follow-up", "Concern since last visit", "Other"],
-      sentence: "Visit reason: {visitReason}." },
+      sentence: "The reason documented for this follow-up visit is {visitReason}." },
     { id: "responseSince", label: "Response since last visit", type: "textarea", required: true,
-      sentence: "Response since last visit: {responseSince}." },
+      sentence: "The response since the last visit was recorded as follows: {responseSince}." },
     { id: "plan", label: "Plan", type: "textarea", required: true,
-      sentence: "Plan recorded: {plan}." },
+      sentence: "The plan documented for this visit is as follows: {plan}." },
     { id: "aftercareGiven", label: "Aftercare given", type: "select", required: true,
       options: ["Yes", "No"],
-      sentence: "Aftercare given: {aftercareGiven}." }
+      sentence: "Aftercare given was recorded as {aftercareGiven}." }
   ],
   "aes-procedure": [
-    { id: "areasTreated", label: "Areas treated", type: "text", required: true,
-      sentence: "Areas treated: {areasTreated}." },
+    { id: "skinType", label: "Skin type / Fitzpatrick", type: "select", required: true,
+      options: ["Fitzpatrick I", "Fitzpatrick II", "Fitzpatrick III", "Fitzpatrick IV", "Fitzpatrick V", "Fitzpatrick VI"],
+      sentence: "The skin type / Fitzpatrick recorded for this visit is {skinType}." },
+    { id: "skinConcerns", label: "Skin concerns", type: "textarea", required: true,
+      sentence: "The skin concerns documented for this visit were recorded as follows: {skinConcerns}." },
     { id: "servicePerformed", label: "Service performed", type: "select", required: true,
       options: ["Mini Facial", "Facial", "Hydrafacial", "Wax", "Other"],
-      sentence: "Service performed: {servicePerformed}." },
+      sentence: "The service performed was recorded as {servicePerformed}." },
     { id: "servicePerformedDetail", label: "Service detail", type: "text", required: true,
       showIf: { field: "servicePerformed", equals: "Other" },
-      sentence: "Detail recorded: {servicePerformedDetail}." },
-    { id: "productLot", label: "Product / lot", type: "text", required: false,
-      sentence: "Product / lot recorded: {productLot}." },
+      sentence: "Additional detail about the service performed was recorded as follows: {servicePerformedDetail}." },
+    { id: "treatmentSettings", label: "Treatment / settings", type: "textarea", required: false,
+      sentence: "The treatment or settings documented for this visit were recorded as follows: {treatmentSettings}." },
+    { id: "tolerability", label: "Tolerability", type: "select", required: true,
+      options: ["Well tolerated", "Some discomfort was recorded", "Other"],
+      sentence: "Tolerability was recorded as {tolerability}." },
+    { id: "tolerabilityDetail", label: "Tolerability detail", type: "text", required: true,
+      showIf: { field: "tolerability", equals: "Other" },
+      sentence: "Additional detail about tolerability was recorded as follows: {tolerabilityDetail}." },
+    { id: "postCare", label: "Post-care", type: "textarea", required: true,
+      sentence: "Post-care documented for this visit was recorded as follows: {postCare}." },
     { id: "consentConfirmed", label: "Consent confirmed", type: "select", required: true,
       options: ["Yes", "No"],
-      sentence: "Consent confirmed: {consentConfirmed}." },
-    { id: "aftercareGiven", label: "Aftercare given", type: "select", required: true,
-      options: ["Yes", "No"],
-      sentence: "Aftercare given: {aftercareGiven}." }
+      sentence: "Consent confirmed was recorded as {consentConfirmed}." }
   ]
 };
+
 
 
 
@@ -533,7 +529,9 @@ BRIZZA.seed = function () {
         notes:[{id:"N-1",date:"2026-10-28",type:"Injectables Consult",templateId:"inj-consult",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Signed",locked:true,signedAt:"Oct 28, 2026, 2:40 p.m. ET",
           text:"Chief concern: Wants time to decide. Areas discussed: Upper face. Recommendations: Review options at a later visit. Consent confirmed: Yes. Questions addressed: Yes.",
           values:{chiefConcern:"Wants time to decide",areasDiscussed:"Upper face",recommendations:"Review options at a later visit",consentConfirmed:"Yes",questionsAddressed:"Yes"},
-          historySnapshot:{allergies:["Hyaluronic acid — swelling"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"}}}],
+          historySnapshot:{allergies:["Hyaluronic acid — swelling"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"}}},
+          {id:"N-5",date:"2026-11-18",type:"Injectables Consult",templateId:"inj-consult",appointmentId:"A-6214",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Open",
+          text:"Visit note is in progress.",values:{}}],
         consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],
         treatments:[],followups:[{id:"F-1",text:"Check in after consultation",due:"2026-11-25"}],demoHistory:[],
@@ -599,6 +597,7 @@ BRIZZA.seed = function () {
       {id:"A-6210",time:"12:30",patientId:"BZ0003",type:"Facial",reasons:["Facial"],provider:"Dr. Valentina A. Rossi, MD",durationLabel:"60 min",durationMinutes:60,status:"Confirmed",consultation:"",treatment:"",room:"Room 3",date:"2026-11-16",visitId:"V-1002",invoiceId:"INV-1003",relatedAppointmentId:"A-6207",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
       {id:"A-6208",time:"13:30",patientId:"BZ0001",type:"Follow-up",reasons:["Juvederm"],provider:"Alessia Costa, NP",durationLabel:"15 min",durationMinutes:15,status:"Scheduled",consultation:"",treatment:"",room:"Room 2",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled"]},
       {id:"A-6209",time:"14:30",patientId:"BZ0002",type:"Microneedling",reasons:["Microneedling"],provider:"Alessia Costa, NP",durationLabel:"75 min",durationMinutes:75,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},
+      {id:"A-6240",time:"16:00",patientId:"BZ0001",type:"Consultation",reasons:["Existing Patient"],consultingFor:"Toxins",provider:"Dr. Valentina A. Rossi, MD",durationLabel:"15 min",durationMinutes:15,status:"Canceled",consultation:"",treatment:"",room:"Room 1",date:"2026-11-16",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Canceled"]},
 
       {id:"A-6211",time:"11:00",patientId:"BZ0002",type:"Consultation",reasons:["New Patient"],consultingFor:"Toxins",provider:"Dr. Valentina A. Rossi, MD",durationLabel:"15 min",durationMinutes:15,status:"Checked out",consultation:"Treatment scheduled for later date",treatment:"",room:"Room 2",date:"2026-10-09",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed","Confirmed → Checked In","Checked In → In Progress","In Progress → Completed"]},
       {id:"A-6212",time:"15:00",patientId:"BZ0002",type:"Facial",reasons:["Facial"],provider:"Alessia Costa, NP",durationLabel:"60 min",durationMinutes:60,status:"Confirmed",consultation:"",treatment:"",room:"Room 1",date:"2026-11-13",locationId:"LOC-MANHATTAN",history:["Scheduled → Confirmed"]},

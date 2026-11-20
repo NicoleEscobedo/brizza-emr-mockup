@@ -28,7 +28,7 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 15. **Brand and logo.** Keep the Brizza wordmark on theme 01 Quiet Atelier for this preview.
 16. **Fiscal calendar, weekly cutoff, and reporting audiences.** Leave out of the mockup.
 17. **Rooming status vs appointment status.** Keep the merged visit-status list used since Round 5.
-18. **Clinical note templates and who may Create / Sign.** Keep the role gate (RN / NP Injector and Aesthetician) and the six draft templates, labeled Open question.
+18. **Clinical note templates and who may Create / Sign.** Round 10 kept the six draft templates, labeled Open question, with a role gate for RN / NP Injector and Aesthetician. Round 12 keeps that per-role template filter and lets MD / Clinic Owner open, create, edit, and sign any note (see Still open #30).
 19. **Consulting for catalog.** Keep Toxins, Fillers, Dissolve, Facial, Wax, and Microneedling.
 20. **Quote-to-room workflow.** Keep the preview handoff; no expiry until specified.
 21. **Friendly confirmation names and type catalog.** Keep plain type names and the current type/reason list.
@@ -67,3 +67,12 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 22. **Consent confirmed placement.** The field appears only on procedure notes, not on consults or follow-ups. Suggested default: keep it off consults and follow-ups.
 23. **Reviewed, no changes lock.** Checking the box persists on save and reopen. Lock confirmation records the acting user, role, and timestamp and disables the checkbox; editing history fields clears the lock. Suggested default: keep lock as an explicit action; do not auto-lock on Sign.
 24. **Generated note framing.** A lead sentence states that the note records only selected or entered details, followed by longer clinic-grade sentences that echo those facts. Suggested default: keep this framing; never invent findings, doses, settings, or claims.
+
+25. **Rooming at narrower widths.** At 1280×800 the Patient Flow board and Suites 1–3 fit without vertical page scroll; below about 1100px the page may scroll. Suggested default: keep the compact timers and in-column scroll at desktop width; allow page scroll only below 1100px.
+26. **Open clinical notes on the Worklist.** The grouping after Collect balance lists unsigned notes for the Worklist date, with provider initials and Open note. Suggested default: keep clinic-wide unsigned notes for that date; do not filter to the acting provider in this preview.
+27. **Other treatment area on Injectable Procedure notes.** One Other row (label + units, both starting empty) is added to the face-map units and rolled into Units documented. Suggested default: keep a single optional Other row; do not invent area names or unit amounts.
+28. **Units documented auto-sum.** Face-map units plus Other units fill Units documented automatically. Suggested default: keep the field in sync with the sum; do not require it to sign and do not suggest doses.
+29. **Last reviewed stamp.** Confirm Demographics writes “Last reviewed: [date/time] by [user]” under the button (an em dash shows until the first confirm in the session). Suggested default: keep this session stamp; persistence can wait with the rest of the in-memory mockup.
+30. **Who may create or sign notes besides clinical roles and the MD / Owner.** Aesthetician, RN / NP Injector, and MD / Clinic Owner can create notes as gated above. Medical Assistant and other non-clinical roles cannot. Suggested default: keep this gate until an official MA or front-desk documentation rule is named.
+31. **New appointment date field.** Both entry points hide the Date control and show the date from the current screen or slot in the modal title. Suggested default: keep the date in the title only; do not add a visible Date field.
+32. **View vs Print on clinical notes.** The notes list uses View; Print lives inside the View window. Suggested default: keep this split so print happens from the readable view.

@@ -421,7 +421,13 @@
         : badge(it.status);
       return '<div class="reg-item"><div><div class="row-title">' + esc(it.label) + '</div><div class="row-sub">' + (it.date ? esc(fmtDate(it.date)) : "No date recorded") + "</div></div>" + st + "</div>";
     }).join("");
-    return '<div class="reg-panel" id="reg-panel-' + esc(a.id) + '"><h3 class="section-title">Registration status</h3>' + rows +
+    const demo = items.find(function (it) { return it.key === "demographicsConfirmed"; });
+    const demoLabel = (demo && demo.ok) ? "Confirmed" : "Not confirmed";
+    const demoActions = p ? ('<div class="reg-demo-actions">' +
+      '<span class="' + ((demo && demo.ok) ? "reg-confirmed" : "reg-not-confirmed") + '">' + esc(demoLabel) + "</span>" +
+      '<button type="button" class="btn small" data-open-demo="' + esc(p.id) + '">Edit</button>' +
+      '<button type="button" class="btn small primary" data-confirm-demo="' + esc(p.id) + '">Confirm demographics</button></div>') : "";
+    return '<div class="reg-panel" id="reg-panel-' + esc(a.id) + '"><h3 class="section-title">Registration status</h3>' + rows + demoActions +
       openQ("The official visit-readiness and registration checklist is not named in the sources (Open question 4). ID uploaded, intake/consent forms, and demographics confirmed are prototype indicators only.") + "</div>";
   }
   function scheduleShift(iso, dir) {
@@ -476,8 +482,8 @@
     providerFilter: "All providers", providerChips: null, compareLocations: false,
     search: "", reschedulingId: null, modal: null,
     demo: { running: false, index: 0, timer: null }, contrast: null,
-    scheduleView: "list", calMode: "week", locationId: BRIZZA.DEFAULT_LOCATION,
-    expandedAppt: null, auditId: null,
+    scheduleView: "calendar", calMode: "week", locationId: BRIZZA.DEFAULT_LOCATION,
+    expandedAppt: null, expandedPrep: null, auditId: null,
     actingRole: "Clinic Coordinator", roomingDate: null, scheduleSearch: "", noteDraft: null
   };
 
@@ -531,13 +537,17 @@
     state.theme = "01";
     let route = { page: "patients" };
     const p0 = parts[0] || "patients";
-    if (p0 === "schedule") {
+    if (p0 === "worklist" || (p0 === "schedule" && (parts[1] === "list" || parts[1] === "worklist"))) {
+      let i = (p0 === "worklist") ? 1 : 2;
+      let date = state.date || todayET();
+      let appointmentId = null;
+      if (parts[i] && /^\d{4}-\d{2}-\d{2}$/.test(parts[i])) { date = parts[i]; i += 1; }
+      if (parts[i] === "appointment") appointmentId = parts[i + 1] || null;
+      route = { page: "worklist", view: "worklist", date: date, appointmentId: appointmentId };
+    } else if (p0 === "schedule") {
       let i = 1;
-      let view = "worklist";
       let calMode = state.calMode || "week";
-      if (parts[1] === "list" || parts[1] === "worklist") { view = "worklist"; i = 2; }
-      else if (parts[1] === "calendar") {
-        view = "calendar";
+      if (parts[1] === "calendar") {
         const mode = parts[2];
         if (mode === "day" || mode === "week" || mode === "month") { calMode = mode; i = 3; }
         else { calMode = "week"; i = 2; }
@@ -546,10 +556,10 @@
       let appointmentId = null;
       if (parts[i] && /^\d{4}-\d{2}-\d{2}$/.test(parts[i])) { date = parts[i]; i += 1; }
       if (parts[i] === "appointment") appointmentId = parts[i + 1] || null;
-      route = { page: "schedule", view: view, calMode: calMode, date: date, appointmentId: appointmentId };
+      route = { page: "schedule", view: "calendar", calMode: calMode, date: date, appointmentId: appointmentId };
     } else if (p0 === "patients") {
       route = { page: "patients", selected: parts[1] || state.selected, tab: parts[2] || "demographics" };
-    } else if (p0 === "queue") {
+    } else if (p0 === "queue" || p0 === "tasks") {
       route = { page: "queue", date: parts[1] || state.date || BRIZZA.SAMPLE_DAY };
     } else if (p0 === "configuration") {
       route = { page: "configuration" };
@@ -587,16 +597,17 @@
   function hashFor(route, theme) {
     const t = theme || state.theme;
     let path = "/patients";
-    if (route.page === "schedule") {
+    if (route.page === "worklist" || (route.page === "schedule" && (route.view === "worklist" || route.view === "list"))) {
+      path = "/worklist/" + (route.date || state.date);
+      if (route.appointmentId) path += "/appointment/" + route.appointmentId;
+    } else if (route.page === "schedule") {
       const date = route.date || state.date;
-      const view = route.view || state.scheduleView || "worklist";
       const calMode = route.calMode || state.calMode || "week";
-      if (view === "calendar") path = "/schedule/calendar/" + calMode + "/" + date;
-      else path = "/schedule/worklist/" + date;
+      path = "/schedule/calendar/" + calMode + "/" + date;
       if (route.appointmentId) path += "/appointment/" + route.appointmentId;
     } else if (route.page === "patients") {
       path = route.selected ? "/patients/" + route.selected + "/" + (route.tab || "demographics") : "/patients";
-    } else if (route.page === "queue") path = "/queue/" + (route.date || state.date);
+    } else if (route.page === "queue" || route.page === "tasks") path = "/tasks/" + (route.date || state.date);
     else if (route.page === "configuration") path = "/configuration";
     else if (route.page === "types") path = "/appointment-types";
     else if (route.page === "reasons") path = "/appointment-reasons";
@@ -627,7 +638,9 @@
     state.page = r.page;
     if (r.date && r.page !== "rooming") state.date = r.date;
     if (r.page === "rooming" && r.date) state.roomingDate = r.date;
-    if (r.view) state.scheduleView = r.view;
+    if (r.page === "worklist") state.scheduleView = "worklist";
+    else if (r.page === "schedule") state.scheduleView = "calendar";
+    else if (r.view) state.scheduleView = r.view;
     if (r.calMode) state.calMode = r.calMode;
     if (r.selected && patient(r.selected)) {
       state.selected = r.selected;
@@ -650,7 +663,7 @@
     }
     clearReturnStack();
     render();
-    if (r.page === "schedule" && r.appointmentId && appt(r.appointmentId)) {
+    if ((r.page === "schedule" || r.page === "worklist") && r.appointmentId && appt(r.appointmentId)) {
       openAppointmentModal(r.appointmentId);
     } else if ($("#modal") && $("#modal").classList.contains("open")) {
       closeModal({ cancelPending: true, skipRestore: true });
@@ -896,10 +909,7 @@
       return '<span class="reg-mini ' + (it.ok ? "ok" : "miss") + '" title="' + esc(full[it.key] + " · " + it.status) + '">' + letter[it.key] + "</span>";
     }).join("");
     const open = state.expandedAppt === apptId;
-    const demo = items.find(function (it) { return it.key === "demographicsConfirmed"; });
-    const demoLabel = (demo && demo.ok) ? "Confirmed" : "Not confirmed";
-    const demoBtn = ' <button type="button" class="' + ((demo && demo.ok) ? "reg-confirmed" : "reg-not-confirmed") + '" data-open-demo="' + esc(p.id) + '">' + demoLabel + "</button>";
-    return '<div class="reg-minis"><button type="button" class="btn small" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button>" + demoBtn + "</div>";
+    return '<div class="reg-minis"><button type="button" class="reg-widget" data-expand-reg="' + esc(apptId) + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="reg-panel-' + esc(apptId) + '" title="Registration status">' + pills + "</button></div>";
   }
 
   function wlBucketFor(a) {
@@ -1100,9 +1110,8 @@
     const visible = searched.filter((a) => wlMatches(a, filters) && a.status !== "Canceled");
     const canceledShown = searched.filter((a) => a.status === "Canceled" && wlMatches(a, filters));
     const rows = visible.concat(canceledShown);
-    const toggle = scheduleViewToggle();
     const head = pageHead("Front desk", "Worklist", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours) + " · Do today’s work without leaving this page.",
-      toggle + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a> <button class="btn" type="button" data-open="block">＋ Admin block</button>');
+      "");
     const filtBtn = function (key, label, n) {
       const on = filters.indexOf(key) >= 0;
       return '<button type="button" class="wl-filter' + (on ? " active" : "") + '" data-wl-filter="' + key + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(label) + ' <span class="count">' + n + "</span></button>";
@@ -1119,7 +1128,7 @@
     const hits = q ? scheduleSearchHits(q) : "";
     const timed = rows.slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
     const goldId = nextPendingId(timed);
-    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider</div><div>Type / Reason</div><div>Reg</div><div>Prep</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
     const collapsed = wlBucketState();
     let groups = "";
     if (isWeekend(date)) {
@@ -1147,12 +1156,12 @@
       <div class="card">
         <div class="cardhead">
           <div class="datebar">
-            <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: addDays(date, -1), view: "worklist" })}" aria-label="Previous day">‹</a>
+            <a class="btn small" id="sched-prev" href="${hashFor({ page: "worklist", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
             <strong>${esc(fmtLong(date))}</strong> <span class="count">${esc(patientCount(date))}</span>
-            <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: addDays(date, 1), view: "worklist" })}" aria-label="Next day">›</a>
-            <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "worklist" })}">Today</a>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "worklist" })}">Sample day</a>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: demoClockDate(), view: "worklist" })}">Demo day</a>
+            <a class="btn small" id="sched-next" href="${hashFor({ page: "worklist", date: addDays(date, 1) })}" aria-label="Next day">›</a>
+            <a class="btn small" id="sched-today" href="${hashFor({ page: "worklist", date: todayET() })}">Today</a>
+            <a class="btn small" href="${hashFor({ page: "worklist", date: BRIZZA.SAMPLE_DAY })}">Sample day</a>
+            <a class="btn small" href="${hashFor({ page: "worklist", date: demoClockDate() })}">Demo day</a>
             <span class="demo-clock" title="Fixed demo time used for Late tags and the next pending row">${esc("Demo clock · " + demoClockLabel())}</span>
           </div>
           <div class="sched-tools">
@@ -1173,7 +1182,7 @@
         </div>
       </div>
     </div>`;
-    renderChrome('<a href="' + hashFor({ page: "schedule", date: date, view: "worklist" }) + '">Worklist</a>', head, body);
+    renderChrome('<a href="' + hashFor({ page: "worklist", date: date }) + '">Worklist</a>', head, body);
     bindStatusStops();
   }
 
@@ -1190,24 +1199,35 @@
     const tip = '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="3" placeholder="Appointment notes">' + esc(note) + "</textarea>";
     const late = opts.late ? '<span class="wl-late">Late</span>' : "";
     const cls = "wl-row" + (opts.gold ? " wl-next" : "") + (opts.late ? " is-late" : "");
+    const suiteLine = '<span class="wl-suite">' + esc(suite) + "</span>";
+    const prepOpen = state.expandedPrep === a.id;
+    const prepCell = prepCellHtml(a, prepOpen);
     return '<div class="' + cls + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-wl-row="' + esc(a.id) + '"' + (opts.gold ? ' data-wl-next="1"' : "") + ' style="--status-bar:' + statusColor(a.status) + '">' +
-      '<div class="wl-time"><span class="wl-time-val">' + esc(fmtTime(a.time)) + "</span>" + late + "</div>" +
+      '<div class="wl-time"><span class="wl-time-val">' + esc(fmtTime(a.time)) + "</span>" + late + suiteLine + "</div>" +
       '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) +
         (p ? '<span class="wl-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</span>" : "") + "</div>" +
-      
       '<div class="wl-prov">' + esc(a.provider) + "</div>" +
-      '<div class="wl-type">' + esc(a.type) + "</div>" +
-      '<div class="wl-reason">' + esc(visitReasonLabel(a)) + "</div>" +
-      '<div class="wl-suite">' + esc(suite) + "</div>" +
-      '<div>' + (p ? regMinis(p, a.id) : "") + "</div>" +
+      '<div class="wl-type-reason"><span class="wl-type">' + esc(a.type) + '</span><span class="wl-reason">' + esc(visitReasonLabel(a)) + "</span></div>" +
+      '<div class="wl-reg">' + (p ? regMinis(p, a.id) : "") + "</div>" +
+      '<div class="wl-prep">' + prepCell + "</div>" +
       "<div>" + statusSelect(a, "wl") + "</div>" +
       clinicalNoteCell(a) +
       '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' + tip + "</div>" +
       "<div>" + balanceBadge(patientBalanceValue(a.patientId)) + "</div>" +
-      '<div class="wl-checkout-btns"><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button>' +
-        ((a.status === "Ready for checkout") ? '<button type="button" class="btn small" data-left-unpaid="' + esc(a.id) + '">Left without paying</button>' : "") + "</div>" +
+      '<div class="wl-checkout-btns"><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button></div>' +
       (open ? '<div class="reg-expand">' + registrationPanel(a) + "</div>" : "") +
       "</div>";
+  }
+
+  function prepCellHtml(a, open) {
+    const r = readinessFor(a);
+    const label = r.ready ? "Ready" : "Needs prep";
+    const tip = r.items.map(function (i) { return (i.ok ? "✓ " : "○ ") + i.label; }).join(" · ");
+    const details = r.items.map(function (i) {
+      return '<div class="row-sub">' + (i.ok ? "✓" : "○") + " " + esc(i.label) + "</div>";
+    }).join("");
+    return '<button type="button" class="prep-pill ' + (r.ready ? "ready" : "needs") + '" data-expand-prep="' + esc(a.id) + '" aria-expanded="' + (open ? "true" : "false") + '" title="' + esc(tip) + '">' + esc(label) + "</button>" +
+      (open ? '<div class="prep-detail" role="tooltip">' + details + "</div>" : "");
   }
 
   function ensureInvoiceForAppt(a) {
@@ -2103,6 +2123,7 @@
       const active = (key === "patients" && (state.page === "patients" || state.page === "visit" || state.page === "demo")) ||
         (key === "notes" && state.page === "notes") ||
         (key === "schedule" && state.page === "schedule") ||
+        (key === "worklist" && state.page === "worklist") ||
         (key === "queue" && state.page === "queue") ||
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
@@ -2119,10 +2140,11 @@
           <div class="brand"><span class="brand-name"><span class="brand-b">B</span>rizza</span><small>clinic workspace</small></div>
           <div class="nav-label">Workspace</div>
           <nav class="nav" aria-label="Workspace">
-            ${nav(hashFor({ page: "schedule", date: state.date, view: state.scheduleView, calMode: state.calMode }), "schedule", "Schedule", "▦")}
+            ${nav(hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }), "schedule", "Schedule", "▦")}
+            ${nav(hashFor({ page: "worklist", date: state.date }), "worklist", "Worklist", "≡")}
             ${nav(hashFor({ page: "patients", selected: state.selected, tab: state.tab }), "patients", "Patients", "♙")}
             ${nav(hashFor({ page: "notes", notesDash: state.notesDash || "pending" }), "notes", "Notes", "✎")}
-            ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Work queue", "☷")}
+            ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Tasks", "☷")}
             ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
             ${nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰")}
             ${nav(hashFor({ page: "inventory" }), "inventory", "Inventory", "▦")}
@@ -3550,8 +3572,8 @@
     closeModal();
     toast("Admin block added");
     state.date = date;
-    const next = hashFor({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
-    if (location.hash !== next) go({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
+    const next = hashFor({ page: "schedule", date: date, view: "calendar", calMode: state.calMode });
+    if (location.hash !== next) go({ page: "schedule", date: date, view: "calendar", calMode: state.calMode });
     else render();
   }
 
@@ -3572,11 +3594,7 @@
   }
 
   function renderSchedule() {
-    if (state.scheduleView === "calendar") {
-      renderCalendar();
-      return;
-    }
-    renderWorklist();
+    renderCalendar();
     return;
     /* superseded list view kept in _superseded/schedule-list-r5.js */
     const list = dayAppointments(state.date);
@@ -3689,7 +3707,6 @@
 
   function renderCalendar() {
     if (!state.providerChips) state.providerChips = loadProviderChips();
-    const toggle = scheduleViewToggle();
     const modes = calendarModeToggle();
     const shiftPrev = scheduleShift(state.date, -1);
     const shiftNext = scheduleShift(state.date, 1);
@@ -3697,7 +3714,7 @@
     if (state.calMode === "week") title = "Week of " + fmtLong(weekMonday(state.date));
     if (state.calMode === "month") title = monthLabel(state.date);
     const head = pageHead("Appointment operations", "Schedule", esc(BRIZZA.CLINIC.hours),
-      toggle + " " + modes);
+      modes + ' <a class="btn primary" href="#modal-book" data-open="book">＋ New appointment</a> <button class="btn" type="button" data-open="block">＋ Admin block</button>');
     const nav = `<div class="datebar">
       <a class="btn small" id="sched-prev" href="${hashFor({ page: "schedule", date: shiftPrev, view: "calendar", calMode: state.calMode })}" aria-label="Previous">‹</a>
       <strong>${esc(title)}</strong>
@@ -3930,26 +3947,9 @@
   }
 
   function renderQueue() {
-    const list = store.appointments
-      .filter((a) => a.date === state.date && a.status !== "Rescheduled" && a.status !== "Canceled")
-      .sort((a, b) => a.time.localeCompare(b.time));
     const followups = store.patients.flatMap((p) => p.followups.map((f) => ({ p, f })));
-    const head = pageHead("Clinic operations", "Work queue", "", "");
+    const head = pageHead("Clinic operations", "Tasks", "", "");
     const body = `<div class="grid">
-      <div class="card">
-        <div class="cardhead"><h2>Visit readiness · ${esc(fmtDate(state.date))}</h2><span class="badge">${list.length} appointments</span></div>
-        <table class="table"><thead><tr><th>Time / patient</th><th>Visit</th><th>Status</th><th>Prep</th><th>Next step</th></tr></thead>
-        <tbody>${list.map((a) => {
-          const p = patient(a.patientId);
-          const r = readinessFor(a);
-          const prep = r.items.map((i) => '<div class="row-sub">' + (i.ok ? "✓" : "○") + " " + esc(i.label) + "</div>").join("");
-          return "<tr><td><strong>" + esc(fmtTime(a.time)) + '</strong><div class="row-sub">' + (p ? patientLink(p) : esc(a.patientId)) + "</div></td><td>" +
-            esc(a.type) + (a.visitId ? '<div class="row-sub"><a href="' + hashFor({ page: "visit", visitId: a.visitId }) + '">' + esc(a.visitId) + "</a></div>" : "") +
-            "</td><td>" + badge(a.status) + "</td><td>" + (r.ready ? badge("Ready") : badge("Needs prep")) + prep +
-            '</td><td><a class="btn small" href="' + hashFor({ page: "patients", selected: a.patientId, tab: "appointments" }) + '">Open chart</a></td></tr>';
-        }).join("") || '<tr><td colspan="5" class="empty">No appointments on this date.</td></tr>'}</tbody></table>
-        ${openQ("A named work-queue readiness checklist is not defined in the V1 documents. These indicators are derived from chart consent, intake, and allergy fields as prototype placeholders (Records §7 / §23 supply inputs, not a queue spec).")}
-      </div>
       <div class="card">
         <div class="cardhead"><h2>Follow-up tasks</h2><span class="badge warn">${followups.length} open</span></div>
         <div class="cardbody">
@@ -3957,7 +3957,7 @@
         </div>
       </div>
     </div>`;
-    renderChrome('<a href="' + hashFor({ page: "queue", date: state.date }) + '">Work queue</a>', head, body);
+    renderChrome('<a href="' + hashFor({ page: "queue", date: state.date }) + '">Tasks</a>', head, body);
   }
 
   function renderVisit() {
@@ -4625,8 +4625,11 @@
     closeModal();
     toast(reasons.length ? "Appointment scheduled" : "Appointment scheduled · select a reason before Confirmed");
     state.date = date;
-    const next = hashFor({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
-    if (location.hash !== next) go({ page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode });
+    const dest = (state.page === "worklist")
+      ? { page: "worklist", date: date }
+      : { page: "schedule", date: date, view: "calendar", calMode: state.calMode };
+    const next = hashFor(dest);
+    if (location.hash !== next) go(dest);
     else render();
   }
 
@@ -5485,7 +5488,8 @@
   }
   function render() {
     if (state.page !== "rooming") stopRoomingTick();
-    if (state.page === "schedule") renderSchedule();
+    if (state.page === "worklist") renderWorklist();
+    else if (state.page === "schedule") renderSchedule();
     else if (state.page === "queue") renderQueue();
     else if (state.page === "configuration") renderSettings();
     else if (state.page === "types") renderTypes();
@@ -5676,6 +5680,14 @@
     if (rem) { e.preventDefault(); addRemainingToBalance(rem.getAttribute("data-add-remaining")); return; }
     const leftUnpaid = e.target.closest("[data-left-unpaid]");
     if (leftUnpaid) { e.preventDefault(); leftWithoutPaying(leftUnpaid.getAttribute("data-left-unpaid")); return; }
+    const expandPrep = e.target.closest("[data-expand-prep]");
+    if (expandPrep) {
+      e.preventDefault();
+      const id = expandPrep.getAttribute("data-expand-prep");
+      state.expandedPrep = state.expandedPrep === id ? null : id;
+      render();
+      return;
+    }
     const checkoutBtn = e.target.closest("[data-checkout-visit]");
     if (checkoutBtn) { e.preventDefault(); checkoutVisit(checkoutBtn.getAttribute("data-checkout-visit")); return; }
     const addAlert = e.target.closest("[data-add-alert]");

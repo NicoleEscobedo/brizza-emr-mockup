@@ -68,11 +68,26 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 23. **Reviewed, no changes lock.** Checking the box persists on save and reopen. Lock confirmation records the acting user, role, and timestamp and disables the checkbox; editing history fields clears the lock. Suggested default: keep lock as an explicit action; do not auto-lock on Sign.
 24. **Generated note framing.** A lead sentence states that the note records only selected or entered details, followed by longer clinic-grade sentences that echo those facts. Suggested default: keep this framing; never invent findings, doses, settings, or claims.
 
-25. **Rooming at narrower widths.** At 1280×800 the Patient Flow board and Suites 1–3 fit without vertical page scroll; below about 1100px the page may scroll. Suggested default: keep the compact timers and in-column scroll at desktop width; allow page scroll only below 1100px.
-26. **Open clinical notes on the Worklist.** The grouping after Collect balance lists unsigned notes for the Worklist date, with provider initials and Open note. Suggested default: keep clinic-wide unsigned notes for that date; do not filter to the acting provider in this preview.
-27. **Other treatment area on Injectable Procedure notes.** One Other row (label + units, both starting empty) is added to the face-map units and rolled into Units documented. Suggested default: keep a single optional Other row; do not invent area names or unit amounts.
-28. **Units documented auto-sum.** Face-map units plus Other units fill Units documented automatically. Suggested default: keep the field in sync with the sum; do not require it to sign and do not suggest doses.
-29. **Last reviewed stamp.** Confirm Demographics writes “Last reviewed: [date/time] by [user]” under the button (an em dash shows until the first confirm in the session). Suggested default: keep this session stamp; persistence can wait with the rest of the in-memory mockup.
-30. **Who may create or sign notes besides clinical roles and the MD / Owner.** Aesthetician, RN / NP Injector, and MD / Clinic Owner can create notes as gated above. Medical Assistant and other non-clinical roles cannot. Suggested default: keep this gate until an official MA or front-desk documentation rule is named.
-31. **New appointment date field.** Both entry points hide the Date control and show the date from the current screen or slot in the modal title. Suggested default: keep the date in the title only; do not add a visible Date field.
-32. **View vs Print on clinical notes.** The notes list uses View; Print lives inside the View window. Suggested default: keep this split so print happens from the readable view.
+## Approved in Round 13 (Round 12 suggested defaults)
+
+25. **Rooming at narrower widths.** Keep the compact timers and in-column scroll so the Patient Flow board and Suites 1–3 fit a 1280×800 viewport without vertical page scroll; allow page scroll only below about 1100px.
+26. **Open clinical notes on the Worklist.** Keep the grouping after Collect balance as clinic-wide unsigned notes for the Worklist date, with provider initials and Open note; do not filter to the acting provider in this preview.
+27. **Other treatment area on Injectable Procedure notes.** Keep a single optional Other row (label + units, both starting empty) added to the face-map units; do not invent area names or unit amounts.
+28. **Units documented auto-sum.** Keep Units documented in sync with face-map plus Other units; do not require it to sign and do not suggest doses.
+29. **Last reviewed stamp.** Keep “Last reviewed: [date/time] by [user]” under Confirm Demographics (an em dash until the first confirm in the session); persistence can wait with the rest of the in-memory mockup.
+30. **Who may create or sign notes besides clinical roles and the MD / Owner.** Keep the current gate: Aesthetician, RN / NP Injector, and MD / Clinic Owner can create notes as already gated; Medical Assistant and other non-clinical roles cannot, until an official MA or front-desk documentation rule is named.
+31. **New appointment date field.** Keep the date in the modal title only, taken from the current screen or slot; do not add a visible Date field.
+32. **View vs Print on clinical notes.** Keep View on the notes list, with Print inside the View window so print happens from the readable view.
+
+## Still open (Round 13)
+
+25. **Worklist hash.** New links use `#/worklist/DATE`; `#/schedule/worklist/DATE` and `#/schedule/list/DATE` still open the Worklist. Suggested default: keep this compatibility; do not break old bookmarks.
+26. **Schedule default route.** `#/schedule` and `#/schedule/DATE` open the calendar (week mode unless a day/month segment is in the hash), not the Worklist. Suggested default: keep Schedule calendar-only.
+27. **Tasks page contents.** Tasks (`#/tasks/DATE`; `#/queue/` still works) shows only the Follow-up tasks card. Suggested default: keep Visit readiness off this page, since readiness now appears as the Worklist Prep column.
+28. **Prep readiness checklist.** The Prep pill uses the former Work queue indicators (clinical consent, intake documents, allergies recorded, and an unsigned/draft note flag). Suggested default: keep this prototype checklist until official readiness criteria are named.
+29. **Global density.** Body type is 14.4px with slightly tighter padding and spacing (~95% of the prior density) so 100% zoom is closer to a 94–96% view. Suggested default: keep this density; do not shrink further if Rooming must stay on one 1280×800 screen.
+30. **Unassigned suite under Time.** When no suite is set, Time shows an em dash under the clock (the same stack as the Late tag). Suggested default: keep the dash so the Time column stays consistent.
+31. **Type / Reason column.** Type and Reason share one column, with the reason set in muted type. Suggested default: keep this combined cell.
+32. **Left without paying placement.** The control is only inside the Checkout / Invoice modal, not on the main Worklist row. Suggested default: keep it off the row.
+33. **New appointment and Admin block placement.** Both actions sit on the Schedule (calendar) header, not the Worklist header. Suggested default: keep booking and blocks on the calendar header; calendar slot ＋ Add remains.
+34. **Demographics confirm from the Worklist.** The main row shows only the [ID][F][D] widget. Confirmed / Not confirmed, Edit, and Confirm demographics appear in the expanded registration panel; Edit still opens the demographics pop-up. Suggested default: keep both the in-panel Confirm and the pop-up path.

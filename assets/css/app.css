@@ -111,7 +111,32 @@ a{color:var(--ink)}
 .hidden{display:none!important}
 .section-title{font-size:13px;margin:0 0 12px;font-family:var(--font-text);letter-spacing:0;text-transform:none}
 .labelrow{display:flex;justify-content:space-between;align-items:center;margin:0 0 8px}
-.scroll-list{max-height:max(160px, calc(100vh - 640px));overflow:auto}
+.scroll-list{max-height:calc(100vh - 220px);min-height:22rem;overflow:auto}
+.appt-history .row{padding:10px 0;align-items:flex-start}
+.appt-history .row-title{font-size:14px}
+.ledger-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.ledger-credit{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#FFFCF6}
+.req-star{color:#8A1F2B;font-weight:700;padding-left:2px}
+.note-preview{margin-top:16px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#FFFCF6}
+.note-preview h3{margin:0 0 8px}
+.note-preview textarea{width:100%;min-height:8rem;resize:vertical}
+.note-hx{margin-top:16px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#FFFCF6}
+.note-hx h3{margin:0 0 8px}
+.note-hx .hx-block{margin:0 0 8px}
+.face-map{display:grid;grid-template-columns:minmax(180px,220px) minmax(0,1fr);gap:16px;align-items:start;margin:8px 0 12px}
+.face-map svg{width:100%;height:auto;max-width:220px;display:block}
+.face-map .region{fill:transparent;stroke:#B8AA9B;stroke-width:1;cursor:pointer}
+.face-map .region:hover,.face-map .region:focus{fill:rgba(243,216,220,.45);stroke:#352820;outline:none}
+.face-map .region.is-on{fill:#F3D8DC;stroke:#352820}
+.face-points{display:flex;flex-direction:column;gap:8px}
+.face-point{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.face-point input{width:5.5em}
+.face-point .x{padding:2px 8px}
+.notes-dash{display:flex;flex-direction:column;gap:10px}
+.notes-dash-toggle{display:flex;gap:8px;margin:0 0 12px}
+.addenda{margin-top:14px}
+.addenda .addendum{padding:8px 0;border-top:1px solid var(--line)}
+@media (max-width:700px){.face-map{grid-template-columns:1fr}}
 .demo-panel{position:fixed;left:232px;right:16px;bottom:16px;z-index:8;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;display:none}
 .demo-panel.open{display:block}
 .demo-panel h2{font-size:16px;margin-bottom:6px}

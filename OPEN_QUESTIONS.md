@@ -49,3 +49,10 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 6. **Duplicate catalog lines.** Adding the same product twice creates two cart lines, each with its own Remove. Suggested default: keep separate lines rather than merging quantities.
 7. **Week-view row height at 30-minute intervals.** Week slots are slightly tighter than Day view so the longer grid still fits. Suggested default: keep the tighter week slots; leave Day view as it is.
 8. **Worklist next-pending color.** The next pending row uses soft blush `#F3D8DC` with ink `#352820` (AA). Suggested default: keep this blush; Late stays rose, and the rooming wait timer stays gold.
+
+9. **Face-map region catalog.** The muscle-view map marks forehead, glabella, brows, crow’s feet, bunny lines, masseter, DAO, perioral, and chin. Suggested default: keep this region set until an official muscle list is named.
+10. **Units on the face map.** Units start empty and are never suggested. Suggested default: keep units optional and typable only; do not add doses or defaults.
+11. **Note-builder question trees.** Follow-up questions and the generated sentences only echo what was selected or typed. Suggested default: keep the current trees for the six draft templates, labeled Open question with the templates.
+12. **Addendum rules after signing.** Signed notes change only by addendum. Suggested default: keep addenda appended under the note with author and time; do not reopen the body for editing.
+13. **Ledger prepayments.** A blank Add payment amount becomes patient credit. Suggested default: keep prepayments as credit until an official unapplied-payment ledger is named.
+14. **Provider Notes dashboard audience.** The nav item is available to every role and lists clinic-wide unsigned and signed notes. Suggested default: keep it clinic-wide in this preview; a provider-only filter can wait.

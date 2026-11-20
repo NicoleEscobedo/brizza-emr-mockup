@@ -109,17 +109,24 @@
       allergies: (p.allergies || []).slice(),
       meds: (p.meds || []).slice(),
       conditions: (p.conditions || []).slice(),
+      pharmacy: p.pharmacy || "",
       consents: Object.assign({}, p.consents || {})
     };
   }
   function historyDiffHtml(snapshot, p) {
     if (!snapshot) return '<p class="row-sub">No medical-history snapshot is stored on this note.</p>';
     const now = historySnapshotOf(p);
-    const rows = ["allergies", "meds", "conditions"].map((k) => {
-      const before = (snapshot[k] || []).join(", ") || "—";
-      const after = (now[k] || []).join(", ") || "—";
+    const keys = [
+      { k: "allergies", label: "Allergies" },
+      { k: "meds", label: "Current medications" },
+      { k: "conditions", label: "Medical history" },
+      { k: "pharmacy", label: "Pharmacy" }
+    ];
+    const rows = keys.map(function (item) {
+      const before = item.k === "pharmacy" ? (snapshot.pharmacy || "—") : ((snapshot[item.k] || []).join(", ") || "—");
+      const after = item.k === "pharmacy" ? (now.pharmacy || "—") : ((now[item.k] || []).join(", ") || "—");
       const changed = before !== after;
-      return '<div class="row"><div><div class="row-title">' + esc(k) + "</div>" +
+      return '<div class="row"><div><div class="row-title">' + esc(item.label) + "</div>" +
         '<div class="row-sub">At signing: ' + esc(before) + "</div>" +
         '<div class="' + (changed ? "changed" : "row-sub") + '">Now: ' + esc(after) + (changed ? " (changed)" : "") + "</div></div></div>";
     }).join("");
@@ -565,6 +572,8 @@
       route = { page: "inventory", invTab: parts[1] || state.invTab || "catalog" };
     } else if (p0 === "availability") {
       route = { page: "availability" };
+    } else if (p0 === "notes") {
+      route = { page: "notes", notesDash: parts[1] === "signed" ? "signed" : "pending" };
     }
     return route;
   }
@@ -599,6 +608,7 @@
     else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
     else if (route.page === "inventory") path = "/inventory/" + (route.invTab || state.invTab || "catalog");
     else if (route.page === "availability") path = "/availability";
+    else if (route.page === "notes") path = "/notes" + (route.notesDash === "signed" ? "/signed" : "");
     return "#" + path + "?theme=01";
   }
 
@@ -617,6 +627,7 @@
       state.selected = r.selected;
       state.tab = TABS[r.tab] ? r.tab : (r.tab === "treatment-history" || r.tab === "clinical-notes" ? "demographics" : "demographics");
     }
+    if (r.notesDash) state.notesDash = r.notesDash;
     if (r.invTab) state.invTab = r.invTab;
     if (r.visitId) state.visitId = r.visitId;
     if (r.invoiceId) state.invoiceId = r.invoiceId;
@@ -1354,22 +1365,81 @@
     $("#modalBody").innerHTML = sub + invoicePopupHtml(inv);
     bindPosSearch(inv);
   }
-  function openPosPopup(apptId) {
-    const a = appt(apptId);
-    if (!a) return;
-    const inv = ensureInvoiceForAppt(a);
-    const p = patient(a.patientId);
+  function ensureInvoiceForPatient(pid) {
+    const id = nextId("INV-", store.invoices);
+    const inv = { id: id, patientId: pid, visitId: null, appointmentIds: [], status: "Draft", balance: 0, lines: [], payments: [], finalized: false, finalizedAt: null, movements: [] };
+    store.invoices.push(inv);
+    addAudit({ action: "Opened invoice from ledger", recordType: "Invoice", recordId: id,
+      recordPath: { page: "pos", invoiceId: id },
+      changes: [{ field: "invoice", before: "—", after: id }] });
+    return inv;
+  }
+  function openInvoicePopup(inv, apptId) {
+    if (!inv) return;
+    const p = patient(inv.patientId);
+    const a = apptId ? appt(apptId) : appt((inv.appointmentIds || [])[0]);
     state.invoiceId = inv.id;
-    state.posAppointmentId = a.id;
-    $("#modalTitle").textContent = "Invoice · " + inv.id + " · " + (p ? p.name : a.patientId);
+    state.posAppointmentId = a ? a.id : null;
+    $("#modalTitle").textContent = "Invoice · " + inv.id + " · " + (p ? p.name : inv.patientId);
     state.posSearch = "";
-    $("#modalBody").innerHTML = '<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>" + invoicePopupHtml(inv);
+    const sub = a
+      ? ('<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>")
+      : '<p class="row-sub">Patient invoice (not tied to a visit)</p>';
+    $("#modalBody").innerHTML = sub + invoicePopupHtml(inv);
     bindPosSearch(inv);
     const save = $("#modalSave");
     save.textContent = "Done";
     save.onclick = function () { closeModal(); if (state.page === "schedule") renderWorklist(); else render(); };
     $("#modal").classList.add("open", "pos-mode");
     $("#modal").classList.remove("hist-mode");
+  }
+  function openPosPopup(apptId) {
+    const a = appt(apptId);
+    if (!a) return;
+    openInvoicePopup(ensureInvoiceForAppt(a), a.id);
+  }
+  function openLedgerInvoice(pid) {
+    if (!patient(pid)) return;
+    openInvoicePopup(ensureInvoiceForPatient(pid), null);
+  }
+  function openLedgerPayment(pid) {
+    const p = patient(pid);
+    if (!p) return;
+    showModal("Add payment · " + p.name,
+      '<p class="row-sub">Record a payment that is not tied to an invoice, such as a prepayment. The amount is added to patient credit.</p>' +
+      '<div class="formgrid">' +
+      '<div class="field"><label for="lpAmount">Amount <span class="req">required</span></label><input id="lpAmount" type="number" min="0" step="0.01" inputmode="decimal"></div>' +
+      '<div class="field"><label for="lpMethod">Method <span class="req">required</span></label>' +
+      '<select id="lpMethod"><option value="">Select</option><option>Card</option><option>Cash</option><option>Other</option></select></div>' +
+      '<div class="field full"><label for="lpNote">Note</label><input id="lpNote" placeholder="Prepayment or other note"></div>' +
+      "</div>" +
+      '<div id="lpWarn"></div>',
+      function () { saveLedgerPayment(pid); }, "Add payment");
+  }
+  function saveLedgerPayment(pid) {
+    const p = patient(pid);
+    if (!p) return;
+    const raw = $("#lpAmount") ? $("#lpAmount").value : "";
+    const amount = Number(raw);
+    const method = $("#lpMethod") ? $("#lpMethod").value : "";
+    const note = ($("#lpNote") && $("#lpNote").value.trim()) || "Prepayment";
+    if (raw === "" || Number.isNaN(amount) || amount <= 0 || !method) {
+      const w = $("#lpWarn");
+      if (w) w.innerHTML = '<div class="notice">Amount and method are required.</div>';
+      toast("Amount and method are required");
+      return;
+    }
+    const rec = { id: nextId("LPAY-", p.ledgerPayments || []), kind: "Prepayment", amount: Math.round(amount * 100) / 100, method: method, status: "Paid", recorded: nowET(), note: note };
+    p.ledgerPayments = p.ledgerPayments || [];
+    p.ledgerPayments.push(rec);
+    const before = patientCredit(p);
+    p.credit = Math.round((before + rec.amount) * 100) / 100;
+    addAudit({ action: "Recorded ledger payment", recordType: "Patient", recordId: p.id,
+      recordPath: { page: "patients", selected: p.id, tab: "ledger" },
+      changes: [{ field: "credit", before: money(before), after: money(p.credit) }, { field: "payment", before: "—", after: money(rec.amount) + " · " + method }] });
+    closeModal();
+    toast("Payment added to patient credit");
+    render();
   }
   function applyInvoiceCredit(invId) {
     const inv = invoice(invId); if (!inv || inv.finalized) return;
@@ -1643,6 +1713,200 @@
     }, "Save");
   }
 
+  function noteFieldsOf(n) { return (n && (n.fields || n.values)) || {}; }
+  function isNoteSigned(n) {
+    const st = (n && n.status) || "Open";
+    return st === "Signed" || st === "Locked" || !!(n && n.locked);
+  }
+  function isNoteEditable(n) { return !isNoteSigned(n); }
+  function templateIdFromNote(n) {
+    if (n && n.templateId) return n.templateId;
+    const tpls = BRIZZA.NOTE_TEMPLATES || [];
+    const hit = tpls.find(function (t) { return t.name === (n && n.type); });
+    return hit ? hit.id : "";
+  }
+  function isConsultNote(n) {
+    const id = (n && n.templateId) || "";
+    return /-consult$/.test(id) || /consult/i.test((n && n.type) || "");
+  }
+  function procedureTemplateId(n) {
+    const id = (n && n.templateId) || "";
+    if (id.indexOf("aes-") === 0 || /aesthetician/i.test((n && n.type) || "")) return "aes-procedure";
+    return "inj-procedure";
+  }
+  function requiredMark(labelFor) {
+    return ' <span class="req-star" aria-hidden="true">*</span><span class="sr-only">required</span>';
+  }
+  function builderQuestions(tpl) {
+    if (!tpl) return null;
+    return (BRIZZA.NOTE_BUILDER && BRIZZA.NOTE_BUILDER[tpl.id]) || null;
+  }
+  function questionVisible(q, values) {
+    if (!q.showIf) return true;
+    const v = values[q.showIf.field];
+    if (q.showIf.equals !== undefined) return v === q.showIf.equals;
+    if (q.showIf.in) return (q.showIf.in || []).indexOf(v) >= 0;
+    if (q.showIf.filled) return !!(v && String(v).trim());
+    return true;
+  }
+  function missingAnyNoteFields(tpl, values) {
+    const qs = builderQuestions(tpl);
+    if (!qs) return missingNoteFields(tpl, values);
+    const missing = [];
+    qs.forEach(function (q) {
+      if (!q.required || !questionVisible(q, values)) return;
+      if (!(values[q.id] || "").toString().trim()) missing.push(q.label);
+    });
+    return missing;
+  }
+  function compileNoteSentences(tpl, values, draft) {
+    const qs = builderQuestions(tpl) || [];
+    const sentences = [];
+    qs.forEach(function (q) {
+      if (!q.sentence || !questionVisible(q, values || {})) return;
+      const v = ((values || {})[q.id] || "").toString().trim();
+      if (!v) return;
+      const line = q.sentence.replace(/\{([^}]+)\}/g, function (_, k) { return ((values || {})[k] || "").toString().trim(); });
+      if (line && line.indexOf("{") < 0 && !/:\s*\.?$/.test(line)) sentences.push(line);
+    });
+    if (draft && draft.facePoints && draft.facePoints.length) {
+      const named = draft.facePoints.map(function (pt) {
+        const units = (pt.units || "").toString().trim();
+        return units ? (pt.name + ", with units recorded as " + units) : pt.name;
+      });
+      sentences.push("Areas marked on the face map: " + named.join("; ") + ".");
+    }
+    return sentences.join(" ");
+  }
+  function faceMapEnabled(tpl) {
+    return !!(tpl && (tpl.id === "inj-procedure" || (tpl.sections || []).some(function (s) {
+      return (s.fields || []).some(function (f) { return f.id === "areasTreated"; });
+    })));
+  }
+  function faceRegions() {
+    return [
+      { id: "forehead", name: "Forehead", shape: "path", d: "M50 50 C78 34 122 34 150 50 L146 78 C118 68 82 68 54 78 Z" },
+      { id: "glabella", name: "Glabella", shape: "path", d: "M88 78 L112 78 L110 96 L90 96 Z" },
+      { id: "brow-l", name: "Left brow", shape: "path", d: "M52 80 L86 78 L84 90 L54 92 Z" },
+      { id: "brow-r", name: "Right brow", shape: "path", d: "M114 78 L148 80 L146 92 L116 90 Z" },
+      { id: "crows-l", name: "Left crow's feet", shape: "path", d: "M40 96 L58 100 L56 116 L36 112 Z" },
+      { id: "crows-r", name: "Right crow's feet", shape: "path", d: "M142 100 L160 96 L164 112 L144 116 Z" },
+      { id: "bunny", name: "Bunny lines", shape: "path", d: "M92 100 L108 100 L106 118 L94 118 Z" },
+      { id: "masseter-l", name: "Left masseter", shape: "path", d: "M40 118 L62 122 L60 160 L36 148 Z" },
+      { id: "masseter-r", name: "Right masseter", shape: "path", d: "M138 122 L160 118 L164 148 L140 160 Z" },
+      { id: "dao-l", name: "Left DAO", shape: "path", d: "M70 148 L90 150 L86 168 L66 164 Z" },
+      { id: "dao-r", name: "Right DAO", shape: "path", d: "M110 150 L130 148 L134 164 L114 168 Z" },
+      { id: "perioral", name: "Perioral", shape: "path", d: "M84 148 L116 148 L114 166 L86 166 Z" },
+      { id: "chin", name: "Chin", shape: "path", d: "M86 168 L114 168 L110 190 L90 190 Z" }
+    ];
+  }
+  function syncAreasFromFace(draft) {
+    if (!draft) return;
+    const names = (draft.facePoints || []).map(function (pt) { return pt.name; });
+    draft.values = draft.values || {};
+    draft.values.areasTreated = names.join(", ");
+    const input = $("#nf-areasTreated");
+    if (input) input.value = draft.values.areasTreated;
+  }
+  function faceMapHtml(tpl, draft) {
+    if (!faceMapEnabled(tpl)) return "";
+    const selected = {};
+    (draft.facePoints || []).forEach(function (pt) { selected[pt.id] = pt; });
+    const regions = faceRegions().map(function (r) {
+      const on = selected[r.id] ? " is-on" : "";
+      return '<path class="region' + on + '" data-region="' + esc(r.id) + '" data-name="' + esc(r.name) + '" d="' + r.d + '" tabindex="0" role="button" aria-pressed="' + (selected[r.id] ? "true" : "false") + '" aria-label="' + esc(r.name) + '"></path>';
+    }).join("");
+    const points = (draft.facePoints || []).map(function (pt) {
+      return '<div class="face-point" data-face-point="' + esc(pt.id) + '"><span>' + esc(pt.name) + "</span>" +
+        '<label class="sr-only" for="fu-' + esc(pt.id) + '">Units for ' + esc(pt.name) + "</label>" +
+        '<input id="fu-' + esc(pt.id) + '" data-face-units="' + esc(pt.id) + '" type="text" inputmode="decimal" value="' + esc(pt.units || "") + '" aria-label="Units for ' + esc(pt.name) + '">' +
+        '<button type="button" class="btn small x" data-face-remove="' + esc(pt.id) + '" aria-label="Remove ' + esc(pt.name) + '">×</button></div>';
+    }).join("") || '<p class="row-sub">Tap a region to mark it. Units start empty; enter a number only if you are recording one.</p>';
+    return '<div class="face-map" id="faceMap">' +
+      '<svg viewBox="0 0 200 240" role="img" aria-label="Face map of treatment areas">' +
+      '<ellipse cx="100" cy="120" rx="70" ry="92" fill="#FFFCF6" stroke="#352820" stroke-width="1.2" pointer-events="none"></ellipse>' +
+      '<path d="M36 96 C48 36 152 36 164 96" fill="none" stroke="#352820" stroke-width="1" pointer-events="none"></path>' +
+      '<path d="M68 110 C76 114 84 114 90 110" fill="none" stroke="#B8AA9B" stroke-width="1.1" pointer-events="none"></path>' +
+      '<path d="M110 110 C116 114 124 114 132 110" fill="none" stroke="#B8AA9B" stroke-width="1.1" pointer-events="none"></path>' +
+      '<path d="M100 112 L100 132" fill="none" stroke="#B8AA9B" stroke-width="1" pointer-events="none"></path>' +
+      '<path d="M90 154 C100 160 110 160 110 154" fill="none" stroke="#B8AA9B" stroke-width="1.1" pointer-events="none"></path>' +
+      regions + "</svg>" +
+      '<div class="face-points" id="facePoints">' + points + "</div></div>";
+  }
+  function bindFaceMap(draft) {
+    const root = $("#faceMap");
+    if (!root || !draft) return;
+    const toggle = function (id, name) {
+      draft.facePoints = draft.facePoints || [];
+      const i = draft.facePoints.findIndex(function (pt) { return pt.id === id; });
+      if (i >= 0) draft.facePoints.splice(i, 1);
+      else draft.facePoints.push({ id: id, name: name, units: "" });
+      draft.previewEdited = false;
+      syncAreasFromFace(draft);
+      const wrap = root.parentNode;
+      const html = faceMapHtml((BRIZZA.NOTE_TEMPLATES || []).find(function (t) { return t.id === draft.templateId; }), draft);
+      root.outerHTML = html;
+      bindFaceMap(draft);
+      updateNoteSignState();
+    };
+    $$("[data-region]", root).forEach(function (el) {
+      const act = function (e) { e.preventDefault(); toggle(el.getAttribute("data-region"), el.getAttribute("data-name")); };
+      el.addEventListener("click", act);
+      el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") act(e); });
+    });
+    $$("[data-face-remove]", root.parentNode || root).forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        const id = btn.getAttribute("data-face-remove");
+        const pt = (draft.facePoints || []).find(function (x) { return x.id === id; });
+        toggle(id, pt ? pt.name : id);
+      });
+    });
+    $$("[data-face-units]", root.parentNode || document).forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        const id = inp.getAttribute("data-face-units");
+        const pt = (draft.facePoints || []).find(function (x) { return x.id === id; });
+        if (pt) pt.units = inp.value;
+        draft.previewEdited = false;
+        updateNoteSignState();
+      });
+    });
+  }
+  function noteBuilderHtml(tpl, draft) {
+    const qs = builderQuestions(tpl);
+    if (!qs) return "";
+    const values = draft.values || {};
+    const fields = qs.map(function (q) {
+      if (!questionVisible(q, values)) return "";
+      return noteFieldControl({ id: q.id, label: q.label, type: q.type || "text", required: !!q.required, options: q.options || [] }, values[q.id]);
+    }).join("");
+    return '<div class="note-builder" id="noteBuilder">' + fields + "</div>";
+  }
+  function bindNoteBuilder(draft) {
+    const wrap = $("#noteBuilder");
+    if (!wrap || !draft) return;
+    const bind = function () {
+      $$("[data-nf]", wrap).forEach(function (el) {
+        el.addEventListener("change", function () {
+          draft.values = collectNoteValues();
+          draft.previewEdited = false;
+          const tpl = (BRIZZA.NOTE_TEMPLATES || []).find(function (t) { return t.id === draft.templateId; });
+          const keep = el.id;
+          const html = noteBuilderHtml(tpl, draft);
+          const tmp = document.createElement("div");
+          tmp.innerHTML = html;
+          const next = tmp.querySelector("#noteBuilder") || tmp.firstElementChild;
+          if (next) wrap.innerHTML = next.innerHTML;
+          bind();
+          const again = keep && document.getElementById(keep);
+          if (again) again.focus();
+          updateNoteSignState();
+        });
+        el.addEventListener("input", updateNoteSignState);
+      });
+    };
+    bind();
+  }
   function notesListHtml(p) {
     p = p || patient(state.selected);
     if (!p) return "";
@@ -1651,11 +1915,12 @@
     const rows = all.filter((n) => !q || ((n.type || "") + " " + (n.status || "") + " " + (n.text || "") + " " + (n.provider || "")).toLowerCase().includes(q));
     const list = rows.map(function (n) {
       const st = n.status || "Open";
-      const canEdit = st === "Open";
+      const canEdit = isNoteEditable(n);
       return '<div class="row"><div><div class="row-title">' + esc(fmtDate(n.date)) + " · " + esc(n.type || "Note") + '</div><div class="row-sub">' + esc(n.provider || "") + "</div></div>" +
         badge(st) +
         '<div class="actions">' +
-        (canEdit ? '<button class="btn small" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '">Edit</button>' : '<span class="row-sub">Edit</span>') +
+        (canEdit ? '<button class="btn small" type="button" data-edit-note="' + n.id + '" data-pid="' + p.id + '">Edit</button>' : "") +
+        '<button class="btn small" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '">View</button>' +
         '<button class="btn small" type="button" data-print-note="' + p.id + '" data-nid="' + n.id + '">View/Print</button></div></div>';
     }).join("") || '<div class="empty">No clinical notes for this patient.</div>';
     return '<div class="card notes-list"><div class="cardhead"><h2>Clinical notes</h2>' +
@@ -1708,7 +1973,10 @@
   function printNote(pid, nid) {
     const p = patient(pid); if (!p) return;
     const n = (p.notes || []).find((x) => x.id === nid); if (!n) return;
-    printView("Clinical note · " + p.name, "<p><strong>" + esc(n.type || "Note") + "</strong> · " + esc(n.status || "") + " · " + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</p><p>" + esc(n.text || "") + "</p>");
+    const adds = (n.addenda || []).map(function (a) {
+      return "<h2>Addendum</h2><p>" + esc(a.text || "") + "</p><p>" + esc(a.who || "") + " · " + esc(a.when || "") + "</p>";
+    }).join("");
+    printView("Clinical note · " + p.name, "<p><strong>" + esc(n.type || "Note") + "</strong> · " + esc(n.status || "") + " · " + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</p><p>" + esc(n.text || "") + "</p>" + adds);
   }
   function printDoc(pid, did) {
     const p = patient(pid); if (!p) return;
@@ -1736,6 +2004,7 @@
   function renderChrome(crumb, titleArea, body) {
     const nav = (href, key, label, icon) => {
       const active = (key === "patients" && (state.page === "patients" || state.page === "visit" || state.page === "demo")) ||
+        (key === "notes" && state.page === "notes") ||
         (key === "schedule" && state.page === "schedule") ||
         (key === "queue" && state.page === "queue") ||
         (key === "rooming" && state.page === "rooming") ||
@@ -1755,6 +2024,7 @@
           <nav class="nav" aria-label="Workspace">
             ${nav(hashFor({ page: "schedule", date: state.date, view: state.scheduleView, calMode: state.calMode }), "schedule", "Schedule", "▦")}
             ${nav(hashFor({ page: "patients", selected: state.selected, tab: state.tab }), "patients", "Patients", "♙")}
+            ${nav(hashFor({ page: "notes", notesDash: state.notesDash || "pending" }), "notes", "Notes", "✎")}
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Work queue", "☷")}
             ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
             ${nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰")}
@@ -1814,19 +2084,16 @@
   }
 
   function appointmentRow(a) {
-    const hist = historyLinks("Appointment", a.id, (a.history || []).join(" · "));
     const vlink = a.visitId ? ' · <a href="' + hashFor({ page: "visit", visitId: a.visitId }) + '">' + esc(a.visitId) + "</a>" : "";
-    return `<div class="row">
+    const reason = visitReasonLabel(a) || reasonText(a);
+    return `<div class="row appt-hist-row">
       <div>
-        <div class="row-title">${esc(a.type)} · ${esc(reasonText(a))}</div>
-        <div class="row-sub">${esc(a.date)} · ${esc(fmtTime(a.time))} · ${esc(a.provider)} · ${esc(a.id)} · ${esc(a.room || "No room")}${vlink}</div>
-        <div class="row-sub">Consultation: ${esc(a.consultation || "Not recorded")} · Treatment: ${esc(a.treatment || "Not recorded")} · Duration: ${esc(a.durationLabel || durationLabelFor(a.type, a.reasons))}</div>
-        ${hist ? '<div class="row-sub">Status history: ' + hist + "</div>" : ""}
-        <div class="row-sub">Invoice: ${invoiceBadge(a)}</div>
+        <div class="row-title">${esc(fmtDate(a.date))} · ${esc(fmtTime(a.time))} · ${esc(a.type)}${reason ? " · " + esc(reason) : ""}</div>
+        <div class="row-sub">${esc(a.provider)} · ${esc(a.id)}${a.durationLabel || durationLabelFor(a.type, a.reasons) ? " · " + esc(a.durationLabel || durationLabelFor(a.type, a.reasons)) : ""}${vlink} · Invoice: ${invoiceBadge(a)}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         ${badge(a.status)}
-        <a class="btn small" href="${hashFor({ page: "schedule", date: a.date, appointmentId: a.id })}">Status</a>
+        <a class="btn small" href="${hashFor({ page: "schedule", date: a.date, appointmentId: a.id })}">Open</a>
       </div>
     </div>`;
   }
@@ -1852,14 +2119,15 @@
     } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
       body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3>${rows(p.conditions, "No history items recorded")}
-        <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}</div>
+        <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}
+        <h3 class="section-title" style="margin-top:18px">Pharmacy</h3>${p.pharmacy ? '<div class="row"><span>' + esc(p.pharmacy) + "</span></div>" : '<div class="empty">No pharmacy recorded (if applicable)</div>'}</div>
         <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}</div></div></div>
         <div class="profile-block"><h3 class="section-title">Treatment history</h3>${p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}</div>`;
     } else if (state.tab === "appointments") {
       const list = apptsFor(p).slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
       body = `<div class="labelrow"><h3 class="section-title">Appointment history</h3>
         <a class="btn small primary" href="#modal-book" data-open="book" data-pid="${p.id}">＋ Schedule appointment</a></div>
-        <div class="scroll-list">${list.map(appointmentRow).join("") || '<div class="empty">No appointments</div>'}</div>`;
+        <div class="scroll-list appt-history">${list.map(appointmentRow).join("") || '<div class="empty">No appointments</div>'}</div>`;
     } else if (state.tab === "photos") {
       body = `<div class="two"><div><h3 class="section-title">Clinical photography</h3>${p.photos.length ? p.photos.map((x) => '<div class="row"><span>' + esc(x) + "</span></div>").join("") : '<div class="empty">No clinical photos</div>'}</div>
         <div><h3 class="section-title">Authorization records</h3>
@@ -1872,9 +2140,22 @@
         ${documentsHtml(p)}`;
     } else if (state.tab === "ledger") {
       const invs = store.invoices.filter((i) => i.patientId === p.id);
-      body = `<h3 class="section-title">Patient ledger</h3>
-        <div class="notice">Payment status is independent of appointment status. Amounts are TBD. The balance lives on the invoice.</div>
-        ${invs.map((inv) => '<a class="row" href="' + hashFor({ page: "checkout", invoiceId: inv.id }) + '"><div><div class="row-title">' + esc(inv.id) + '</div><div class="row-sub">Balance: ' + esc(typeof inv.balance === 'number' ? money(inv.balance) : inv.balance) + "</div></div>" + badge(inv.status) + "</a>").join("") || '<div class="empty">No invoices</div>'}`;
+      const pays = (p.ledgerPayments || []).slice().reverse();
+      const credit = patientCredit(p);
+      const payRows = pays.map(function (pay) {
+        return '<div class="row"><div><div class="row-title">' + esc(pay.kind || "Payment") + " · " + esc(money(pay.amount)) + '</div><div class="row-sub">' +
+          esc(pay.method || "") + " · " + esc(pay.recorded || "") + (pay.note ? " · " + esc(pay.note) : "") + "</div></div>" + badge(pay.status || "Paid") + "</div>";
+      }).join("") || '<div class="empty">No ledger payments yet</div>';
+      const invRows = invs.map((inv) => '<a class="row" href="' + hashFor({ page: "checkout", invoiceId: inv.id }) + '"><div><div class="row-title">' + esc(inv.id) + '</div><div class="row-sub">Balance: ' +
+        esc(typeof inv.balance === "number" ? money(inv.balance) : inv.balance) + "</div></div>" + badge(inv.status) + "</a>").join("") || '<div class="empty">No invoices</div>';
+      body = '<h3 class="section-title">Patient ledger</h3>' +
+        '<div class="ledger-actions">' +
+        '<button class="btn small primary" type="button" data-ledger-invoice="' + esc(p.id) + '">Create invoice</button>' +
+        '<button class="btn small" type="button" data-ledger-payment="' + esc(p.id) + '">Add payment</button></div>' +
+        '<div class="ledger-credit">Available credit <strong>' + money(credit) + "</strong></div>" +
+        '<p class="row-sub">Payment status is independent of appointment status. A blank payment, such as a prepayment, is added to patient credit.</p>' +
+        "<h3 class=\"section-title\">Invoices</h3>" + invRows +
+        "<h3 class=\"section-title\" style=\"margin-top:16px\">Payments</h3>" + payRows;
     } else if (state.tab === "quotes") {
       const qs = (store.quotes || []).filter((q) => q.patientId === p.id);
       body = `<h3 class="section-title">Quotes</h3>
@@ -2516,7 +2797,8 @@
   }
   function noteFieldControl(f, value) {
     const req = f.required ? ' aria-required="true"' : "";
-    const label = '<label for="nf-' + esc(f.id) + '">' + esc(f.label) + (f.required ? ' <span class="req">required</span>' : "") + "</label>";
+    const star = f.required ? requiredMark() : "";
+    const label = '<label for="nf-' + esc(f.id) + '">' + esc(f.label) + star + "</label>";
     if (f.type === "textarea") {
       return '<div class="field full">' + label + '<textarea id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '"' + req + ">" + esc(value || "") + "</textarea></div>";
     }
@@ -2526,16 +2808,89 @@
     }
     return '<div class="field">' + label + '<input id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '" type="text"' + req + ' value="' + esc(value || "") + '"></div>';
   }
+  function listToLines(arr) { return (arr || []).join("\n"); }
+  function linesToList(s) {
+    return String(s || "").split(/\n|;/).map(function (x) { return x.trim(); }).filter(Boolean);
+  }
+  function noteHistoryConfirmHtml(p) {
+    p = p || {};
+    return '<section class="note-hx" id="noteHx">' +
+      '<h3 class="section-title">Medical history confirm</h3>' +
+      '<p class="row-sub">These details live on the chart and carry into every future note. Check Reviewed, no changes when nothing is new.</p>' +
+      '<div class="field full"><label for="hxAllergies">Allergies</label><textarea id="hxAllergies" data-hx="allergies">' + esc(listToLines(p.allergies)) + "</textarea></div>" +
+      '<div class="field full"><label for="hxMeds">Current medications</label><textarea id="hxMeds" data-hx="meds">' + esc(listToLines(p.meds)) + "</textarea></div>" +
+      '<div class="field full"><label for="hxHistory">Medical history</label><textarea id="hxHistory" data-hx="conditions">' + esc(listToLines(p.conditions)) + "</textarea></div>" +
+      '<div class="field full"><label for="hxPharmacy">Pharmacy <span class="row-sub">(if applicable)</span></label>' +
+      '<input id="hxPharmacy" data-hx="pharmacy" value="' + esc(p.pharmacy || "") + '"></div>' +
+      '<label class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
+      '<input type="checkbox" id="hxReviewed"> <span>Reviewed, no changes</span></label>' +
+      '<div id="hxWarn"></div></section>';
+  }
+  function readHxFromForm() {
+    return {
+      allergies: linesToList($("#hxAllergies") && $("#hxAllergies").value),
+      meds: linesToList($("#hxMeds") && $("#hxMeds").value),
+      conditions: linesToList($("#hxHistory") && $("#hxHistory").value),
+      pharmacy: ($("#hxPharmacy") && $("#hxPharmacy").value.trim()) || ""
+    };
+  }
+  function applyHxToPatient(p, hx) {
+    if (!p || !hx) return;
+    p.allergies = hx.allergies || [];
+    p.meds = hx.meds || [];
+    p.conditions = hx.conditions || [];
+    p.pharmacy = hx.pharmacy || "";
+  }
+  function hxMatchesPatient(p, hx) {
+    const cur = historySnapshotOf(p);
+    return (cur.allergies || []).join("\n") === (hx.allergies || []).join("\n") &&
+      (cur.meds || []).join("\n") === (hx.meds || []).join("\n") &&
+      (cur.conditions || []).join("\n") === (hx.conditions || []).join("\n") &&
+      (cur.pharmacy || "") === (hx.pharmacy || "");
+  }
+  function compileFieldText(tpl, values) {
+    return Object.keys(values || {}).map(function (k) {
+      const field = (tpl.sections || []).reduce(function (f, s) { return f || (s.fields || []).find(function (x) { return x.id === k; }); }, null);
+      const v = values[k];
+      if (v == null || String(v).trim() === "") return "";
+      return (field ? field.label : k) + ": " + v;
+    }).filter(Boolean).join(" · ");
+  }
+  function notePreviewText(tpl, values, draft) {
+    if (draft && draft.previewEdited && draft.preview) return draft.preview;
+    return compileFieldText(tpl, values);
+  }
+  function clearNoteFootButtons() {
+    const b = $("#noteSaveDraft");
+    if (b) b.remove();
+  }
+  function ensureNoteFootButtons() {
+    const foot = document.querySelector("#modal .modal-foot");
+    if (!foot || !$("#modalSave")) return;
+    let b = $("#noteSaveDraft");
+    if (!b) {
+      b = document.createElement("button");
+      b.id = "noteSaveDraft";
+      b.className = "btn";
+      b.type = "button";
+      b.textContent = "Save";
+      foot.insertBefore(b, $("#modalSave"));
+    }
+    b.onclick = function (e) { e.preventDefault(); saveNoteDraft(); };
+  }
   function collectNoteValues() {
     const values = {};
-    $$("[data-nf]").forEach((el) => { values[el.getAttribute("data-nf")] = el.value; });
+    $$("[data-nf]").forEach(function (el) {
+      const id = el.getAttribute("data-nf");
+      if (id) values[id] = el.value;
+    });
     return values;
   }
   function updateNoteSignState() {
     const draft = state.noteDraft;
     const save = $("#modalSave");
     if (!draft || !draft.templateId) {
-      if (save) { save.disabled = true; }
+      if (save) save.disabled = true;
       const miss = $("#noteMissing");
       if (miss) miss.innerHTML = '<div class="notice note-missing">Select a template to begin.</div>';
       return;
@@ -2543,7 +2898,7 @@
     const tpl = (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
     if (!tpl) return;
     draft.values = collectNoteValues();
-    const missing = missingNoteFields(tpl, draft.values);
+    const missing = missingAnyNoteFields(tpl, draft.values);
     if (save) save.disabled = missing.length > 0;
     const miss = $("#noteMissing");
     if (miss) {
@@ -2551,10 +2906,31 @@
         ? '<div class="notice note-missing">Sign stays disabled until required fields are filled: ' + missing.map(esc).join(", ") + ".</div>"
         : "";
     }
+    const prev = $("#notePreview");
+    if (prev && !draft.previewEdited) prev.value = compileNoteSentences(tpl, draft.values, draft) || compileFieldText(tpl, draft.values);
   }
-  function openNoteComposer(pid, apptId, visitId) {
+  function openNoteComposer(pid, apptId, visitId, noteId) {
     if (!isClinicalRole()) { toast("Create Note is limited to clinical roles"); return; }
-    state.noteDraft = { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {} };
+    const p = patient(pid);
+    const existing = (noteId && p) ? (p.notes || []).find(function (n) { return n.id === noteId; }) : null;
+    if (noteId && existing && isNoteSigned(existing)) {
+      openNoteView(pid, noteId);
+      return;
+    }
+    state.noteDraft = existing
+      ? {
+          pid: pid,
+          noteId: existing.id,
+          apptId: existing.appointmentId || apptId || null,
+          visitId: existing.visitId || visitId || null,
+          templateId: templateIdFromNote(existing),
+          values: Object.assign({}, noteFieldsOf(existing)),
+          preview: existing.text || "",
+          previewEdited: !!existing.text,
+          facePoints: (existing.facePoints || []).map(function (pt) { return Object.assign({}, pt); }),
+          fromConsultId: existing.fromConsultId || null
+        }
+      : { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {}, preview: "", previewEdited: false, facePoints: [] };
     paintNoteComposer();
   }
   function paintNoteComposer() {
@@ -2567,60 +2943,119 @@
     let sections = "";
     if (tpl) {
       const flag = tpl.draft ? openQ("Draft templates – Open question. This " + tpl.name + " template is not taken from the SOPs or V1 documents.") : '<div class="notice">' + esc(tpl.source) + "</div>";
-      sections = flag + tpl.sections.map((sec) => "<h3 class=\"section-title\">" + esc(sec.title) + "</h3><div class=\"formgrid\">" +
+      const face = (typeof faceMapHtml === "function") ? faceMapHtml(tpl, draft) : "";
+      const builder = (typeof noteBuilderHtml === "function") ? noteBuilderHtml(tpl, draft) : "";
+      const fields = builder || tpl.sections.map((sec) => "<h3 class=\"section-title\">" + esc(sec.title) + "</h3><div class=\"formgrid\">" +
         sec.fields.map((f) => noteFieldControl(f, (draft.values || {})[f.id])).join("") + "</div>").join("");
+      const previewVal = draft.previewEdited ? (draft.preview || "") : (compileNoteSentences(tpl, draft.values || {}, draft) || compileFieldText(tpl, draft.values || {}));
+      const preview = '<div class="note-preview"><h3 class="section-title">Generated note</h3>' +
+        '<p class="row-sub">This text is built only from what you selected or typed. You may edit it before saving.</p>' +
+        '<label class="sr-only" for="notePreview">Generated note text</label>' +
+        '<textarea id="notePreview">' + esc(previewVal) + "</textarea></div>";
+      const proc = (isConsultNote({ templateId: tpl.id, type: tpl.name }) && isClinicalRole())
+        ? '<div style="margin-top:14px"><button class="btn small" type="button" data-proc-from-draft="1">Create procedure note</button></div>'
+        : "";
+      sections = flag + face + fields + preview + noteHistoryConfirmHtml(p) + proc;
     }
-    showModal("Create note · " + (p ? p.name : draft.pid), (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
+    const title = (draft.noteId ? "Edit note · " : "Create note · ") + (p ? p.name : draft.pid);
+    showModal(title, (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
+    ensureNoteFootButtons();
     updateNoteSignState();
     const sel = $("#noteTpl");
     if (sel) sel.addEventListener("change", function () {
       state.noteDraft.templateId = sel.value;
       state.noteDraft.values = {};
+      state.noteDraft.preview = "";
+      state.noteDraft.previewEdited = false;
+      state.noteDraft.facePoints = [];
       paintNoteComposer();
     });
     $$("[data-nf]").forEach((el) => {
       el.addEventListener("input", updateNoteSignState);
       el.addEventListener("change", updateNoteSignState);
     });
+    const prev = $("#notePreview");
+    if (prev) prev.addEventListener("input", function () {
+      state.noteDraft.previewEdited = true;
+      state.noteDraft.preview = prev.value;
+    });
+    $$("[data-hx]").forEach(function (el) {
+      el.addEventListener("input", function () {
+        const box = $("#hxReviewed");
+        if (box) box.checked = false;
+      });
+    });
+    if (typeof bindFaceMap === "function") bindFaceMap(draft);
+    if (typeof bindNoteBuilder === "function") bindNoteBuilder(draft);
   }
-  function signNote() {
+  function confirmHxForSign() {
+    const p = patient(state.noteDraft && state.noteDraft.pid);
+    if (!p || !$("#noteHx")) return true;
+    const hx = readHxFromForm();
+    const reviewed = $("#hxReviewed") && $("#hxReviewed").checked;
+    const changed = !hxMatchesPatient(p, hx);
+    if (!reviewed && !changed) {
+      const w = $("#hxWarn");
+      if (w) w.innerHTML = '<div class="notice">Confirm medical history: check Reviewed, no changes, or update the fields.</div>';
+      toast("Confirm medical history");
+      return false;
+    }
+    applyHxToPatient(p, hx);
+    if (state.noteDraft) state.noteDraft.hxReviewed = !!(reviewed || changed);
+    return true;
+  }
+  function upsertNoteFromDraft(opts) {
+    opts = opts || {};
     const draft = state.noteDraft;
-    if (!draft || !isClinicalRole()) return;
+    if (!draft || !isClinicalRole()) return null;
     const tpl = (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
-    if (!tpl) { toast("Select a template"); return; }
+    if (!tpl) { toast("Select a template"); return null; }
     draft.values = collectNoteValues();
-    const missing = missingNoteFields(tpl, draft.values);
-    if (missing.length) { updateNoteSignState(); toast("Required fields are missing"); return; }
+    if (opts.requireComplete) {
+      const missing = missingAnyNoteFields(tpl, draft.values);
+      if (missing.length) { updateNoteSignState(); toast("Required fields are missing"); return null; }
+      if (!confirmHxForSign()) return null;
+    } else if ($("#noteHx")) {
+      applyHxToPatient(patient(draft.pid), readHxFromForm());
+    }
     const p = patient(draft.pid);
-    const signedAt = nowET();
-    const values = Object.assign({}, draft.values);
-    const text = Object.keys(values).map((k) => {
-      const field = tpl.sections.reduce((f, s) => f || (s.fields || []).find((x) => x.id === k), null);
-      return (field ? field.label : k) + ": " + (values[k] || "—");
-    }).join(" · ");
-    const rec = {
-      id: nextId("N-", p.notes),
-      date: todayET(),
-      type: tpl.name,
-      templateId: tpl.id,
-      procedurePerformed: values.procedurePerformed || "",
-      provider: actingName(),
-      role: state.actingRole,
-      status: "Signed",
-      locked: true,
-      signedAt: signedAt,
-      fields: values,
-      text: text,
-      visitId: undefined,
-      appointmentId: draft.apptId || undefined,
-      historySnapshot: historySnapshotOf(p)
-    };
-    if (draft.visitId) rec.visitId = draft.visitId;
-    else if (draft.apptId) {
-      const a = appt(draft.apptId);
+    if (!p) return null;
+    p.notes = p.notes || [];
+    const preview = ($("#notePreview") && $("#notePreview").value) || draft.preview || compileNoteSentences(tpl, draft.values, draft) || compileFieldText(tpl, draft.values);
+    const facePoints = (draft.facePoints || []).map(function (pt) { return { id: pt.id, name: pt.name, units: pt.units || "" }; });
+    let rec = draft.noteId ? p.notes.find(function (n) { return n.id === draft.noteId; }) : null;
+    const beforeStatus = rec ? (rec.status || "Open") : "—";
+    if (!rec) {
+      rec = { id: nextId("N-", p.notes) };
+      p.notes.unshift(rec);
+    }
+    rec.date = rec.date || todayET();
+    rec.type = tpl.name;
+    rec.templateId = tpl.id;
+    rec.procedurePerformed = draft.values.procedurePerformed || rec.procedurePerformed || "";
+    rec.provider = rec.provider || actingName();
+    rec.role = rec.role || state.actingRole;
+    rec.fields = Object.assign({}, draft.values);
+    rec.values = rec.fields;
+    rec.text = preview;
+    rec.facePoints = facePoints;
+    rec.visitId = rec.visitId || draft.visitId || undefined;
+    rec.appointmentId = rec.appointmentId || draft.apptId || undefined;
+    rec.fromConsultId = rec.fromConsultId || draft.fromConsultId || undefined;
+    if (!rec.visitId && rec.appointmentId) {
+      const a = appt(rec.appointmentId);
       if (a && a.visitId) rec.visitId = a.visitId;
     }
-    p.notes.unshift(rec);
+    if (opts.sign) {
+      rec.status = "Signed";
+      rec.locked = true;
+      rec.signedAt = nowET();
+      rec.historySnapshot = historySnapshotOf(p);
+      rec.hxReviewed = true;
+    } else {
+      rec.status = "Open";
+      rec.locked = false;
+    }
     if (rec.visitId) {
       const v = visit(rec.visitId);
       if (v) v.noteId = rec.id;
@@ -2628,22 +3063,77 @@
     addAudit({
       who: actingName(),
       role: state.actingRole,
-      action: "Signed " + tpl.name + " note",
+      action: (opts.sign ? "Signed " : "Saved ") + tpl.name + " note",
       recordType: "Note",
       recordId: rec.id,
       recordPath: { page: "patients", selected: p.id, tab: "demographics" },
       changes: [
-        { field: "status", before: "—", after: "Signed" },
-        { field: "template", before: "—", after: tpl.name },
-        { field: "signedAt", before: "—", after: signedAt }
-      ]
+        { field: "status", before: beforeStatus, after: rec.status },
+        { field: "template", before: "—", after: tpl.name }
+      ].concat(opts.sign ? [{ field: "signedAt", before: "—", after: rec.signedAt }] : [])
     });
+    return rec;
+  }
+  function saveNoteDraft() {
+    const rec = upsertNoteFromDraft({ sign: false, requireComplete: false });
+    if (!rec) return;
     state.noteDraft = null;
     closeModal();
-    toast("Note signed and locked");
-    const next = hashFor({ page: "patients", selected: p.id, tab: "demographics" });
-    if (location.hash !== next) go({ page: "patients", selected: p.id, tab: "demographics" });
+    toast("Note saved");
+    const p = patient(rec && rec.patientId);
+    render();
+  }
+  function signNote() {
+    const rec = upsertNoteFromDraft({ sign: true, requireComplete: true });
+    if (!rec) return;
+    const pid = state.noteDraft && state.noteDraft.pid;
+    state.noteDraft = null;
+    closeModal();
+    toast("Note signed");
+    const next = hashFor({ page: "patients", selected: pid, tab: "demographics" });
+    if (location.hash !== next) go({ page: "patients", selected: pid, tab: "demographics" });
     else render();
+  }
+  function openProcedureFromConsult(pid, nid) {
+    if (!isClinicalRole()) { toast("Create Note is limited to clinical roles"); return; }
+    const p = patient(pid);
+    const n = p && (p.notes || []).find(function (x) { return x.id === nid; });
+    if (!n) return;
+    const fields = noteFieldsOf(n);
+    const values = {
+      areasTreated: fields.areasDiscussed || fields.areasTreated || "",
+      consentConfirmed: fields.consentConfirmed || ""
+    };
+    closeModal();
+    state.noteDraft = {
+      pid: pid,
+      apptId: n.appointmentId || null,
+      visitId: n.visitId || null,
+      templateId: procedureTemplateId(n),
+      values: values,
+      preview: "",
+      previewEdited: false,
+      facePoints: (n.facePoints || []).map(function (pt) { return Object.assign({}, pt, { units: "" }); }),
+      fromConsultId: n.id
+    };
+    paintNoteComposer();
+  }
+  function saveNoteAddendum(pid, nid) {
+    if (!isClinicalRole()) { toast("Addenda are limited to clinical roles"); return; }
+    const p = patient(pid);
+    const n = p && (p.notes || []).find(function (x) { return x.id === nid; });
+    if (!n || !isNoteSigned(n)) return;
+    const text = ($("#addendumText") && $("#addendumText").value.trim()) || "";
+    if (!text) { toast("Enter an addendum"); return; }
+    n.addenda = n.addenda || [];
+    const rec = { id: nextId("ADD-", n.addenda), text: text, who: actingName(), role: state.actingRole, when: nowET() };
+    n.addenda.push(rec);
+    addAudit({ action: "Added note addendum", recordType: "Note", recordId: n.id,
+      recordPath: { page: "patients", selected: p.id, tab: "demographics" },
+      changes: [{ field: "addendum", before: "—", after: text }] });
+    toast("Addendum added");
+    openNoteView(pid, nid);
+    render();
   }
 
   function renderRooming() {
@@ -3371,6 +3861,7 @@
 
   function closeModal(opts) {
     opts = opts || {};
+    clearNoteFootButtons();
     const back = $("#modal");
     if (back) back.classList.remove("open", "pos-mode", "hist-mode", "book-mode", "hide-foot");
     if (opts.cancelPending) state.reschedulingId = null;
@@ -3380,6 +3871,7 @@
     }
   }
   function showModal(title, body, onSave, saveLabel) {
+    clearNoteFootButtons();
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
     const save = $("#modalSave");
@@ -4335,11 +4827,26 @@
     const n = p && (p.notes || []).find((x) => x.id === nid);
     if (!n) return;
     const lock = n.locked ? badge("Locked") : "";
+    const adds = (n.addenda || []).map(function (a) {
+      return '<div class="addendum"><div class="row-title">Addendum</div><p>' + esc(a.text || "") + '</p><div class="row-sub">' + esc(a.who || "") + (a.role ? " · " + esc(a.role) : "") + " · " + esc(a.when || "") + "</div></div>";
+    }).join("");
+    const addForm = (isNoteSigned(n) && isClinicalRole())
+      ? '<div class="field" style="margin-top:12px"><label for="addendumText">Addendum</label><textarea id="addendumText" rows="3" placeholder="Signed notes change only by addendum"></textarea>' +
+        '<button class="btn small primary" type="button" data-save-addendum="' + esc(n.id) + '" data-pid="' + esc(pid) + '" style="margin-top:8px">Add addendum</button></div>'
+      : (isNoteSigned(n) ? '<p class="row-sub">Signed notes change only by addendum.</p>' : "");
+    const proc = (isConsultNote(n) && isClinicalRole())
+      ? '<div style="margin-top:16px"><button class="btn primary" type="button" data-proc-from-consult="' + esc(n.id) + '" data-pid="' + esc(pid) + '">Create procedure note</button></div>'
+      : "";
+    const edit = (isNoteEditable(n) && isClinicalRole())
+      ? '<div style="margin-top:8px"><button class="btn small" type="button" data-edit-note="' + esc(n.id) + '" data-pid="' + esc(pid) + '">Edit</button></div>'
+      : "";
     showModal(esc(n.type || "Note") + " · " + (p ? p.name : pid),
       (p ? alertsBanner(p) : "") +
-      lock + " " + badge(n.status || "Draft") +
+      lock + " " + badge(n.status || "Open") +
       '<div class="row-sub">' + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</div>" +
       "<p>" + esc(n.text || "") + "</p>" +
+      (adds ? '<div class="addenda"><h3 class="section-title">Addenda</h3>' + adds + "</div>" : "") +
+      addForm + edit + proc +
       historyDiffHtml(n.historySnapshot, p) +
       openQ("Draft templates – Open question. These six note templates are not taken from the SOPs or V1 documents (Open question 17)."),
       function () { closeModal(); }, "Close");
@@ -4485,6 +4992,35 @@
     render();
   }
 
+  function renderNotesDash() {
+    const mode = state.notesDash === "signed" ? "signed" : "pending";
+    state.notesDash = mode;
+    const items = [];
+    (store.patients || []).forEach(function (p) {
+      (p.notes || []).forEach(function (n) {
+        const signed = isNoteSigned(n);
+        if (mode === "signed" ? signed : !signed) items.push({ p: p, n: n });
+      });
+    });
+    items.sort(function (a, b) { return String(b.n.date || "").localeCompare(String(a.n.date || "")); });
+    const head = pageHead("Provider", "Notes",
+      mode === "pending" ? "Unsigned clinical notes waiting for completion or signature." : "Signed clinical notes.",
+      "");
+    const toggle = '<div class="notes-dash-toggle" role="tablist" aria-label="Note lists">' +
+      '<button type="button" class="btn small' + (mode === "pending" ? " primary" : "") + '" data-notes-dash="pending" aria-pressed="' + (mode === "pending" ? "true" : "false") + '">Pending clinical notes</button>' +
+      '<button type="button" class="btn small' + (mode === "signed" ? " primary" : "") + '" data-notes-dash="signed" aria-pressed="' + (mode === "signed" ? "true" : "false") + '">Signed notes</button></div>';
+    const list = items.map(function (item) {
+      const n = item.n, p = item.p;
+      const open = isNoteEditable(n)
+        ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"'
+        : ' data-open="note-view" data-nid="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"';
+      return '<button type="button" class="row" style="width:100%;text-align:left"' + open + ">" +
+        '<div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + '</div>' +
+        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + " · " + esc(displayId(p.id)) + "</div></div>" +
+        badge(n.status || "Open") + "</button>";
+    }).join("") || '<div class="empty">' + (mode === "pending" ? "No unsigned clinical notes." : "No signed clinical notes.") + "</div>";
+    renderChrome('<a href="' + hashFor({ page: "notes" }) + '">Notes</a>', head, '<div class="card"><div class="cardbody notes-dash">' + toggle + list + "</div></div>");
+  }
   function render() {
     if (state.page !== "rooming") stopRoomingTick();
     if (state.page === "schedule") renderSchedule();
@@ -4498,6 +5034,7 @@
     else if (state.page === "rooming") renderRooming();
     else if (state.page === "inventory") renderInventory();
     else if (state.page === "availability") renderAvailability();
+    else if (state.page === "notes") renderNotesDash();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
     bindStatusStops();
@@ -4582,6 +5119,12 @@
       openPosPopup(posOpen.getAttribute("data-open-pos"));
       return;
     }
+    const ledInv = e.target.closest("[data-ledger-invoice]");
+    if (ledInv) { e.preventDefault(); openLedgerInvoice(ledInv.getAttribute("data-ledger-invoice")); return; }
+    const ledPay = e.target.closest("[data-ledger-payment]");
+    if (ledPay) { e.preventDefault(); openLedgerPayment(ledPay.getAttribute("data-ledger-payment")); return; }
+    const nd = e.target.closest("[data-notes-dash]");
+    if (nd) { e.preventDefault(); go({ page: "notes", notesDash: nd.getAttribute("data-notes-dash") }); return; }
     const confirmD = e.target.closest("[data-confirm-demo]");
     if (confirmD) {
       e.preventDefault();
@@ -4787,6 +5330,21 @@
       openBook(state.selected, { date: parts[0], time: parts[1], provider: parts[2] || slotProvider() });
       return;
     }
+    const editNote = e.target.closest("[data-edit-note]");
+    if (editNote) { e.preventDefault(); openNoteComposer(editNote.getAttribute("data-pid"), null, null, editNote.getAttribute("data-edit-note")); return; }
+    const addendumBtn = e.target.closest("[data-save-addendum]");
+    if (addendumBtn) { e.preventDefault(); saveNoteAddendum(addendumBtn.getAttribute("data-pid"), addendumBtn.getAttribute("data-save-addendum")); return; }
+    const procC = e.target.closest("[data-proc-from-consult]");
+    if (procC) { e.preventDefault(); openProcedureFromConsult(procC.getAttribute("data-pid"), procC.getAttribute("data-proc-from-consult")); return; }
+    const procD = e.target.closest("[data-proc-from-draft]");
+    if (procD) {
+      e.preventDefault();
+      const draft = state.noteDraft;
+      if (!draft) return;
+      const saved = upsertNoteFromDraft({ sign: false, requireComplete: false });
+      if (saved) openProcedureFromConsult(draft.pid, saved.id);
+      return;
+    }
     const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg],[data-room-advance],[data-open-slot]");
     if (!t) {
       const card = e.target.closest("[data-open-appt]");
@@ -4813,8 +5371,8 @@
     }
     if (t.dataset.open === "book") { e.preventDefault(); openBook(t.dataset.pid); }
     else if (t.dataset.open === "block") { e.preventDefault(); openAddBlock(); }
-    else if (t.dataset.open === "note-composer") { e.preventDefault(); openNoteComposer(t.dataset.pid, t.dataset.appt, t.dataset.visit); }
-    else if (t.dataset.open === "note-view") { e.preventDefault(); openNoteView(t.dataset.pid, t.dataset.nid); }
+    else if (t.dataset.open === "note-composer") { e.preventDefault(); openNoteComposer(t.dataset.pid, t.dataset.appt, t.dataset.visit); return; }
+    else if (t.dataset.open === "note-view") { e.preventDefault(); openNoteView(t.dataset.pid, t.dataset.nid); return; }
     else if (t.dataset.openSlot) {
       e.preventDefault();
       const parts = t.dataset.openSlot.split("|");

@@ -49,14 +49,56 @@
     const m = String(t || "").match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
   }
+  function fromMinutes(n) {
+    n = Math.max(0, Math.round(Number(n) || 0));
+    const h = Math.floor(n / 60);
+    const min = n % 60;
+    return String(h).padStart(2, "0") + ":" + String(min).padStart(2, "0");
+  }
+  function scheduleHours() {
+    return ["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
+  }
+  function bookingEndTimes() {
+    const times = (BRIZZA.BOOKING_TIMES || scheduleHours()).slice();
+    if (times.indexOf("18:00") < 0) times.push("18:00");
+    return times;
+  }
+  function isConsultType(name) {
+    return name === "Consultation" || name === "Consult";
+  }
+  function serviceDisplayName(name) {
+    if (!name) return "";
+    if (/^toxins$/i.test(String(name))) return "Toxin";
+    if (/^fillers$/i.test(String(name))) return "Filler";
+    return String(name);
+  }
+  function consultService(a) {
+    if (!a) return "";
+    if (a.consultingFor) return a.consultingFor;
+    const catalog = BRIZZA.consultingFor || [];
+    const hits = (a.reasons || []).filter(function (r) {
+      return catalog.some(function (c) {
+        return c.toLowerCase() === String(r).toLowerCase() || serviceDisplayName(c).toLowerCase() === String(r).toLowerCase();
+      });
+    });
+    return hits[0] || "";
+  }
+  function visitReasonLabel(a) {
+    const service = serviceDisplayName(consultService(a));
+    if (service) return service;
+    const rest = (a.reasons || []).filter(function (r) {
+      return r !== "New Patient" && r !== "Existing Patient" && r !== "Established Patient";
+    });
+    return rest.join(", ") || reasonText(a);
+  }
   function apptSpan(a) {
     const start = toMinutes(a.time);
     const dur = a.durationMinutes || durationMinutes(a.type, a.reasons) || 30;
     return { start: start, end: start + dur };
   }
-  function overlappingBlocks(date, time, typeName, reasonNames, provider) {
+  function overlappingBlocks(date, time, typeName, reasonNames, provider, minsOverride) {
     const start = toMinutes(time);
-    const end = start + (durationMinutes(typeName, reasonNames) || 30);
+    const end = start + (minsOverride || durationMinutes(typeName, reasonNames) || 30);
     return dayBlocks(date).filter((b) => {
       if (provider && b.staff && b.staff !== provider) return false;
       return toMinutes(b.start) < end && toMinutes(b.end) > start;
@@ -1024,7 +1066,7 @@
     const hits = q ? scheduleSearchHits(q) : "";
     const timed = rows.slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
     const goldId = nextPendingId(timed);
-    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>DOB</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider</div><div>Type</div><div>Reason</div><div>Suite</div><div>Reg</div><div>Status</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
     const collapsed = wlBucketState();
     let groups = "";
     if (isWeekend(date)) {
@@ -1035,7 +1077,7 @@
         const shut = !!collapsed[bk.key];
         groups += '<section class="wl-bucket' + (shut ? " is-collapsed" : "") + '" data-wl-bucket="' + bk.key + '">' +
           '<button type="button" class="wl-bucket-h" data-wl-toggle="' + bk.key + '" aria-expanded="' + (shut ? "false" : "true") + '">' +
-          '<span class="wl-bucket-label"><span class="wl-caret" aria-hidden="true">' + (shut ? "▸" : "▾") + "</span>" +
+          '<span class="wl-bucket-label"><span class="wl-caret" aria-hidden="true">' + (shut ? "›" : "⌄") + "</span>" +
           '<span class="wl-bucket-name">' + esc(bk.label) + '</span></span> <span class="count">' + set.length + "</span></button>" +
           '<div class="wl-bucket-body">' + (set.length ? colHead + set.map(function (a) { return wlRow(a, { late: isLateAppointment(a), gold: a.id === goldId }); }).join("") : '<div class="empty">None</div>') + "</div></section>";
       });
@@ -1091,17 +1133,17 @@
     const open = state.expandedAppt === a.id;
     const suite = a.suiteId ? suiteName(a.suiteId) : "—";
     const note = a.prepNotes || "";
-    const tip = '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="6" placeholder="Appointment notes">' + esc(note) + "</textarea>";
+    const tip = '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="3" placeholder="Appointment notes">' + esc(note) + "</textarea>";
     const late = opts.late ? '<span class="wl-late">Late</span>' : "";
     const cls = "wl-row" + (opts.gold ? " wl-next" : "") + (opts.late ? " is-late" : "");
     return '<div class="' + cls + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-wl-row="' + esc(a.id) + '"' + (opts.gold ? ' data-wl-next="1"' : "") + ' style="--status-bar:' + statusColor(a.status) + '">' +
       '<div class="wl-time"><span class="wl-time-val">' + esc(fmtTime(a.time)) + "</span>" + late + "</div>" +
       '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) +
         (p ? '<span class="wl-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</span>" : "") + "</div>" +
-      '<div class="wl-dob">' + (p ? esc(fmtDob(p.dob)) : "—") + "</div>" +
+      
       '<div class="wl-prov">' + esc(a.provider) + "</div>" +
       '<div class="wl-type">' + esc(a.type) + "</div>" +
-      '<div class="wl-reason">' + esc(reasonText(a)) + "</div>" +
+      '<div class="wl-reason">' + esc(visitReasonLabel(a)) + "</div>" +
       '<div class="wl-suite">' + esc(suite) + "</div>" +
       '<div>' + (p ? regMinis(p, a.id) : "") + "</div>" +
       "<div>" + statusSelect(a, "wl") + "</div>" +
@@ -1160,6 +1202,40 @@
       '<button class="btn" type="button" data-finalize="' + esc(inv.id) + '">Finalize and post inventory</button>');
   }
 
+  function catalogSearchResults(q) {
+    const list = store.catalog || BRIZZA.CATALOG || [];
+    const s = String(q || "").trim().toLowerCase();
+    return list.filter(function (c) {
+      if (!s) return true;
+      return (c.name + " " + (c.category || "") + " " + (c.kind || "") + " " + (c.id || "")).toLowerCase().indexOf(s) >= 0;
+    });
+  }
+  function posCatalogListHtml(inv, q) {
+    const items = catalogSearchResults(q);
+    if (!items.length) return '<p class="empty">No matching products or services.</p>';
+    return items.map(function (c) {
+      const price = c.price != null ? money(c.price) : "TBD";
+      const unit = c.unit ? " / " + esc(c.unit) : "";
+      return '<div class="pos-cat-row"><div><strong>' + esc(c.name) + '</strong> <span class="row-sub">' + esc(price) + unit + '</span></div>' +
+        (inv.finalized ? "" : '<button class="btn small" type="button" data-pos-add-item="' + esc(c.id) + '" data-pos-add-line="' + esc(inv.id) + '">Add</button>') +
+        "</div>";
+    }).join("");
+  }
+  function paymentStatusOptions(selected) {
+    const sel = selected || "Paid";
+    return (BRIZZA.paymentStatuses || []).map(function (s) {
+      return "<option" + (s === sel ? " selected" : "") + ">" + s + "</option>";
+    }).join("");
+  }
+  function bindPosSearch(inv) {
+    const input = $("#posSearch");
+    const list = $("#posCatalogResults");
+    if (!input || !list) return;
+    input.addEventListener("input", function () {
+      state.posSearch = input.value;
+      list.innerHTML = posCatalogListHtml(inv, input.value);
+    });
+  }
   function invoicePopupHtml(inv) {
     refreshInvoiceBalance(inv);
     const t = invoiceTotals(inv);
@@ -1172,29 +1248,83 @@
         '<td><input class="qty" data-line-qty="' + i + '" type="number" min="0" step="1" value="' + esc(l.qty == null ? "" : l.qty) + '" placeholder="Qty" aria-label="Quantity"></td>' +
         '<td><input class="price" data-line-price="' + i + '" type="number" min="0" step="0.01" value="' + esc(price) + '" placeholder="TBD" aria-label="Price"></td>' +
         "<td>" + (amt == null ? "TBD" : money(amt)) + "</td>" +
-        '<td><button type="button" class="pos-x" data-remove-line="' + i + '" aria-label="Remove line">×</button></td></tr>';
-    }).join("") || '<tr><td colspan="5" class="empty">No lines yet</td></tr>';
-    const catOpts = (store.catalog || BRIZZA.CATALOG || []).map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) : " · TBD") + "</option>").join("");
+        '<td><button type="button" class="btn small pos-remove" data-remove-line="' + i + '">Remove</button></td></tr>';
+    }).join("") || '<tr><td colspan="5" class="empty">Cart is empty</td></tr>';
     const balLabel = t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance);
-    return '<div class="pos-simple" data-pos-popup="' + esc(inv.id) + '">' +
-      '<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th><th></th></tr></thead><tbody>' + lines + "</tbody></table>" +
-      (inv.finalized ? '<div class="notice">Invoice finalized.</div>' :
-        '<div class="actions"><select id="posCatalog" aria-label="Add item">' + catOpts + '</select>' +
-        '<input id="posQty" class="qty" type="number" min="0" step="1" placeholder="Qty" aria-label="Quantity">' +
-        '<button class="btn small" type="button" data-pos-add-line="' + esc(inv.id) + '">Add</button></div>') +
-      '<div class="pos-totals"><div>Total ' + esc(t.label) + "</div>" +
-        '<div>Available credit <strong>' + money(credit) + "</strong> " +
-        (credit > 0 && !inv.finalized ? '<button class="btn small" type="button" data-apply-credit="' + esc(inv.id) + '">Apply</button>' : "") + "</div>" +
-        '<div class="grand">Balance ' + esc(balLabel) + "</div></div>" +
-      (inv.finalized ? "" :
-        '<div class="actions">' +
-        '<select id="pay-status" aria-label="Payment status">' + BRIZZA.paymentStatuses.map((s) => "<option>" + s + "</option>").join("") + "</select>" +
-        '<input id="pay-amount" class="qty" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Payment amount" value="' + (t.balance != null && t.balance > 0 && !t.tbd ? esc(String(t.balance)) : "") + '">' +
-        '<button class="btn small primary" type="button" data-record-pay="' + esc(inv.id) + '">Record payment</button>' +
-        '<button class="btn small" type="button" data-add-remaining="' + esc(inv.id) + '">Add remaining to patient balance</button></div>') +
+    const amountVal = (t.balance != null && t.balance > 0 && !t.tbd) ? esc(String(t.balance)) : "";
+    const q = state.posSearch || "";
+    return '<div class="pos-simple pos-invoice" data-pos-popup="' + esc(inv.id) + '">' +
+      '<div class="pos-invoice-grid">' +
+        '<div class="pos-catalog-pane">' +
+          "<h3>Products &amp; services</h3>" +
+          (inv.finalized ? '<p class="row-sub">Invoice is finalized.</p>' :
+            '<label class="sr-only" for="posSearch">Search products and services</label>' +
+            '<input id="posSearch" type="search" placeholder="Search products and services" value="' + esc(q) + '" autocomplete="off">' +
+            '<input id="posQty" class="qty" type="hidden" value="1" aria-hidden="true">' +
+            '<div id="posCatalogResults" class="pos-catalog-list">' + posCatalogListHtml(inv, q) + "</div>") +
+        "</div>" +
+        '<div class="pos-cart-pane">' +
+          "<h3>Cart</h3>" +
+          '<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th><th></th></tr></thead><tbody>' + lines + "</tbody></table>" +
+          '<div class="pos-totals"><div>Total ' + esc(t.label) + "</div>" +
+            '<div>Available credit <strong>' + money(credit) + "</strong> " +
+            (credit > 0 && !inv.finalized ? '<button class="btn small" type="button" data-apply-credit="' + esc(inv.id) + '">Apply</button>' : "") + "</div>" +
+            '<div class="grand">Balance ' + esc(balLabel) + "</div></div>" +
+          (inv.finalized ? "" :
+            '<div class="pos-pay">' +
+            '<label class="sr-only" for="pay-status">Payment status</label>' +
+            '<select id="pay-status" aria-label="Payment status">' + paymentStatusOptions("Paid") + "</select>" +
+            '<label class="sr-only" for="pay-amount">Payment amount</label>' +
+            '<input id="pay-amount" class="qty" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Payment amount" value="' + amountVal + '">' +
+            '<button class="btn small primary" type="button" data-record-pay="' + esc(inv.id) + '">Record payment</button></div>' +
+            '<div class="actions" style="margin-top:10px">' +
+            '<button class="btn small" type="button" data-print-receipt="' + esc(inv.id) + '">Print receipt</button>' +
+            '<button class="btn small" type="button" data-add-remaining="' + esc(inv.id) + '">Add remaining to patient balance</button></div>') +
+        "</div>" +
+      "</div>" +
       '<p class="row-sub"><a href="' + hashFor({ page: "pos", invoiceId: inv.id, posTab: "invoice" }) + '">Open full Point of Sale page</a></p>' +
       checkoutActionsHtml(appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0]) +
       "</div>";
+  }
+  function printInvoiceReceipt(invId) {
+    const inv = invoice(invId);
+    if (!inv) return;
+    refreshInvoiceBalance(inv);
+    const t = invoiceTotals(inv);
+    const p = patient(inv.patientId);
+    const a = appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0];
+    const loc = a ? locationName(a.locationId) : "";
+    const lineRows = (inv.lines || []).map(function (l) {
+      const amt = lineAmount(l);
+      return "<tr><td>" + esc(l.name || "") + "</td><td>" + esc(l.qty == null ? "—" : String(l.qty)) + "</td><td>" +
+        esc(l.unitPrice == null ? "TBD" : money(l.unitPrice)) + "</td><td>" + (amt == null ? "TBD" : money(amt)) + "</td></tr>";
+    }).join("") || "<tr><td colspan=\"4\">No items</td></tr>";
+    const pays = (inv.payments || []).map(function (pay) {
+      return "<div>" + esc(pay.method || pay.status || "Payment") + " · " + esc(pay.status || "") + " · " +
+        esc(pay.amount != null ? money(pay.amount) : "") + (pay.recorded ? " · " + esc(pay.recorded) : "") + "</div>";
+    }).join("");
+    const html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Receipt · " + esc(inv.id) + "</title>" +
+      "<style>body{font-family:Georgia,'Times New Roman',serif;color:#352820;margin:24px;max-width:640px}" +
+      "h1{font-size:22px;margin:0 0 4px;font-weight:600}h2{font-size:16px;margin:16px 0 8px;font-weight:600}" +
+      "p,div{font-size:13px;line-height:1.45}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}" +
+      "th,td{text-align:left;padding:6px 0;border-bottom:1px solid #d8d0c8}th{font-weight:600}" +
+      ".tot{font-weight:700;margin-top:8px}@media print{body{margin:12px}}</style></head><body>" +
+      "<h1>Brizza</h1><p>Receipt</p>" +
+      "<p>" + esc(inv.id) + (loc ? " · " + esc(loc) : "") + "</p>" +
+      (p ? "<p>Patient: " + esc(p.name) + " · " + esc(displayId(p.id)) + "</p>" : "") +
+      (a ? "<p>" + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + "</p>" : "") +
+      "<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>" + lineRows + "</tbody></table>" +
+      '<p class="tot">Total ' + esc(t.label) + "</p>" +
+      '<p class="tot">Balance ' + esc(t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance)) + "</p>" +
+      (pays ? "<h2>Payments</h2>" + pays : "") +
+      "</body></html>";
+    const w = window.open("", "brizza-receipt");
+    if (!w) { toast("Allow pop-ups to print the receipt"); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
   }
   function paintInvoiceLive(inv) {
     const wrap = document.querySelector(".pos-simple");
@@ -1220,7 +1350,9 @@
     const a = appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0];
     $("#modalTitle").textContent = "Invoice · " + inv.id + (p ? " · " + p.name : "");
     const sub = a ? ('<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>") : "";
+    if ($("#posSearch")) state.posSearch = $("#posSearch").value;
     $("#modalBody").innerHTML = sub + invoicePopupHtml(inv);
+    bindPosSearch(inv);
   }
   function openPosPopup(apptId) {
     const a = appt(apptId);
@@ -1230,7 +1362,9 @@
     state.invoiceId = inv.id;
     state.posAppointmentId = a.id;
     $("#modalTitle").textContent = "Invoice · " + inv.id + " · " + (p ? p.name : a.patientId);
+    state.posSearch = "";
     $("#modalBody").innerHTML = '<p class="row-sub">' + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + esc(a.provider) + "</p>" + invoicePopupHtml(inv);
+    bindPosSearch(inv);
     const save = $("#modalSave");
     save.textContent = "Done";
     save.onclick = function () { closeModal(); if (state.page === "schedule") renderWorklist(); else render(); };
@@ -2269,11 +2403,18 @@
     return !a || a.status === "Checked out" || a.status === "Canceled" || a.status === "No-show";
   }
   function cardTypeLabel(a) {
-    const typ = (a.type === "Consultation") ? "Consult" : a.type;
-    let reason = reasonText(a);
-    if (/^toxins$/i.test(reason)) reason = "Toxin";
-    return reason ? (typ + " · " + reason) : typ;
+    const service = serviceDisplayName(consultService(a));
+    const reasons = a.reasons || [];
+    const isNew = reasons.indexOf("New Patient") >= 0;
+    const isEst = reasons.indexOf("Existing Patient") >= 0 || reasons.indexOf("Established Patient") >= 0;
+    if (isNew) return service ? ("New Patient – " + service) : "New Patient";
+    if (isEst) return service ? ("Established Patient – " + service) : "Established Patient";
+    if (isConsultType(a.type)) return service ? ("Consult · " + service) : "Consult";
+    const reason = visitReasonLabel(a);
+    if (reason && reason !== a.type) return a.type + " · " + reason;
+    return a.type || "";
   }
+
   function slotKey(date, time, provider) {
     return provider ? (date + "|" + time + "|" + provider) : (date + "|" + time);
   }
@@ -2297,9 +2438,19 @@
     const el = $("#fReason");
     return (el && el.value) ? [el.value] : [];
   }
-  function reasonDropdownHtml(type, selected) {
-    const reasons = reasonsForType(type);
-    const sel = (selected && selected[0]) || "";
+  function reasonDropdownHtml(type, selected, consultingFor) {
+    let reasons = reasonsForType(type);
+    let sel = (selected && selected[0]) || "";
+    if (isConsultType(type)) {
+      const typ = typeByName(type);
+      reasons = (BRIZZA.consultingFor || []).map(function (name) {
+        return { name: name, minutes: typ ? typ.minutes : 15 };
+      });
+      const catalogHit = (selected || []).find(function (r) {
+        return (BRIZZA.consultingFor || []).indexOf(r) >= 0;
+      });
+      sel = consultingFor || catalogHit || "";
+    }
     if (!reasons.length) return '<p class="row-sub">No reasons are attached to this type.</p><select id="fReason" required><option value="">Select a reason</option></select>';
     return '<select id="fReason" required><option value="">Select a reason</option>' +
       reasons.map(function (r) {
@@ -2797,7 +2948,7 @@
 
   function calendarDayGrid(date, locationId) {
     if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
-    const hours = ["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
+    const hours = scheduleHours();
     const list = dayAppointments(date, locationId);
     const blocks = dayBlocks(date).filter(function (b) { return !locationId || b.locationId === locationId; });
     const providers = selectedProviderNames();
@@ -2824,7 +2975,7 @@
   function calendarWeekGrid(date, locationId) {
     const mon = weekMonday(date);
     const days = [0, 1, 2, 3, 4].map(function (i) { return addDays(mon, i); });
-    const hours = ["09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"];
+    const hours = scheduleHours();
     const appts = rangeAppointments(mon, addDays(mon, 4), locationId);
     const blocks = rangeBlocks(mon, addDays(mon, 4)).filter(function (b) { return !locationId || b.locationId === locationId; });
     const q = (state.scheduleSearch || "").trim().toLowerCase();
@@ -2837,11 +2988,11 @@
         '</a> <span class="count">' + esc(patientCount(d)) + "</span></div>";
     }).join("");
     const rows = hours.map(function (h) {
-      const next = h === "17:00" ? "18:00" : String(Number(h.slice(0, 2)) + 1).padStart(2, "0") + ":00";
+      const next = fromMinutes(toMinutes(h) + 30);
       const cells = days.map(function (d) {
-        const here = appts.filter(function (a) { return a.date === d && a.time >= h && a.time < next; });
+        const here = appts.filter(function (a) { return a.date === d && a.time === h; });
         const inner = here.filter(vis).map(calendarEvent).join("") +
-          blocks.filter(function (b) { return b.date === d && b.start >= h && b.start < next; }).map(calendarBlock).join("");
+          blocks.filter(function (b) { return b.date === d && b.start === h; }).map(calendarBlock).join("");
         return slotCellHtml(d, h, null, inner);
       }).join("");
       return '<div class="cal-time">' + esc(fmtTime(h)) + "</div>" + cells;
@@ -3250,6 +3401,62 @@
     }).join("");
   }
 
+  function durationOptionsHtml(selectedMins) {
+    const opts = [15, 30, 45, 60, 75, 90, 105, 120, 150, 180];
+    const sel = Number(selectedMins) || 30;
+    if (opts.indexOf(sel) < 0) opts.push(sel);
+    opts.sort(function (a, b) { return a - b; });
+    return opts.map(function (n) {
+      return '<option value="' + n + '"' + (n === sel ? " selected" : "") + ">" + n + " min</option>";
+    }).join("");
+  }
+  function bookSelectedMinutes() {
+    const el = $("#fDuration");
+    const n = el ? Number(el.value) : 0;
+    return n > 0 ? n : 30;
+  }
+  function ensureDurationOption(mins) {
+    const el = $("#fDuration");
+    if (!el) return;
+    const v = String(mins);
+    if (![].some.call(el.options, function (o) { return o.value === v; })) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = mins + " min";
+      el.appendChild(opt);
+    }
+    el.value = v;
+  }
+  function syncBookTimes(source) {
+    const startEl = $("#fTime");
+    const endEl = $("#fEnd");
+    const durEl = $("#fDuration");
+    if (!startEl || !endEl || !durEl) { updateBookDuration(); return; }
+    if (source === "type") {
+      const mins = durationMinutes($("#fType") ? $("#fType").value : "", selectedBookReasons()) || 30;
+      ensureDurationOption(mins);
+      endEl.value = fromMinutes(toMinutes(startEl.value) + mins);
+    } else if (source === "start" || source === "dur") {
+      const mins = bookSelectedMinutes();
+      const endVal = fromMinutes(toMinutes(startEl.value) + mins);
+      if (![].some.call(endEl.options, function (o) { return o.value === endVal; })) {
+        const opt = document.createElement("option");
+        opt.value = endVal;
+        opt.textContent = fmtTime(endVal);
+        endEl.appendChild(opt);
+      }
+      endEl.value = endVal;
+    } else if (source === "end") {
+      let mins = toMinutes(endEl.value) - toMinutes(startEl.value);
+      if (mins <= 0) {
+        mins = bookSelectedMinutes();
+        endEl.value = fromMinutes(toMinutes(startEl.value) + mins);
+      } else {
+        ensureDurationOption(mins);
+      }
+    }
+    updateBookDuration();
+  }
   function openBook(pid, preset) {
     preset = preset || {};
     const sel = pid || state.selected;
@@ -3258,56 +3465,47 @@
     const provVal = preset.provider || slotProvider();
     const locVal = preset.locationId || state.locationId || BRIZZA.DEFAULT_LOCATION;
     const typeVal = (preset && preset.type) || "Consultation";
+    const durMins = durationMinutes(typeVal, preset.reasons || []) || 30;
+    const endVal = fromMinutes(toMinutes(timeVal) + durMins);
     const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (locVal === l.id ? " selected" : "") + ">" + esc(l.name) + (l.synthetic ? " (synthetic)" : "") + "</option>").join("");
     showModal("New appointment", `
       <div class="book-flow">
-        <section>
-          <h3>Patient</h3>
-          <div class="field" id="bookPatientField">
-            <label for="fPatientSearch">Patient <span class="req">required</span></label>
-            <input type="hidden" id="fPatient" required value="${esc(sel || "")}">
-            <button type="button" class="patient-picked" id="fPatientPicked" aria-expanded="false">${sel ? esc((patient(sel) && patient(sel).name) || sel) + " · " + esc(patient(sel) ? fmtDob(patient(sel).dob) : "") + " · " + esc(displayId(sel)) : "Select a patient"}</button>
-            <div id="fPatientSearchWrap" hidden>
-              <input id="fPatientSearch" placeholder="Search name, #ID, or DOB (mm/dd/yyyy)" autocomplete="off">
-              <div id="fPatientResults" class="patient-results" role="listbox"></div>
-            </div>
+        <div class="field" id="bookPatientField">
+          <label for="fPatientSearch">Patient <span class="req">required</span></label>
+          <input type="hidden" id="fPatient" required value="${esc(sel || "")}">
+          <button type="button" class="patient-picked" id="fPatientPicked" aria-expanded="false">${sel ? esc((patient(sel) && patient(sel).name) || sel) + " · " + esc(patient(sel) ? fmtDob(patient(sel).dob) : "") + " · " + esc(displayId(sel)) : "Select a patient"}</button>
+          <div id="fPatientSearchWrap" hidden>
+            <input id="fPatientSearch" placeholder="Search name, #ID, or DOB (mm/dd/yyyy)" autocomplete="off">
+            <div id="fPatientResults" class="patient-results" role="listbox"></div>
           </div>
-          <button class="btn small" type="button" id="bookNewToggle">＋ New patient</button>
-          <div id="bookNewFields" hidden class="formgrid" style="margin-top:10px">
-            <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>
-            <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>
-            <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob"></div>
-            <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone"></div>
-            <div class="field full"><label>Address</label>${addressFieldsHtml(emptyAddress(), "bkAddr")}</div>
-          </div>
-        </section>
-        <section>
-          <h3>When and where</h3>
-          <div class="formgrid">
-            <div class="field"><label for="fLocation">Location <span class="req">required</span></label>
-              <select id="fLocation" required>${locOpts}</select></div>
-            <div class="field"><label for="fProvider">Provider <span class="req">required</span></label>
-              <select id="fProvider" required>${BRIZZA.PROVIDERS.map((pv) => "<option" + (pv === provVal ? " selected" : "") + ">" + esc(pv) + "</option>").join("")}</select></div>
-            <div class="field"><label for="fDate">Date <span class="req">required</span></label><input id="fDate" type="date" required value="${esc(dateVal)}"></div>
-            <div class="field"><label for="fTime">Time <span class="req">required</span></label>
-              <select id="fTime" required>${timeOptions(timeVal)}</select></div>
-          </div>
-        </section>
-        <section>
-          <h3>Appointment</h3>
-          <div class="formgrid">
-            <div class="field"><label for="fType">Type <span class="req">required</span></label>
-              <select id="fType" required>${typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("")}</select></div>
-            <div class="field"><label for="fReason">Reason <span class="req">required</span></label>
-              <div id="reasonOptions">${reasonDropdownHtml(typeVal, preset.reasons || [])}</div></div>
-            <div class="field full"><p class="row-sub" id="fDuration">Length: ${esc(durationLabelFor(typeVal, preset.reasons || []))} (includes buffer)</p></div>
-            <div class="field full" id="consultingWrap"></div>
-            <div class="field full"><label for="fPrepNotes">Notes</label><textarea id="fPrepNotes" rows="2" placeholder="Prep, packages, or other appointment notes"></textarea></div>
-          </div>
-        </section>
+        </div>
+        <button class="btn small" type="button" id="bookNewToggle">+ Add new patient</button>
+        <div id="bookNewFields" hidden class="formgrid" style="margin-top:10px">
+          <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>
+          <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>
+          <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob"></div>
+          <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone"></div>
+          <div class="field full"><label>Address</label>${addressFieldsHtml(emptyAddress(), "bkAddr")}</div>
+        </div>
+        <div class="formgrid" style="margin-top:14px">
+          <div class="field"><label for="fDate">Date <span class="req">required</span></label><input id="fDate" type="date" required value="${esc(dateVal)}"></div>
+          <div class="field"><label for="fTime">Start <span class="req">required</span></label>
+            <select id="fTime" required>${timeOptions(timeVal)}</select></div>
+          <div class="field"><label for="fEnd">End <span class="req">required</span></label>
+            <select id="fEnd" required>${timeOptions(endVal, bookingEndTimes())}</select></div>
+          <div class="field"><label for="fDuration">Duration <span class="req">required</span></label>
+            <select id="fDuration" required>${durationOptionsHtml(durMins)}</select></div>
+          <div class="field"><label for="fLocation">Location <span class="req">required</span></label>
+            <select id="fLocation" required>${locOpts}</select></div>
+          <div class="field"><label for="fType">Type <span class="req">required</span></label>
+            <select id="fType" required>${typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("")}</select></div>
+          <div class="field"><label for="fReason">Reason <span class="req">required</span></label>
+            <div id="reasonOptions">${reasonDropdownHtml(typeVal, preset.reasons || [], preset.consultingFor || "")}</div></div>
+          <div class="field full"><label for="fPrepNotes">Notes</label><textarea id="fPrepNotes" rows="2" placeholder="Prep, packages, or other appointment notes"></textarea></div>
+        </div>
+        <input type="hidden" id="fProvider" value="${esc(provVal || "")}">
         <div class="field full" id="overrideWrap"></div>
         <div class="field full" id="hoursWrap"></div>
-        <div class="field full" id="cfWarn"></div>
         <div class="field full" id="bookWarn"></div>
       </div>`, function () { saveAppt(); }, "Save appointment");
     $("#modal").classList.add("book-mode");
@@ -3326,36 +3524,29 @@
     });
     $("#fType").addEventListener("change", function () {
       $("#reasonOptions").innerHTML = reasonDropdownHtml($("#fType").value, []);
-      updateConsultWarn();
-      updateConsultingFor();
-      updateBookDuration();
       const r = $("#fReason");
-      if (r) r.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
+      if (r) r.addEventListener("change", function () { syncBookTimes("type"); });
+      syncBookTimes("type");
     });
-    $("#fPatient").addEventListener("change", function () { updateConsultWarn(); updateConsultingFor(); });
     const r0 = $("#fReason");
-    if (r0) r0.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
-    ["fDate","fTime","fProvider"].forEach(function (id) {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener("change", updateBookDuration);
-    });
-    updateConsultWarn();
-    updateConsultingFor();
+    if (r0) r0.addEventListener("change", function () { syncBookTimes("type"); });
+    if ($("#fTime")) $("#fTime").addEventListener("change", function () { syncBookTimes("start"); });
+    if ($("#fEnd")) $("#fEnd").addEventListener("change", function () { syncBookTimes("end"); });
+    if ($("#fDuration")) $("#fDuration").addEventListener("change", function () { syncBookTimes("dur"); });
+    if ($("#fDate")) $("#fDate").addEventListener("change", updateBookDuration);
     updateBookDuration();
   }
 
   function updateBookDuration() {
-    const el = $("#fDuration");
-    if (!el || !$("#fType")) return;
+    if (!$("#fType")) return;
     const type = $("#fType").value;
     const reasons = selectedBookReasons();
-    el.textContent = "Length: " + durationLabelFor(type, reasons) + " (includes buffer)";
     const wrap = $("#overrideWrap");
     if (!wrap) return;
     const date = $("#fDate") ? $("#fDate").value : "";
     const time = $("#fTime") ? $("#fTime").value : "";
     const provider = $("#fProvider") ? $("#fProvider").value : "";
-    const hits = overlappingBlocks(date, time, type, reasons, provider);
+    const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
     if (!hits.length) wrap.innerHTML = "";
     else {
       const prior = $("#fOverride") ? $("#fOverride").value : "";
@@ -3431,9 +3622,10 @@
   }
 
   function updateConsultWarn() {
+    const el = $("#cfWarn");
+    if (!el || !$("#fPatient") || !$("#fType")) return;
     const p = patient($("#fPatient").value);
     const type = $("#fType").value;
-    const el = $("#cfWarn");
     if (p && isNewPatient(p) && type !== "Consultation" && type !== "Consult") {
       el.innerHTML = '<div class="notice">Consultation-first check: this patient has no completed appointment or treatment. New patients follow a consultation-first process. You can still save this booking.</div>';
     } else el.innerHTML = "";
@@ -3460,26 +3652,29 @@
         recordPath: { page: "patients", selected: pid, tab: "demographics" },
         changes: [{ field: "status", before: "—", after: "Active" }, { field: "name", before: "—", after: first + " " + last }, { field: "id", before: "—", after: displayId(pid) }] });
     }
-    const reasons = selectedBookReasons();
+    let reasons = selectedBookReasons();
     const p = patient(pid);
     const type = $("#fType") ? $("#fType").value : "";
     const date = $("#fDate") ? $("#fDate").value : "";
     const time = $("#fTime") ? $("#fTime").value : "";
-    const provider = $("#fProvider") ? $("#fProvider").value : "";
+    const provider = ($("#fProvider") && $("#fProvider").value) || slotProvider() || "";
     const room = $("#fRoom") ? $("#fRoom").value : "";
     const locationId = $("#fLocation") ? $("#fLocation").value : "";
-    const consultingFor = $("#fConsultingFor") ? $("#fConsultingFor").value : "";
+    let consultingFor = $("#fConsultingFor") ? $("#fConsultingFor").value : "";
+    if (isConsultType(type)) {
+      consultingFor = consultingFor || (reasons[0] || "");
+      reasons = [(p && isNewPatient(p)) ? "New Patient" : "Existing Patient"];
+    }
     const missing = [];
     if (!pid) missing.push("Patient");
-    if (!reasons.length) missing.push("Appointment reason");
+    if (isConsultType(type) ? !consultingFor : !reasons.length) missing.push("Appointment reason");
     if (!type) missing.push("Appointment type");
     if (!locationId) missing.push("Location");
     if (!date) missing.push("Date");
     else if (isWeekend(date)) missing.push("Date must be Monday–Friday");
     if (!time) missing.push("Start time");
     if (!provider) missing.push("Primary provider");
-    if (needsConsultingFor(pid, type, reasons) && !consultingFor) missing.push("Consulting for");
-    const hits = overlappingBlocks(date, time, type, reasons, provider);
+    const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
     const override = $("#fOverride") ? $("#fOverride").value.trim() : "";
     if (hits.length && !override) missing.push("Admin override reason");
     const outside = date && time && isOutsideClinicHours(date, time);
@@ -3496,8 +3691,8 @@
     const cf = p && isNewPatient(p) && type !== "Consultation" && type !== "Consult";
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
-    const mins = durationMinutes(type, reasons);
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: durationLabelFor(type, reasons), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", statusSince: nowMs() };
+    const mins = bookSelectedMinutes() || durationMinutes(type, reasons);
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: (mins ? mins + " min" : durationLabelFor(type, reasons)), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", statusSince: nowMs() };
     if (state.reschedulingId) rec.replaces = state.reschedulingId;
     if (cf) rec.consultFirstFlag = true;
     store.appointments.push(rec);
@@ -3607,7 +3802,7 @@
               '<div class="field"><label for="apptProvider">Provider</label><select id="apptProvider"' + dis + ">" + provOpts + "</select></div>" +
               '<div class="field"><label for="apptSuite">Suite</label><select id="apptSuite"' + dis + ">" + suiteOpts + "</select></div>" +
               '<div class="field"><label for="apptType">Type</label><select id="apptType"' + dis + ">" + typeOpts + "</select></div>" +
-              '<div class="field"><label for="fReason">Reason</label><div id="reasonOptions">' + reasonDropdownHtml(a.type, a.reasons || []) + "</div></div>" +
+              '<div class="field"><label for="fReason">Reason</label><div id="reasonOptions">' + reasonDropdownHtml(a.type, a.reasons || [], a.consultingFor || "") + "</div></div>" +
               '<div class="field full"><label for="apptNotes">Notes</label><textarea id="apptNotes" rows="4"' + dis + ">" + esc(a.prepNotes || "") + "</textarea></div>" +
             "</div>" +
             (locked ? "" :
@@ -3639,7 +3834,7 @@
     $("#modal").classList.add("appt-mode");
     if (!locked && $("#apptType")) {
       $("#apptType").addEventListener("change", function () {
-        $("#reasonOptions").innerHTML = reasonDropdownHtml($("#apptType").value, []);
+        $("#reasonOptions").innerHTML = reasonDropdownHtml($("#apptType").value, [], "");
       });
     }
     if (locked && $("#fReason")) $("#fReason").disabled = true;
@@ -3667,7 +3862,13 @@
     if ($("#apptSuite")) a.suiteId = $("#apptSuite").value || null;
     if ($("#apptType")) a.type = $("#apptType").value || a.type;
     if ($("#apptNotes")) a.prepNotes = $("#apptNotes").value;
-    if (reasons.length) a.reasons = reasons;
+    if (reasons.length) {
+      if (isConsultType($("#apptType") ? $("#apptType").value : a.type) && (BRIZZA.consultingFor || []).indexOf(reasons[0]) >= 0) {
+        a.consultingFor = reasons[0];
+      } else {
+        a.reasons = reasons;
+      }
+    }
     if (a.date !== before.date || a.time !== before.time) {
       if (isOutsideClinicHours(a.date, a.time) && !a.outsideHoursReason) {
         const why = window.prompt("This time is outside office hours. Enter a reason to keep the new time.");
@@ -3723,12 +3924,15 @@
     const old = appt(id);
     state.reschedulingId = id;
     closeModal();
-    openBook(old.patientId);
-    $("#fType").value = old.type;
-    $("#reasonOptions").innerHTML = reasonDropdownHtml(old.type, old.reasons || []);
-    const r = $("#fReason");
-    if (r) r.addEventListener("change", function () { updateConsultingFor(); updateBookDuration(); });
-    $("#fProvider").value = old.provider;
+    openBook(old.patientId, {
+      date: old.date,
+      time: old.time,
+      provider: old.provider,
+      type: old.type,
+      reasons: old.reasons || [],
+      consultingFor: old.consultingFor || "",
+      locationId: old.locationId
+    });
     toast("Prior appointment will be retained as Rescheduled when you save a new time");
   }
 
@@ -4403,13 +4607,21 @@
     const ov = e.target.closest("[data-open-vial]");
     if (ov) { e.preventDefault(); openVial(ov.getAttribute("data-open-vial")); return; }
     if (e.target.closest("[data-inv-adjust]")) { e.preventDefault(); recordAdjustment(); return; }
-    const addL = e.target.closest("[data-pos-add-line]");
+    const addL = e.target.closest("[data-pos-add-line], [data-pos-add-item]");
     if (addL) {
       e.preventDefault();
-      addCatalogLine(addL.getAttribute("data-pos-add-line"), $("#posCatalog") && $("#posCatalog").value, $("#posQty") && $("#posQty").value);
-      const inv = invoice(addL.getAttribute("data-pos-add-line"));
+      const invId = addL.getAttribute("data-pos-add-line") || state.invoiceId;
+      const catId = addL.getAttribute("data-pos-add-item") || ($("#posCatalog") && $("#posCatalog").value);
+      const qty = ($("#posQty") && $("#posQty").value) || "1";
+      addCatalogLine(invId, catId, qty);
       if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
       else render();
+      return;
+    }
+    const prn = e.target.closest("[data-print-receipt]");
+    if (prn) {
+      e.preventDefault();
+      printInvoiceReceipt(prn.getAttribute("data-print-receipt"));
       return;
     }
     const rmLine = e.target.closest("[data-remove-line]");

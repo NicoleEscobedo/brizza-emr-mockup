@@ -5,7 +5,7 @@ window.BRIZZA = window.BRIZZA || {};
 BRIZZA.SAMPLE_DAY = "2026-11-16";
 BRIZZA.DEMO_CLOCK = { date: "2026-11-18", time: "11:25", label: "11:25 a.m. ET" };
 BRIZZA.CLINIC = {
-  name: "Brizza Clinic",
+  name: "Brizza Aesthetics",
   location: "Manhattan Clinic",
   hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET",
   tz: "America/New_York",
@@ -112,14 +112,14 @@ BRIZZA.appointmentReasons = [
 ];
 
 BRIZZA.appointmentTypes = [
-  { id: "consultation", name: "Consultation", minutes: 15, confirmName: "Consultation", confirmDraft: true, reasonIds: ["new-patient", "existing-patient"] },
+  { id: "consultation", name: "Consultation", minutes: 15, confirmName: "Consultation", confirmDraft: true, reasonIds: ["new-patient", "existing-patient"], deposit: 50 },
   { id: "neurotoxin", name: "Neurotoxin", minutes: 30, confirmName: "Neurotoxin", confirmDraft: true, reasonIds: ["botox", "jeuveau", "toxin-touch-up"] },
   { id: "filler", name: "Filler", minutes: 30, confirmName: "Filler", confirmDraft: true, reasonIds: ["juvederm", "volbella"] },
-  { id: "dissolve", name: "Dissolve", minutes: 45, confirmName: "Dissolve", confirmDraft: true, reasonIds: ["dissolve"] },
+  { id: "dissolve", name: "Dissolve", minutes: 45, confirmName: "Dissolve", confirmDraft: true, reasonIds: ["dissolve"], requiredRole: "MD / Clinic Owner" },
   { id: "facial", name: "Facial", minutes: 60, confirmName: "Facial", confirmDraft: true, reasonIds: ["mini-facial", "facial", "hydrafacial"] },
   { id: "chemical-peel", name: "Chemical Peel", minutes: 60, confirmName: "Chemical Peel", confirmDraft: true, reasonIds: ["chemical-peel"] },
   { id: "microneedling", name: "Microneedling", minutes: 75, confirmName: "Microneedling", confirmDraft: true, reasonIds: ["microneedling"] },
-  { id: "wax", name: "Wax", minutes: 30, confirmName: "Wax", confirmDraft: true, reasonIds: ["eyebrows", "lips", "face"] },
+  { id: "wax", name: "Wax", minutes: 30, confirmName: "Wax", confirmDraft: true, reasonIds: ["eyebrows", "lips", "face"], requiredRole: "Aesthetician" },
   { id: "follow-up", name: "Follow-up", minutes: 15, confirmName: "Follow-up", confirmDraft: true, reasonIds: ["follow-up", "botox", "jeuveau", "juvederm", "volbella", "mini-facial", "facial", "hydrafacial", "chemical-peel", "microneedling", "toxin-touch-up"] }
 ];
 
@@ -138,33 +138,45 @@ BRIZZA.TYPE_COLORS = {
 };
 
 /* Nicole-given prices (2026-11-18). Costs were not given — cost stays null/TBD. Quantity is entered by staff. */
+BRIZZA.TAX_RATE = 0.08875;
 BRIZZA.CATALOG = [
   { id: "botox", name: "Botox", kind: "product", unit: "unit", price: 21, cost: null, reorderPoint: 10, trackLots: true, trackOpenVial: true },
-  { id: "jeuveau", name: "Jeuveau", kind: "product", unit: "unit", price: 21, cost: null, reorderPoint: 8, trackLots: true, trackOpenVial: true },
-  { id: "juvederm", name: "Juvederm", kind: "product", unit: "vial", price: 900, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: true },
-  { id: "volbella", name: "Volbella", kind: "product", unit: "vial", price: null, cost: null, reorderPoint: 1, trackLots: true, trackOpenVial: true },
-  { id: "mini-facial", name: "Mini Facial", kind: "service", unit: "session", price: 150, cost: null, reorderPoint: null, trackLots: false },
-  { id: "hydrafacial", name: "Hydrafacial", kind: "service", unit: "session", price: 275, cost: null, reorderPoint: null, trackLots: false },
+  { id: "jeuveau", name: "Jeuveau", kind: "product", unit: "unit", price: 17, cost: null, reorderPoint: 8, trackLots: true, trackOpenVial: true },
+  { id: "juvederm", name: "Juvederm 1.0 cc", kind: "product", unit: "syringe", price: 900, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: true },
+  { id: "volbella-055", name: "Volbella 0.55 cc", kind: "product", unit: "syringe", price: 750, cost: null, reorderPoint: 1, trackLots: true, trackOpenVial: true },
+  { id: "volbella", name: "Volbella 1.0 cc", kind: "product", unit: "syringe", price: 900, cost: null, reorderPoint: 1, trackLots: true, trackOpenVial: true },
+  { id: "consultation", name: "Consultation deposit", kind: "service", unit: "visit", price: 50, cost: null, reorderPoint: null, trackLots: false },
+  { id: "follow-up", name: "Follow-up", kind: "service", unit: "visit", price: 150, cost: null, reorderPoint: null, trackLots: false, note: "Complimentary within 14 days of a paid treatment" },
+  { id: "dissolve", name: "Dissolve", kind: "service", unit: "session", price: 550, cost: null, reorderPoint: null, trackLots: false },
+  { id: "dissolve-extra", name: "Dissolve extra vial", kind: "service", unit: "vial", price: 400, cost: null, reorderPoint: null, trackLots: false },
+  { id: "mini-facial", name: "Mini Facial", kind: "service", unit: "session", price: 225, cost: null, reorderPoint: null, trackLots: false },
+  { id: "facial", name: "Facial", kind: "service", unit: "session", price: 325, cost: null, reorderPoint: null, trackLots: false },
+  { id: "hydrafacial", name: "Hydrafacial", kind: "service", unit: "session", price: 375, cost: null, reorderPoint: null, trackLots: false },
   { id: "clarifying-facial", name: "Clarifying Facial", kind: "service", unit: "session", price: 275, cost: null, reorderPoint: null, trackLots: false },
-  { id: "facial", name: "Facial", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
-  { id: "chemical-peel", name: "Chemical Peel", kind: "service", unit: "session", price: 295, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: false },
-  { id: "eyebrow-wax", name: "Eyebrow Wax", kind: "service", unit: "session", price: 35, cost: null, reorderPoint: null, trackLots: false },
-  { id: "lip-wax", name: "Lip Wax", kind: "service", unit: "session", price: 20, cost: null, reorderPoint: null, trackLots: false },
+  { id: "chemical-peel", name: "Chemical Peel", kind: "service", unit: "session", price: 425, cost: null, reorderPoint: 2, trackLots: true, trackOpenVial: false },
+  { id: "microneedling", name: "Microneedling", kind: "service", unit: "session", price: 550, cost: null, reorderPoint: null, trackLots: false },
+  { id: "eyebrow-wax", name: "Eyebrow Wax", kind: "service", unit: "session", price: 55, cost: null, reorderPoint: null, trackLots: false },
+  { id: "lip-wax", name: "Lip Wax", kind: "service", unit: "session", price: 25, cost: null, reorderPoint: null, trackLots: false },
+  { id: "face-wax", name: "Face Wax", kind: "service", unit: "session", price: 85, cost: null, reorderPoint: null, trackLots: false },
   { id: "eyebrow-tint", name: "Eyebrow Tint", kind: "service", unit: "session", price: 25, cost: null, reorderPoint: null, trackLots: false },
-  { id: "consultation", name: "Consultation", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
-  { id: "dissolve", name: "Dissolve", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false },
-  { id: "microneedling", name: "Microneedling", kind: "service", unit: "session", price: null, cost: null, reorderPoint: null, trackLots: false }
+  { id: "membership-bank", name: "Treatment Bank", kind: "membership", unit: "month", price: 150, cost: null, reorderPoint: null, trackLots: false },
+  { id: "membership-skin", name: "Skin plan", kind: "membership", unit: "month", price: 225, cost: null, reorderPoint: null, trackLots: false },
+  { id: "retail-ce-ferulic", name: "SkinCeuticals C E Ferulic 30 ml", kind: "retail", unit: "bottle", price: 185, cost: null, reorderPoint: 2, trackLots: false },
+  { id: "retail-triple-lipid", name: "SkinCeuticals Triple Lipid Restore 2:4:2", kind: "retail", unit: "bottle", price: 155, cost: null, reorderPoint: 2, trackLots: false },
+  { id: "retail-spf", name: "SkinCeuticals Physical Fusion UV Defense SPF 50", kind: "retail", unit: "bottle", price: 45, cost: null, reorderPoint: 2, trackLots: false },
+  { id: "retail-eltamd", name: "EltaMD UV Clear SPF 46 1.7 oz", kind: "retail", unit: "bottle", price: 46, cost: null, reorderPoint: 2, trackLots: false },
+  { id: "retail-ptiox", name: "SkinCeuticals P-TIOX Anti-Wrinkle Peptide Cream", kind: "retail", unit: "bottle", price: 150, cost: null, reorderPoint: 2, trackLots: false }
 ];
 
 BRIZZA.QUOTE_TEMPLATES = [
   { id: "full-face-toxin", name: "Full-face toxin", lines: [{ kind: "product", catalogId: "botox", name: "Botox", unit: "unit", unitPrice: 21, qty: null }] },
   { id: "lip-filler", name: "Lip filler", lines: [{ kind: "product", catalogId: "juvederm", name: "Juvederm", unit: "vial", unitPrice: 900, qty: null }] },
-  { id: "facial-series-3", name: "Facial series of 3", lines: [{ kind: "package", catalogId: "hydrafacial", name: "Hydrafacial", unit: "session", unitPrice: 275, qty: null }] }
+  { id: "facial-series-3", name: "Facial series of 3", lines: [{ kind: "package", catalogId: "hydrafacial", name: "Hydrafacial", unit: "session", unitPrice: 375, qty: null }] }
 ];
 
 BRIZZA.ADJUST_REASONS = ["Waste", "Expired", "Damaged", "Count correction", "Return to vendor", "Other"];
 BRIZZA.DOC_CATEGORIES = ["Patient Intake", "Consent", "Payment", "Quotes"];
-BRIZZA.NOTE_STATUSES = ["Open", "Signed", "Locked"];
+BRIZZA.NOTE_STATUSES = ["Draft", "Ready for review", "Finalized", "Amended"];
 BRIZZA.INVENTORY_ROLES = ["MD / Clinic Owner", "Clinic Manager"];
 BRIZZA.VENDORS = ["Allergan (sample vendor)", "SkinMedica (sample vendor)", "Clinic supply (sample)"];
 
@@ -182,7 +194,8 @@ BRIZZA.VISIT_STATUSES = [
 BRIZZA.SCHEDULE_ONLY_STATUSES = ["Scheduled", "Confirmed", "Checked in", "No-show", "Canceled"];
 BRIZZA.ROOMING_BOARD_STATUSES = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"];
 BRIZZA.ROOMING_FLOW_BUCKETS = [
-  { id: "arrive", label: "Checked in / Ready for clinical", statuses: ["Checked in", "Ready for clinical"] },
+  { id: "waiting", label: "Waiting", statuses: ["Checked in"] },
+  { id: "arrive", label: "Ready for clinical", statuses: ["Ready for clinical"] },
   { id: "with-clinical", label: "With clinical", statuses: ["With clinical"] },
   { id: "ready-provider", label: "Ready for provider", statuses: ["Ready for provider"] },
   { id: "with-provider", label: "With provider", statuses: ["With provider"] },
@@ -526,11 +539,11 @@ BRIZZA.seed = function () {
     patients: [
       {id:"BZ0001",name:"Maya Chen",dob:"1989-04-16",sex:"Female",phone:"(212) 555-0184",email:"maya.chen@example.com",status:"Active",
         allergies:["Hyaluronic acid — swelling","Lidocaine — sensitivity noted Nov 10, 2026"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],pharmacy:"Mercer Street Pharmacy, New York",
-        notes:[{id:"N-1",date:"2026-10-28",type:"Injectables Consult",templateId:"inj-consult",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Signed",locked:true,signedAt:"Oct 28, 2026, 2:40 p.m. ET",
+        notes:[{id:"N-1",date:"2026-10-28",type:"Injectables Consult",templateId:"inj-consult",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Finalized",locked:true,signedAt:"Oct 28, 2026, 2:40 p.m. ET",
           text:"Chief concern: Wants time to decide. Areas discussed: Upper face. Recommendations: Review options at a later visit. Consent confirmed: Yes. Questions addressed: Yes.",
           values:{chiefConcern:"Wants time to decide",areasDiscussed:"Upper face",recommendations:"Review options at a later visit",consentConfirmed:"Yes",questionsAddressed:"Yes"},
           historySnapshot:{allergies:["Hyaluronic acid — swelling"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"}}},
-          {id:"N-5",date:"2026-11-18",type:"Injectables Consult",templateId:"inj-consult",appointmentId:"A-6214",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Open",
+          {id:"N-5",date:"2026-11-18",type:"Injectables Consult",templateId:"inj-consult",appointmentId:"A-6214",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Draft",
           text:"Visit note is in progress.",values:{}}],
         consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],
@@ -551,7 +564,7 @@ BRIZZA.seed = function () {
         registration:{idUploaded:{status:"Not uploaded",date:null},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}},
       {id:"BZ0004",name:"Ava Thompson",dob:"1997-07-09",sex:"Female",phone:"(646) 555-0148",email:"ava.thompson@example.com",status:"Inactive",
         allergies:["No known allergies"],meds:[],conditions:[],
-        notes:[{id:"N-3",date:"2026-03-12",type:"Consultation",procedurePerformed:"Yes",provider:"Alessia Costa, NP",status:"Signed",
+        notes:[{id:"N-3",date:"2026-03-12",type:"Consultation",procedurePerformed:"Yes",provider:"Alessia Costa, NP",status:"Finalized",
           text:"Consultation and same-day chemical peel documented; consent and aftercare instructions recorded. No activity since; status set to Inactive.",visitId:"V-1001"}],
         consents:{clinical:"Signed Mar 12, 2026",marketing:"Not authorized"},
         photos:["Clinical baseline · Mar 12, 2026"],
@@ -572,7 +585,7 @@ BRIZZA.seed = function () {
         registration:{idUploaded:{status:"Not uploaded",date:null},formsCompleted:{status:"Not completed",date:null},demographicsConfirmed:{status:"Not confirmed",date:null}}},
       {id:"BZ0007",name:"Priya Shah",dob:"1982-01-28",sex:"Female",phone:"(917) 555-0161",email:"priya.shah@example.com",status:"Active",
         allergies:["No known allergies"],meds:[],conditions:[],
-        notes:[{id:"N-4",date:"2026-11-10",type:"Aesthetician Consult",status:"Open",provider:"Stella Hayes, LE",role:"Aesthetician",
+        notes:[{id:"N-4",date:"2026-11-10",type:"Aesthetician Consult",status:"Draft",provider:"Stella Hayes, LE",role:"Aesthetician",
           text:"Skin goals reviewed. Mini Facial recommended."}],
         consents:{clinical:"Current · signed Nov 10, 2026",marketing:"Not authorized"},photos:[],
         documents:[{id:"DOC-BZ0007-1",category:"Patient Intake",title:"Intake and medical history · Nov 10, 2026",date:"2026-11-10",printable:true},
@@ -635,15 +648,15 @@ BRIZZA.seed = function () {
         lines:[{kind:"service",name:"Consultation · New Patient",amount:"TBD",catalogId:"consultation",qty:null,unitPrice:null},
                {kind:"service",name:"Facial",amount:"TBD",catalogId:"facial",qty:null,unitPrice:null}],
         payments:[],finalized:false,finalizedAt:null,movements:[]},
-      {id:"INV-1010",patientId:"BZ0005",visitId:null,appointmentIds:["A-6231"],status:"Issued",balance:275,
-        lines:[{kind:"service",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",qty:1,unitPrice:275,amount:275}],
+      {id:"INV-1010",patientId:"BZ0005",visitId:null,appointmentIds:["A-6231"],status:"Issued",balance:375,
+        lines:[{kind:"service",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",qty:1,unitPrice:375,amount:375}],
         payments:[],finalized:false,finalizedAt:null,movements:[]}
     ],
     quotes: [
       {id:"Q-1001",patientId:"BZ0001",appointmentId:"A-6203",templateId:"full-face-toxin",name:"Full-face toxin",status:"Open",
         lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"}],created:"2026-10-28",broughtToRoom:false,invoiceId:null,visitKind:null},
       {id:"Q-1002",patientId:"BZ0003",appointmentId:"A-6207",templateId:"facial-series-3",name:"Facial series of 3",status:"Open",
-        lines:[{kind:"package",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:275,qty:null,amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
+        lines:[{kind:"package",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:375,qty:null,amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
     ],
     lots: [
       {id:"LOT-BTX-031",productId:"botox",product:"Botox",lotNumber:"BTX-031",onHand:0,originalQty:1,expiry:"2026-10-20",status:"Used",released:true,receivedAt:"2026-08-01",poId:"PO-1000",

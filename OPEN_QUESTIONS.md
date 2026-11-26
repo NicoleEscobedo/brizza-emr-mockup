@@ -99,3 +99,25 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 37. **Access-level labels.** Access is derived from the existing acting-role permissions (Full access, Manager, Front desk, Clinical · Injectables, Clinical · Aesthetics, Marketing, Clinical support). Suggested default: keep these labels until official permission names are provided.
 38. **Chart booking locks the patient.** + Appointment from the Patient chart shows a read-only chip (name, DOB, #ID) with no search and no + Add new patient. Suggested default: keep the patient locked from the chart; allow search only when booking from Schedule.
 39. **EMR overview.** The new EMR section is a simple provider page with today's patients, a short snapshot, ＋ New note, and pending notes. Notes stays in Workspace. Suggested default: keep this overview until Nicole asks for more on the page.
+
+
+## Documented in Round 15 (not built in the mockup)
+
+Nicole decided these stay documentation-only. The working screens keep the current visit-status board and the free-text cancel / no-show reason.
+
+**Eight-step rooming flow** (in addition to official appointment statuses):
+
+1. Checked in (front desk) — Clinic Coordinator
+2. Completing paperwork
+3. Ready
+4. With clinical
+5. Ready for provider
+6. With provider
+7. Ready for checkout
+8. Checked out
+
+**Cancel initiator and reasons** (approved catalog, not yet wired into the cancel field):
+
+- Patient-initiated: schedule conflict; illness; transport/weather; cost; no longer wants; emergency; other (note required).
+- Clinic-initiated: provider unavailable; contraindication; closure/weather; product/equipment unavailable; scheduling error; other (note required).
+

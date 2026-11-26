@@ -1,4 +1,4 @@
-# Brizza Clinic — clickable EMR mockup
+# Brizza Aesthetics — clickable EMR mockup
 
 A **preview-only** interactive mockup of a fictional luxury medical aesthetics clinic in Manhattan. It uses **synthetic sample records only**. It is not a production EMR, has no live database, and must never be used with real patient data.
 

@@ -484,7 +484,7 @@
     demo: { running: false, index: 0, timer: null }, contrast: null,
     scheduleView: "calendar", calMode: "week", locationId: BRIZZA.DEFAULT_LOCATION,
     expandedAppt: null, expandedPrep: null, auditId: null,
-    actingRole: "Clinic Coordinator", roomingDate: null, scheduleSearch: "", noteDraft: null
+    actingRole: "Clinic Coordinator", adminTab: "team", roomingDate: null, scheduleSearch: "", noteDraft: null
   };
 
   const patient = (id) => store.patients.find((p) => p.id === id);
@@ -561,12 +561,15 @@
       route = { page: "patients", selected: parts[1] || state.selected, tab: parts[2] || "demographics" };
     } else if (p0 === "queue" || p0 === "tasks") {
       route = { page: "queue", date: parts[1] || state.date || BRIZZA.SAMPLE_DAY };
+    } else if (p0 === "admin") {
+      const tab = ({ team: "team", availability: "availability", types: "types", reasons: "reasons", settings: "settings" })[parts[1]] || "team";
+      route = { page: "admin", adminTab: tab };
     } else if (p0 === "configuration") {
-      route = { page: "configuration" };
+      route = { page: "admin", adminTab: "settings", redirect: true };
     } else if (p0 === "appointment-types") {
-      route = { page: "types" };
+      route = { page: "admin", adminTab: "types", redirect: true };
     } else if (p0 === "appointment-reasons") {
-      route = { page: "reasons" };
+      route = { page: "admin", adminTab: "reasons", redirect: true };
     } else if (p0 === "visits") {
       route = { page: "visit", visitId: parts[1] };
     } else if (p0 === "checkout") {
@@ -587,7 +590,7 @@
     } else if (p0 === "inventory") {
       route = { page: "inventory", invTab: parts[1] || state.invTab || "catalog" };
     } else if (p0 === "availability") {
-      route = { page: "availability" };
+      route = { page: "admin", adminTab: "availability", redirect: true };
     } else if (p0 === "notes") {
       route = { page: "notes", notesDash: parts[1] === "signed" ? "signed" : "pending" };
     }
@@ -608,9 +611,10 @@
     } else if (route.page === "patients") {
       path = route.selected ? "/patients/" + route.selected + "/" + (route.tab || "demographics") : "/patients";
     } else if (route.page === "queue" || route.page === "tasks") path = "/tasks/" + (route.date || state.date);
-    else if (route.page === "configuration") path = "/configuration";
-    else if (route.page === "types") path = "/appointment-types";
-    else if (route.page === "reasons") path = "/appointment-reasons";
+    else if (route.page === "admin" || route.page === "configuration" || route.page === "types" || route.page === "reasons" || route.page === "availability") {
+      const tab = route.adminTab || (route.page === "configuration" ? "settings" : route.page === "admin" ? (state.adminTab || "team") : route.page);
+      path = "/admin/" + (tab || "team");
+    }
     else if (route.page === "visit") path = "/visits/" + route.visitId;
     else if (route.page === "checkout") path = "/pos/invoice/" + route.invoiceId;
     else if (route.page === "pos") {
@@ -624,7 +628,6 @@
     else if (route.page === "audit") path = "/audit/" + route.auditId;
     else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
     else if (route.page === "inventory") path = "/inventory/" + (route.invTab || state.invTab || "catalog");
-    else if (route.page === "availability") path = "/availability";
     else if (route.page === "notes") path = "/notes" + (route.notesDash === "signed" ? "/signed" : "");
     return "#" + path + "?theme=01";
   }
@@ -648,6 +651,7 @@
     }
     if (r.notesDash) state.notesDash = r.notesDash;
     if (r.invTab) state.invTab = r.invTab;
+    if (r.page === "admin" && r.adminTab) state.adminTab = r.adminTab;
     if (r.visitId) state.visitId = r.visitId;
     if (r.invoiceId) state.invoiceId = r.invoiceId;
     state.quoteId = r.quoteId || null;
@@ -657,6 +661,10 @@
     if (r.appointmentId) state.appointmentId = r.appointmentId;
     if (r.auditId) state.auditId = r.auditId;
     document.documentElement.setAttribute("data-theme", state.theme);
+    if (r.redirect) {
+      const canon = hashFor({ page: "admin", adminTab: r.adminTab || state.adminTab || "team" });
+      if (location.hash !== canon) history.replaceState(null, "", canon);
+    }
     if (r.page === "demo" && !state.demo.running) {
       startDemo();
       return;
@@ -2128,9 +2136,7 @@
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
         (key === "inventory" && state.page === "inventory") ||
-        (key === "availability" && state.page === "availability") ||
-        (key === "types" && (state.page === "types" || state.page === "reasons")) ||
-        (key === "configuration" && state.page === "configuration");
+        (key === "admin" && state.page === "admin");
       return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
     };
     $("#app-root").innerHTML = `
@@ -2151,10 +2157,7 @@
           </nav>
           <div class="nav-label">Clinic</div>
           <nav class="nav" aria-label="Clinic">
-            ${nav(hashFor({ page: "availability" }), "availability", "Availability", "◷")}
-            ${nav(hashFor({ page: "types" }), "types", "Appointment Types", "▤")}
-            ${nav(hashFor({ page: "reasons" }), "types", "Appointment Reasons", "▤")}
-            ${nav(hashFor({ page: "configuration" }), "configuration", "Configuration", "⚙")}
+            ${nav(hashFor({ page: "admin", adminTab: state.adminTab || "team" }), "admin", "Admin", "⚙")}
           </nav>
         </aside>
         <main class="main" id="main">
@@ -4054,6 +4057,102 @@
     renderChrome('<a href="' + hashFor({ page: "checkout", invoiceId: inv.id }) + '">Checkout</a> / ' + esc(inv.id), head, body);
   }
 
+
+  function accessLevelForRole(role) {
+    if (role === "MD / Clinic Owner") return "Full access";
+    if (role === "Clinic Manager") return "Manager";
+    if (role === "Clinic Coordinator") return "Front desk";
+    if (role === "RN / NP Injector") return "Clinical · Injectables";
+    if (role === "Aesthetician") return "Clinical · Aesthetics";
+    if (role === "Marketing Specialist") return "Marketing";
+    if (role === "Medical Assistant") return "Clinical support";
+    return role || "—";
+  }
+  function teamUsers() {
+    if (!store.teamUsers) {
+      store.teamUsers = (BRIZZA.STAFF || []).map(function (s) {
+        return { id: s.id, name: s.name, role: s.role, access: accessLevelForRole(s.role), status: "Active" };
+      });
+    }
+    return store.teamUsers;
+  }
+  function adminTabsHtml(active) {
+    const tab = active || state.adminTab || "team";
+    const tabs = [
+      { id: "team", label: "Team & Access" },
+      { id: "availability", label: "Availability" },
+      { id: "types", label: "Appointment types" },
+      { id: "reasons", label: "Appointment reasons" },
+      { id: "settings", label: "Settings" }
+    ];
+    return '<div class="admin-tabs" role="tablist" aria-label="Admin">' + tabs.map(function (x) {
+      return '<a href="' + hashFor({ page: "admin", adminTab: x.id }) + '" class="' + (tab === x.id ? "active" : "") + '" role="tab" aria-selected="' + (tab === x.id ? "true" : "false") + '">' + esc(x.label) + "</a>";
+    }).join("") + "</div>";
+  }
+  function renderAdminChrome(head, body) {
+    renderChrome('<a href="' + hashFor({ page: "admin", adminTab: "team" }) + '">Admin</a>', head, adminTabsHtml(state.adminTab) + body);
+  }
+  function renderTeamAccess() {
+    const users = teamUsers();
+    const rows = users.map(function (u) {
+      return "<tr><td>" + esc(u.name) + "</td><td>" + esc(u.role) + "</td><td>" + esc(u.access || accessLevelForRole(u.role)) + "</td><td>" +
+        badge(u.status || "Active") + '</td><td><button type="button" class="btn small" data-team-edit="' + esc(u.id) + '">Edit</button></td></tr>';
+    }).join("") || '<tr><td colspan="5" class="empty">No users</td></tr>';
+    const head = pageHead("Admin", "Team & Access", "",
+      '<button class="btn primary" type="button" data-team-invite="1">＋ Invite user</button>');
+    const body = '<div class="card"><div class="cardbody"><table class="table admin-table team-table"><thead><tr><th>Name</th><th>Role</th><th>Access</th><th>Status</th><th></th></tr></thead><tbody>' +
+      rows + "</tbody></table></div></div>" +
+      openQ("Official access-level names, and who may invite or deactivate users, are not named in the sources.");
+    renderAdminChrome(head, body);
+  }
+  function openTeamUserModal(id) {
+    const existing = id && teamUsers().find(function (u) { return u.id === id; });
+    const u = existing || { name: "", role: "Clinic Coordinator", status: "Active" };
+    const roleOpts = (BRIZZA.ROLES || []).map(function (r) {
+      return "<option" + (u.role === r ? " selected" : "") + ">" + esc(r) + "</option>";
+    }).join("");
+    const statusOpts = ["Active", "Inactive"].map(function (s) {
+      return "<option" + ((u.status || "Active") === s ? " selected" : "") + ">" + s + "</option>";
+    }).join("");
+    showModal(existing ? "Edit" : "＋ Invite user",
+      '<div class="formgrid">' +
+        '<div class="field full"><label for="teamName">Name</label><input id="teamName" value="' + esc(u.name) + '" required></div>' +
+        '<div class="field"><label for="teamRole">Role</label><select id="teamRole">' + roleOpts + "</select></div>" +
+        '<div class="field"><label for="teamStatus">Status</label><select id="teamStatus">' + statusOpts + "</select></div>" +
+        '<div class="field full"><label>Access</label><input id="teamAccess" value="' + esc(accessLevelForRole(u.role)) + '" disabled></div>' +
+      "</div>" +
+      openQ("There is no sign-in in this preview. Access follows the existing acting-role permissions and is in memory only."),
+      function () {
+        const name = ($("#teamName") && $("#teamName").value.trim()) || "";
+        if (!name) { toast("Enter a name"); return; }
+        const role = ($("#teamRole") && $("#teamRole").value) || "Clinic Coordinator";
+        const status = ($("#teamStatus") && $("#teamStatus").value) || "Active";
+        const rec = existing || { id: nextId("USR-", teamUsers()) };
+        rec.name = name;
+        rec.role = role;
+        rec.access = accessLevelForRole(role);
+        rec.status = status;
+        if (!existing) teamUsers().push(rec);
+        addAudit({
+          action: existing ? "Updated team user" : "Invited team user",
+          recordType: "User",
+          recordId: rec.id,
+          recordPath: { page: "admin", adminTab: "team" },
+          changes: [{ field: "name", before: existing ? (existing.name || "—") : "—", after: name }]
+        });
+        closeModal();
+        toast(existing ? "User updated" : "User added");
+        render();
+      }, existing ? "Save" : "Invite");
+    const roleEl = $("#teamRole");
+    if (roleEl) {
+      roleEl.addEventListener("change", function () {
+        const acc = $("#teamAccess");
+        if (acc) acc.value = accessLevelForRole(roleEl.value);
+      });
+    }
+  }
+
   function renderSettings() {
     const c = state.contrast || checkContrast();
     state.contrast = c;
@@ -4061,7 +4160,7 @@
       const fails = rows.filter((r) => !r.pass);
       return '<div class="row"><div><strong>' + esc(BRIZZA.THEMES[id].name) + '</strong><div class="row-sub">' + rows.length + " body/UI text pairs checked · " + (fails.length ? fails.length + " below target" : "all at or above target") + "</div></div>" + (fails.length ? badge("Review") : badge("AA checked")) + "</div>";
     }).join("");
-    const head = pageHead("Approved configuration", "Patient chart and appointments", "Draft themes are labeled DRAFT and are not a finalized brand.", "");
+    const head = pageHead("Admin", "Settings", "", "");
     const sections = ["Demographics", "Clinical Profile", "Appointments", "Treatment History", "Photos", "Documents", "Ledger", "Follow-Up History"];
     const body = `<div class="grid">
       <div class="card">
@@ -4100,7 +4199,7 @@
         </div>
       </div>
     </div>`;
-    renderChrome('<a href="' + hashFor({ page: "configuration" }) + '">Configuration</a>', head, body);
+    renderAdminChrome(head, body);
   }
 
   function startDemo() {
@@ -4177,6 +4276,7 @@
       tab: state.tab,
       notesDash: state.notesDash,
       invTab: state.invTab,
+      adminTab: state.adminTab,
       posTab: state.posTab,
       invoiceId: state.page === "pos" ? state.invoiceId : null,
       visitId: state.page === "visit" ? state.visitId : null,
@@ -4203,6 +4303,7 @@
       tab: state.tab,
       notesDash: state.notesDash,
       invTab: state.invTab,
+      adminTab: state.adminTab,
       posTab: state.posTab,
       invoiceId: state.invoiceId,
       quoteId: state.quoteId,
@@ -4241,6 +4342,7 @@
     if (ctx.tab) state.tab = ctx.tab;
     if (ctx.notesDash) state.notesDash = ctx.notesDash;
     if (ctx.invTab) state.invTab = ctx.invTab;
+    if (ctx.adminTab) state.adminTab = ctx.adminTab;
     if (ctx.posTab) state.posTab = ctx.posTab;
     state.appointmentId = null;
     const nextHash = ctx.hash || hashFor(screenRouteFromState());
@@ -4312,7 +4414,7 @@
     const el = $("#fDuration");
     if (!el) return;
     const v = String(mins);
-    if (![].some.call(el.options, function (o) { return o.value === v; })) {
+    if (el.tagName === "SELECT" && ![].some.call(el.options || [], function (o) { return o.value === v; })) {
       const opt = document.createElement("option");
       opt.value = v;
       opt.textContent = mins + " min";
@@ -4320,100 +4422,213 @@
     }
     el.value = v;
   }
+  function bookTimeSteps(from, to) {
+    const out = [];
+    for (let n = toMinutes(from); n <= toMinutes(to); n += 15) out.push(fromMinutes(n));
+    return out;
+  }
+  function endOptionsAfter(start, selected) {
+    const startM = toMinutes(start);
+    const mins = bookSelectedMinutes();
+    let sel = selected;
+    if (!sel || toMinutes(sel) <= startM) sel = fromMinutes(startM + mins);
+    const times = bookTimeSteps(fromMinutes(startM + 15), "20:00");
+    if (times.indexOf(sel) < 0) times.push(sel);
+    times.sort(function (a, b) { return toMinutes(a) - toMinutes(b); });
+    return timeOptions(sel, times);
+  }
+  function refreshEndOptions(preferred) {
+    const startEl = $("#fTime");
+    const endEl = $("#fEnd");
+    if (!startEl || !endEl) return;
+    const start = startEl.value;
+    const mins = bookSelectedMinutes();
+    let endVal = preferred || endEl.value || fromMinutes(toMinutes(start) + mins);
+    if (toMinutes(endVal) <= toMinutes(start)) endVal = fromMinutes(toMinutes(start) + mins);
+    endEl.innerHTML = endOptionsAfter(start, endVal);
+    endEl.value = endVal;
+    const dur = toMinutes(endVal) - toMinutes(start);
+    if (dur > 0) ensureDurationOption(dur);
+  }
   function syncBookTimes(source) {
     const startEl = $("#fTime");
     const endEl = $("#fEnd");
-    const durEl = $("#fDuration");
-    if (!startEl || !endEl || !durEl) { updateBookDuration(); return; }
+    if (!startEl || !endEl) { updateBookDuration(); return; }
     if (source === "type") {
       const mins = durationMinutes($("#fType") ? $("#fType").value : "", selectedBookReasons()) || 30;
       ensureDurationOption(mins);
-      endEl.value = fromMinutes(toMinutes(startEl.value) + mins);
+      refreshEndOptions(fromMinutes(toMinutes(startEl.value) + mins));
     } else if (source === "start" || source === "dur") {
-      const mins = bookSelectedMinutes();
-      const endVal = fromMinutes(toMinutes(startEl.value) + mins);
-      if (![].some.call(endEl.options, function (o) { return o.value === endVal; })) {
-        const opt = document.createElement("option");
-        opt.value = endVal;
-        opt.textContent = fmtTime(endVal);
-        endEl.appendChild(opt);
-      }
-      endEl.value = endVal;
+      refreshEndOptions(fromMinutes(toMinutes(startEl.value) + bookSelectedMinutes()));
     } else if (source === "end") {
-      let mins = toMinutes(endEl.value) - toMinutes(startEl.value);
-      if (mins <= 0) {
-        mins = bookSelectedMinutes();
-        endEl.value = fromMinutes(toMinutes(startEl.value) + mins);
+      if (toMinutes(endEl.value) <= toMinutes(startEl.value)) {
+        refreshEndOptions(fromMinutes(toMinutes(startEl.value) + bookSelectedMinutes()));
       } else {
-        ensureDurationOption(mins);
+        ensureDurationOption(toMinutes(endEl.value) - toMinutes(startEl.value));
+        refreshEndOptions(endEl.value);
       }
     }
     updateBookDuration();
+    updateBookSaveState();
+  }
+  function bookMissingRequired() {
+    const newStep = $("#bookNewStep") && !$("#bookNewStep").hidden;
+    if (newStep) return ["New patient"];
+    const pid = ($("#fPatient") && $("#fPatient").value) || "";
+    const pending = $("#bookNewPending") && $("#bookNewPending").value === "1";
+    const missing = [];
+    if (!pid && !pending) missing.push("Patient");
+    if (pending) {
+      if (!$("#npFirst") || !$("#npFirst").value.trim()) missing.push("First name");
+      if (!$("#npLast") || !$("#npLast").value.trim()) missing.push("Last name");
+      if (!parseDob($("#npDob") ? $("#npDob").value : "")) missing.push("Date of birth");
+      if (!$("#npPhone") || !$("#npPhone").value.trim()) missing.push("Phone");
+    }
+    const type = $("#fType") ? $("#fType").value : "";
+    const date = $("#fDate") ? $("#fDate").value : "";
+    const time = $("#fTime") ? $("#fTime").value : "";
+    const end = $("#fEnd") ? $("#fEnd").value : "";
+    const provider = $("#fProvider") ? $("#fProvider").value : "";
+    const locationId = $("#fLocation") ? $("#fLocation").value : "";
+    const reasons = selectedBookReasons();
+    let consultingFor = $("#fConsultingFor") ? $("#fConsultingFor").value : "";
+    if (isConsultType(type)) consultingFor = consultingFor || (reasons[0] || "");
+    if (!type) missing.push("Appointment type");
+    if (!provider) missing.push("Provider");
+    if (!date) missing.push("Date");
+    else if (isWeekend(date)) missing.push("Date");
+    if (!time) missing.push("Start time");
+    if (!end || (time && toMinutes(end) <= toMinutes(time))) missing.push("End time");
+    if (!locationId) missing.push("Location");
+    if (isConsultType(type) ? !consultingFor : !reasons.length) missing.push("Reason");
+    const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
+    const override = $("#fOverride") ? $("#fOverride").value.trim() : "";
+    if (hits.length && !override) missing.push("Admin override reason");
+    const outside = date && time && isOutsideClinicHours(date, time);
+    const outsideReason = ($("#fOutsideReason") && $("#fOutsideReason").value.trim()) || "";
+    if (outside && !outsideReason) missing.push("Outside-hours reason");
+    return missing;
+  }
+  function updateBookSaveState() {
+    const save = $("#modalSave");
+    if (!save || !$("#modal").classList.contains("book-mode")) return;
+    const onNew = $("#bookNewStep") && !$("#bookNewStep").hidden;
+    save.disabled = onNew || bookMissingRequired().length > 0;
+  }
+  function providerOptionsHtml(selected) {
+    const names = BRIZZA.PROVIDERS || [];
+    const sel = selected || names[0] || "";
+    return names.map(function (n) {
+      return "<option value=\"" + esc(n) + "\"" + (n === sel ? " selected" : "") + ">" + esc(n) + "</option>";
+    }).join("");
+  }
+  function bookPatientChipHtml(p) {
+    if (!p) return "";
+    return '<div class="book-patient-chip" aria-label="Patient"><strong>' + esc(p.name) + "</strong><span>" +
+      esc(fmtDob(p.dob)) + " · " + esc(displayId(p.id)) + "</span></div>";
   }
   function openBook(pid, preset) {
     preset = preset || {};
-    const sel = pid || state.selected;
-    const dateVal = preset.date || state.date;
+    const lockPatient = !!preset.lockPatient;
+    const sel = pid || (!lockPatient && state.selected) || "";
+    const p0 = sel ? patient(sel) : null;
+    const dateVal = preset.date || state.date || todayET();
     const timeVal = preset.time || "10:00";
-    const provVal = preset.provider || slotProvider();
+    const provVal = preset.provider || slotProvider() || (BRIZZA.PROVIDERS[0] || "");
     const locVal = preset.locationId || state.locationId || BRIZZA.DEFAULT_LOCATION;
     const typeVal = (preset && preset.type) || "Consultation";
     const durMins = durationMinutes(typeVal, preset.reasons || []) || 30;
     const endVal = fromMinutes(toMinutes(timeVal) + durMins);
     const locOpts = (BRIZZA.LOCATIONS || []).map((l) => "<option value=\"" + esc(l.id) + "\"" + (locVal === l.id ? " selected" : "") + ">" + esc(l.name) + (l.synthetic ? " (synthetic)" : "") + "</option>").join("");
-    showModal("New appointment · " + fmtLong(dateVal), `
-      <div class="book-flow">
-        <div class="field" id="bookPatientField">
-          <label for="fPatientSearch">Patient <span class="req">required</span></label>
-          <input type="hidden" id="fPatient" required value="${esc(sel || "")}">
-          <button type="button" class="patient-picked" id="fPatientPicked" aria-expanded="false">${sel ? esc((patient(sel) && patient(sel).name) || sel) + " · " + esc(patient(sel) ? fmtDob(patient(sel).dob) : "") + " · " + esc(displayId(sel)) : "Select a patient"}</button>
-          <div id="fPatientSearchWrap" hidden>
-            <input id="fPatientSearch" placeholder="Search name, #ID, or DOB (mm/dd/yyyy)" autocomplete="off">
-            <div id="fPatientResults" class="patient-results" role="listbox"></div>
-          </div>
-        </div>
-        <button class="btn small" type="button" id="bookNewToggle">+ Add new patient</button>
-        <div id="bookNewFields" hidden class="formgrid" style="margin-top:10px">
-          <div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>
-          <div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>
-          <div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob"></div>
-          <div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone"></div>
-          <div class="field full"><label>Address</label>${addressFieldsHtml(emptyAddress(), "bkAddr")}</div>
-        </div>
-        <input type="hidden" id="fDate" value="${esc(dateVal)}">
-        <div class="formgrid" style="margin-top:14px">
-          <div class="field"><label for="fTime">Start <span class="req">required</span></label>
-            <select id="fTime" required>${timeOptions(timeVal)}</select></div>
-          <div class="field"><label for="fEnd">End <span class="req">required</span></label>
-            <select id="fEnd" required>${timeOptions(endVal, bookingEndTimes())}</select></div>
-          <div class="field"><label for="fDuration">Duration <span class="req">required</span></label>
-            <select id="fDuration" required>${durationOptionsHtml(durMins)}</select></div>
-          <div class="field"><label for="fLocation">Location <span class="req">required</span></label>
-            <select id="fLocation" required>${locOpts}</select></div>
-          <div class="field"><label for="fType">Type <span class="req">required</span></label>
-            <select id="fType" required>${typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("")}</select></div>
-          <div class="field"><label for="fReason">Reason <span class="req">required</span></label>
-            <div id="reasonOptions">${reasonDropdownHtml(typeVal, preset.reasons || [], preset.consultingFor || "")}</div></div>
-          <div class="field full"><label for="fPrepNotes">Notes</label><textarea id="fPrepNotes" rows="2" placeholder="Prep, packages, or other appointment notes"></textarea></div>
-        </div>
-        <input type="hidden" id="fProvider" value="${esc(provVal || "")}">
-        <div class="field full" id="overrideWrap"></div>
-        <div class="field full" id="hoursWrap"></div>
-        <div class="field full" id="bookWarn"></div>
-      </div>`, function () { saveAppt(); }, "Save appointment");
+    const startTimes = bookTimeSteps("08:00", "19:00");
+    const patientBlock = lockPatient && p0
+      ? (bookPatientChipHtml(p0) + '<input type="hidden" id="fPatient" required value="' + esc(p0.id) + '">')
+      : ('<div class="field full" id="bookPatientField">' +
+          '<label for="fPatientSearch">Patient <span class="req">required</span></label>' +
+          '<input type="hidden" id="fPatient" required value="' + esc(sel || "") + '">' +
+          '<button type="button" class="patient-picked" id="fPatientPicked" aria-expanded="false">' +
+            (p0 ? esc(p0.name) + " · " + esc(fmtDob(p0.dob)) + " · " + esc(displayId(p0.id)) : "Select a patient") +
+          "</button>" +
+          '<div id="fPatientSearchWrap" hidden>' +
+            '<input id="fPatientSearch" placeholder="Search name, #ID, or DOB (mm/dd/yyyy)" autocomplete="off">' +
+            '<div id="fPatientResults" class="patient-results" role="listbox"></div>' +
+          "</div>" +
+          '<button class="btn small" type="button" id="bookNewToggle">+ Add new patient</button>' +
+        "</div>");
+    const newStep = lockPatient ? "" : (
+      '<div id="bookNewStep" hidden class="book-new-step">' +
+        '<input type="hidden" id="bookNewPending" value="">' +
+        '<div class="formgrid">' +
+          '<div class="field"><label for="npFirst">First name <span class="req">required</span></label><input id="npFirst"></div>' +
+          '<div class="field"><label for="npLast">Last name <span class="req">required</span></label><input id="npLast"></div>' +
+          '<div class="field"><label for="npDob">Date of birth <span class="req">required</span></label><input id="npDob" placeholder="mm/dd/yyyy" inputmode="numeric" data-mask="dob"></div>' +
+          '<div class="field"><label for="npPhone">Phone <span class="req">required</span></label><input id="npPhone" placeholder="(XXX) XXX-XXXX" inputmode="tel" data-mask="phone"></div>' +
+          '<div class="field full"><label>Address</label>' + addressFieldsHtml(emptyAddress(), "bkAddr") + "</div>" +
+        "</div>" +
+        '<div class="actions" style="margin-top:12px">' +
+          '<button type="button" class="btn" id="bookNewBack">Back</button>' +
+          '<button type="button" class="btn primary" id="bookNewContinue">Continue</button>' +
+        "</div>" +
+      "</div>"
+    );
+    const apptGrid = '<div class="book-grid formgrid" id="bookApptGrid">' +
+      '<div class="field"><label for="fType">Appointment type <span class="req">required</span></label>' +
+        '<select id="fType" required>' + typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("") + "</select></div>" +
+      '<div class="field"><label for="fProvider">Provider <span class="req">required</span></label>' +
+        '<select id="fProvider" required>' + providerOptionsHtml(provVal) + "</select></div>" +
+      '<div class="field"><label for="fDate">Date <span class="req">required</span></label>' +
+        '<input type="date" id="fDate" required value="' + esc(dateVal) + '"></div>' +
+      '<div class="field"><div class="book-times">' +
+        '<div><label for="fTime">Start <span class="req">required</span></label>' +
+          '<select id="fTime" required>' + timeOptions(timeVal, startTimes) + "</select></div>" +
+        '<div><label for="fEnd">End <span class="req">required</span></label>' +
+          '<select id="fEnd" required>' + endOptionsAfter(timeVal, endVal) + "</select></div>" +
+      "</div></div>" +
+      '<div class="field"><label for="fLocation">Location <span class="req">required</span></label>' +
+        '<select id="fLocation" required>' + locOpts + "</select></div>" +
+      '<div class="field"><label for="fReason">Reason <span class="req">required</span></label>' +
+        '<div id="reasonOptions">' + reasonDropdownHtml(typeVal, preset.reasons || [], preset.consultingFor || "") + "</div></div>" +
+      '<div class="field full"><label for="fPrepNotes">Notes</label><textarea id="fPrepNotes" rows="2"></textarea></div>' +
+      '<input type="hidden" id="fDuration" value="' + esc(String(durMins)) + '">' +
+      '<div class="field full" id="overrideWrap"></div>' +
+      '<div class="field full" id="hoursWrap"></div>' +
+      '<div class="field full" id="bookWarn"></div>' +
+    "</div>";
+    showModal("New appointment",
+      '<div class="book-flow">' + newStep + '<div id="bookApptStep">' + patientBlock + apptGrid + "</div></div>",
+      function () { saveAppt(); }, "Save appointment");
     $("#modal").classList.add("book-mode");
     bindPatientPicker();
+    const showNewStep = function (on) {
+      const step = $("#bookNewStep");
+      const appt = $("#bookApptStep");
+      if (step) step.hidden = !on;
+      if (appt) appt.hidden = !!on;
+      const save = $("#modalSave");
+      if (save) save.style.display = on ? "none" : "";
+      updateBookSaveState();
+    };
     if ($("#bookNewToggle")) $("#bookNewToggle").addEventListener("click", function () {
-      const box = $("#bookNewFields");
-      if (!box) return;
-      box.hidden = !box.hidden;
-      if (!box.hidden && $("#fPatient")) {
-        $("#fPatient").value = "";
-        const picked = $("#fPatientPicked");
-        if (picked) picked.textContent = "New patient in this form";
-        const wrap = $("#fPatientSearchWrap");
-        if (wrap) wrap.hidden = true;
+      showNewStep(true);
+      if ($("#npFirst")) $("#npFirst").focus();
+    });
+    if ($("#bookNewBack")) $("#bookNewBack").addEventListener("click", function () {
+      showNewStep(false);
+    });
+    if ($("#bookNewContinue")) $("#bookNewContinue").addEventListener("click", function () {
+      const first = ($("#npFirst") && $("#npFirst").value.trim()) || "";
+      const last = ($("#npLast") && $("#npLast").value.trim()) || "";
+      const dob = parseDob($("#npDob") ? $("#npDob").value : "");
+      const phone = ($("#npPhone") && $("#npPhone").value.trim()) || "";
+      if (!first || !last || !dob || !phone) {
+        toast("Enter name, date of birth, and phone");
+        return;
       }
+      if ($("#bookNewPending")) $("#bookNewPending").value = "1";
+      if ($("#fPatient")) $("#fPatient").value = "";
+      const picked = $("#fPatientPicked");
+      if (picked) picked.textContent = first + " " + last + " · " + fmtDob(dob) + " · New patient";
+      showNewStep(false);
     });
     $("#fType").addEventListener("change", function () {
       $("#reasonOptions").innerHTML = reasonDropdownHtml($("#fType").value, []);
@@ -4425,9 +4640,15 @@
     if (r0) r0.addEventListener("change", function () { syncBookTimes("type"); });
     if ($("#fTime")) $("#fTime").addEventListener("change", function () { syncBookTimes("start"); });
     if ($("#fEnd")) $("#fEnd").addEventListener("change", function () { syncBookTimes("end"); });
-    if ($("#fDuration")) $("#fDuration").addEventListener("change", function () { syncBookTimes("dur"); });
-    if ($("#fDate")) $("#fDate").addEventListener("change", updateBookDuration);
+    if ($("#fDate")) $("#fDate").addEventListener("change", function () { updateBookDuration(); updateBookSaveState(); });
+    if ($("#fProvider")) $("#fProvider").addEventListener("change", updateBookSaveState);
+    if ($("#fLocation")) $("#fLocation").addEventListener("change", updateBookSaveState);
+    const body = $("#modalBody");
+    if (body) body.addEventListener("input", updateBookSaveState);
+    if (body) body.addEventListener("change", updateBookSaveState);
+    refreshEndOptions(endVal);
     updateBookDuration();
+    updateBookSaveState();
   }
 
   function updateBookDuration() {
@@ -4526,8 +4747,9 @@
 
   function saveAppt() {
     let pid = $("#fPatient") ? $("#fPatient").value : "";
-    const newBox = $("#bookNewFields");
-    if (newBox && !newBox.hidden) {
+    const newBox = $("#bookNewStep") || $("#bookNewFields");
+    const newPending = ($("#bookNewPending") && $("#bookNewPending").value === "1") || (newBox && !newBox.hidden);
+    if (newBox && newPending) {
       const first = ($("#npFirst") && $("#npFirst").value.trim()) || "";
       const last = ($("#npLast") && $("#npLast").value.trim()) || "";
       const dob = parseDob($("#npDob") ? $("#npDob").value : "");
@@ -5233,7 +5455,7 @@
     const head = pageHead("Admin", "Appointment Types", "Editable in this session only.", '<button class="btn primary" type="button" data-admin="save-types">Save types</button>');
     const body = buffersNote() + openQ("Friendly confirmation names were not provided; plain names are shown and labeled draft (Open question 21).") +
       '<table class="table admin-table"><thead><tr><th>Type</th><th>Length (min)</th><th>Friendly confirmation name</th><th>Attached reasons</th></tr></thead><tbody>' + rows + "</tbody></table>";
-    renderChrome('<a href="' + hashFor({ page: "types" }) + '">Appointment Types</a>', head, body);
+    renderAdminChrome(head, body);
   }
   function renderReasons() {
     const rows = reasonsList().map((r, i) => {
@@ -5244,7 +5466,7 @@
     const head = pageHead("Admin", "Appointment Reasons", "A reason may optionally override the type length. Booking uses the reason length when set, otherwise the type length.", '<button class="btn primary" type="button" data-admin="save-reasons">Save reasons</button>');
     const body = buffersNote() +
       '<table class="table admin-table"><thead><tr><th>Reason</th><th>Length override (min)</th></tr></thead><tbody>' + rows + "</tbody></table>";
-    renderChrome('<a href="' + hashFor({ page: "reasons" }) + '">Appointment Reasons</a>', head, body);
+    renderAdminChrome(head, body);
   }
   function saveTypes() {
     $$("[data-type-field]").forEach((el) => {
@@ -5312,11 +5534,11 @@
     return (blocks || []).some((b) => (b.start && b.start < "10:00") || (b.end && b.end > "18:00"));
   }
   function renderAvailability() {
-    const head = pageHead("Availability", "Availability", "Provider schedule templates drive calendar shading and the location/hours hover.",
+    const head = pageHead("Admin", "Availability", "",
       canManageAvailability() ? '<button class="btn primary" type="button" data-av-new="1">＋ Template</button>' : "");
     if (!canManageAvailability()) {
       const body = '<div class="card"><div class="cardbody"><div class="notice">Availability is available when acting as Clinic Manager or MD / Clinic Owner. Change Acting as in the top bar to open this module.</div></div></div>';
-      renderChrome("Availability", head, body);
+      renderAdminChrome(head, body);
       return;
     }
     const rows = (store.availabilityTemplates || []).map(function (t) {
@@ -5338,7 +5560,7 @@
       openQ("Can a provider template start before or end after clinic hours? Nicole's example uses 9–11 a.m., which begins before the 10 a.m. clinic open (Open question 27).") +
       openQ("Long Island is a synthetic second location added as an example. Real clinic locations are not confirmed (Open question 26).") +
       "</div></div>" + rows;
-    renderChrome("Availability", head, body);
+    renderAdminChrome(head, body);
   }
   function availabilityBlockRow(b, i) {
     b = b || { locationId: BRIZZA.DEFAULT_LOCATION, start: "10:00", end: "18:00" };
@@ -5491,15 +5713,19 @@
     if (state.page === "worklist") renderWorklist();
     else if (state.page === "schedule") renderSchedule();
     else if (state.page === "queue") renderQueue();
-    else if (state.page === "configuration") renderSettings();
-    else if (state.page === "types") renderTypes();
-    else if (state.page === "reasons") renderReasons();
+    else if (state.page === "admin") {
+      const tab = state.adminTab || "team";
+      if (tab === "team") renderTeamAccess();
+      else if (tab === "availability") renderAvailability();
+      else if (tab === "types") renderTypes();
+      else if (tab === "reasons") renderReasons();
+      else renderSettings();
+    }
     else if (state.page === "visit") renderVisit();
     else if (state.page === "checkout" || state.page === "pos") renderPOS();
     else if (state.page === "audit") renderAudit();
     else if (state.page === "rooming") renderRooming();
     else if (state.page === "inventory") renderInventory();
-    else if (state.page === "availability") renderAvailability();
     else if (state.page === "notes") renderNotesDash();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
@@ -5766,6 +5992,9 @@
       render();
       return;
     }
+    if (e.target.closest("[data-team-invite]")) { e.preventDefault(); openTeamUserModal(); return; }
+    const teamEdit = e.target.closest("[data-team-edit]");
+    if (teamEdit) { e.preventDefault(); openTeamUserModal(teamEdit.getAttribute("data-team-edit")); return; }
     if (e.target.closest("[data-av-new]")) { e.preventDefault(); openAvailabilityForm(); return; }
     const avEdit = e.target.closest("[data-av-edit]");
     if (avEdit) { e.preventDefault(); openAvailabilityForm(avEdit.getAttribute("data-av-edit")); return; }
@@ -5867,7 +6096,7 @@
       render();
       return;
     }
-    if (t.dataset.open === "book") { e.preventDefault(); openBook(t.dataset.pid); }
+    if (t.dataset.open === "book") { e.preventDefault(); openBook(t.dataset.pid, { lockPatient: state.page === "patients" }); }
     else if (t.dataset.open === "block") { e.preventDefault(); openAddBlock(); }
     else if (t.dataset.open === "note-composer") { e.preventDefault(); openNoteComposer(t.dataset.pid, t.dataset.appt, t.dataset.visit); return; }
     else if (t.dataset.open === "note-view") { e.preventDefault(); openNoteView(t.dataset.pid, t.dataset.nid); return; }

@@ -101,6 +101,7 @@ a{color:var(--ink)}
 .modal-head h2{margin:0;font-size:18px}
 .modal-body{padding:20px;flex:1 1 auto;min-height:0;overflow:auto}
 .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+[hidden]{display:none !important}
 .field label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px}
 .field input,.field select,.field textarea{width:100%}
 .field.full{grid-column:1/-1}
@@ -592,3 +593,25 @@ button.audit-icon,a.audit-icon,.audit-icon{appearance:none;-webkit-appearance:no
 .prep-pill:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
 .wl-prep{position:relative}
 .prep-detail{position:absolute;z-index:4;top:calc(100% + 4px);left:0;min-width:160px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 10px;box-shadow:var(--shadow)}
+
+/* Round 14a — Admin */
+.admin-tabs{display:flex;flex-wrap:wrap;width:fit-content;margin:0 0 16px;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--paper)}
+.admin-tabs a{padding:7px 12px;text-decoration:none;color:var(--muted);font-weight:600;font-size:12px;border-right:1px solid var(--line)}
+.admin-tabs a:last-child{border-right:0}
+.admin-tabs a.active,.admin-tabs a:hover,.admin-tabs a:focus-visible{background:var(--field);color:var(--ink)}
+.team-table td:last-child{text-align:right;white-space:nowrap}
+
+/* Round 14a — compact booking window */
+.modal-back.book-mode .modal{width:min(680px,calc(100vw - 48px));max-height:calc(100vh - 32px)}
+.modal-back.book-mode .modal-head{padding:12px 16px}
+.modal-back.book-mode .modal-head h2{font-size:17px}
+.modal-back.book-mode .modal-body{padding:12px 16px;overflow:auto}
+.modal-back.book-mode .modal-foot{padding:10px 16px}
+.modal-back.book-mode .formgrid,.book-grid{gap:10px 14px}
+.modal-back.book-mode .field textarea{min-height:48px}
+.book-patient-chip{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--field);margin:0 0 12px}
+.book-patient-chip strong{font-weight:650}
+.book-patient-chip span{color:var(--muted);font-size:12px}
+.book-times{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+.book-new-step{margin:0}
+#bookPatientField #bookNewToggle{margin-top:8px}

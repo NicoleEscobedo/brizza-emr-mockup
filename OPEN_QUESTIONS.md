@@ -91,3 +91,10 @@ Items below are **not invented answers**. In the UI they appear as a labeled **O
 32. **Left without paying placement.** The control is only inside the Checkout / Invoice modal, not on the main Worklist row. Suggested default: keep it off the row.
 33. **New appointment and Admin block placement.** Both actions sit on the Schedule (calendar) header, not the Worklist header. Suggested default: keep booking and blocks on the calendar header; calendar slot ＋ Add remains.
 34. **Demographics confirm from the Worklist.** The main row shows only the [ID][F][D] widget. Confirmed / Not confirmed, Edit, and Confirm demographics appear in the expanded registration panel; Edit still opens the demographics pop-up. Suggested default: keep both the in-panel Confirm and the pop-up path.
+
+## Still open (Round 14a)
+
+35. **Team & Access name.** The new Admin section is labeled Team & Access. Suggested default: keep Team & Access until Nicole picks another name.
+36. **Who may invite or deactivate users.** Invite and Edit work in memory for this preview, with no sign-in. Suggested default: only MD / Owner and Clinic Manager, until an official rule is named.
+37. **Access-level labels.** Access is derived from the existing acting-role permissions (Full access, Manager, Front desk, Clinical · Injectables, Clinical · Aesthetics, Marketing, Clinical support). Suggested default: keep these labels until official permission names are provided.
+38. **Chart booking locks the patient.** + Appointment from the Patient chart shows a read-only chip (name, DOB, #ID) with no search and no + Add new patient. Suggested default: keep the patient locked from the chart; allow search only when booking from Schedule.

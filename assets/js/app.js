@@ -562,8 +562,14 @@
     } else if (p0 === "queue" || p0 === "tasks") {
       route = { page: "queue", date: parts[1] || state.date || BRIZZA.SAMPLE_DAY };
     } else if (p0 === "admin") {
-      const tab = ({ team: "team", availability: "availability", types: "types", reasons: "reasons", settings: "settings" })[parts[1]] || "team";
-      route = { page: "admin", adminTab: tab };
+      if (parts[1] === "inventory") {
+        route = { page: "admin", adminTab: "inventory", invTab: parts[2] || state.invTab || "catalog" };
+      } else {
+        const tab = ({ team: "team", availability: "availability", types: "types", reasons: "reasons", settings: "settings" })[parts[1]] || "team";
+        route = { page: "admin", adminTab: tab };
+      }
+    } else if (p0 === "emr") {
+      route = { page: "emr" };
     } else if (p0 === "configuration") {
       route = { page: "admin", adminTab: "settings", redirect: true };
     } else if (p0 === "appointment-types") {
@@ -588,7 +594,7 @@
       const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || todayET());
       route = { page: "rooming", date: date };
     } else if (p0 === "inventory") {
-      route = { page: "inventory", invTab: parts[1] || state.invTab || "catalog" };
+      route = { page: "admin", adminTab: "inventory", invTab: parts[1] || state.invTab || "catalog", redirect: true };
     } else if (p0 === "availability") {
       route = { page: "admin", adminTab: "availability", redirect: true };
     } else if (p0 === "notes") {
@@ -613,7 +619,8 @@
     } else if (route.page === "queue" || route.page === "tasks") path = "/tasks/" + (route.date || state.date);
     else if (route.page === "admin" || route.page === "configuration" || route.page === "types" || route.page === "reasons" || route.page === "availability") {
       const tab = route.adminTab || (route.page === "configuration" ? "settings" : route.page === "admin" ? (state.adminTab || "team") : route.page);
-      path = "/admin/" + (tab || "team");
+      if (tab === "inventory") path = "/admin/inventory/" + (route.invTab || state.invTab || "catalog");
+      else path = "/admin/" + (tab || "team");
     }
     else if (route.page === "visit") path = "/visits/" + route.visitId;
     else if (route.page === "checkout") path = "/pos/invoice/" + route.invoiceId;
@@ -627,7 +634,8 @@
     else if (route.page === "demo") path = "/demo";
     else if (route.page === "audit") path = "/audit/" + route.auditId;
     else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
-    else if (route.page === "inventory") path = "/inventory/" + (route.invTab || state.invTab || "catalog");
+    else if (route.page === "inventory") path = "/admin/inventory/" + (route.invTab || state.invTab || "catalog");
+    else if (route.page === "emr") path = "/emr";
     else if (route.page === "notes") path = "/notes" + (route.notesDash === "signed" ? "/signed" : "");
     return "#" + path + "?theme=01";
   }
@@ -662,7 +670,7 @@
     if (r.auditId) state.auditId = r.auditId;
     document.documentElement.setAttribute("data-theme", state.theme);
     if (r.redirect) {
-      const canon = hashFor({ page: "admin", adminTab: r.adminTab || state.adminTab || "team" });
+      const canon = hashFor({ page: "admin", adminTab: r.adminTab || state.adminTab || "team", invTab: r.invTab || state.invTab });
       if (location.hash !== canon) history.replaceState(null, "", canon);
     }
     if (r.page === "demo" && !state.demo.running) {
@@ -1611,15 +1619,15 @@
   }
 
   function renderInventory() {
-    const head = pageHead("Inventory", "Inventory", "Lots follow FEFO. Usage posts when an invoice is finalized.", "");
+    const head = pageHead("Admin", "Inventory", "Lots follow FEFO. Usage posts when an invoice is finalized.", "");
     if (!canManageInventory()) {
-      const body = '<div class="card"><div class="cardbody"><div class="notice">Inventory is available when acting as Clinic Manager or MD / Clinic Owner. Change Acting as in the sidebar to open this module.</div></div></div>';
-      renderChrome("Inventory", head, body);
+      const body = '<div class="card"><div class="cardbody"><div class="notice">Inventory is available when acting as Clinic Manager or MD / Clinic Owner. Change Acting as in the top bar to open this module.</div></div></div>';
+      renderAdminChrome(head, body);
       return;
     }
     const tab = state.invTab || "catalog";
     const tabs = [["catalog","Catalog"],["orders","Purchase orders"],["lots","Lots"],["trace","Lot trace"],["adjust","Adjustments"],["alerts","Low-stock alerts"],["audit","Inventory audit"]].map(function (x) {
-      return '<a class="tab ' + (tab === x[0] ? "active" : "") + '" href="' + hashFor({ page: "inventory", invTab: x[0] }) + '">' + x[1] + "</a>";
+      return '<a class="tab ' + (tab === x[0] ? "active" : "") + '" href="' + hashFor({ page: "admin", adminTab: "inventory", invTab: x[0] }) + '">' + x[1] + "</a>";
     }).join("");
     let body = '<div class="inv-tabs" role="tablist">' + tabs + "</div>";
     if (tab === "catalog") body += invCatalogHtml();
@@ -1630,7 +1638,7 @@
     else if (tab === "alerts") body += invAlertsHtml();
     else body += invAuditHtml();
     body += openQ("Product costs were not provided. Cost fields are editable TBD values; margin appears only after a cost is entered in this session (Open question 24). Beyond-use dating for open vials is not specified (Open question 25).");
-    renderChrome("Inventory", head, body);
+    renderAdminChrome(head, body);
   }
   function invCatalogHtml() {
     const rows = (store.catalog || []).map(function (c) {
@@ -2135,7 +2143,8 @@
         (key === "queue" && state.page === "queue") ||
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
-        (key === "inventory" && state.page === "inventory") ||
+        (key === "inventory" && state.page === "admin" && state.adminTab === "inventory") ||
+        (key === "emr" && state.page === "emr") ||
         (key === "admin" && state.page === "admin");
       return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
     };
@@ -2143,7 +2152,7 @@
       <a class="skip" href="#main">Skip to content</a>
       <div class="shell">
         <aside class="side">
-          <div class="brand"><span class="brand-name"><span class="brand-b">B</span>rizza</span><small>clinic workspace</small></div>
+          <div class="brand"><span class="brand-name"><span class="brand-b">B</span>rizza</span><small>Aesthetics</small></div>
           <div class="nav-label">Workspace</div>
           <nav class="nav" aria-label="Workspace">
             ${nav(hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }), "schedule", "Schedule", "▦")}
@@ -2153,7 +2162,10 @@
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Tasks", "☷")}
             ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
             ${nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰")}
-            ${nav(hashFor({ page: "inventory" }), "inventory", "Inventory", "▦")}
+          </nav>
+          <div class="nav-label">EMR</div>
+          <nav class="nav" aria-label="EMR">
+            ${nav(hashFor({ page: "emr" }), "emr", "EMR", "✚")}
           </nav>
           <div class="nav-label">Clinic</div>
           <nav class="nav" aria-label="Clinic">
@@ -2162,7 +2174,7 @@
         </aside>
         <main class="main" id="main">
           <header class="top">
-            <div class="crumb">Brizza Clinic / ${crumb}</div>
+            <div class="crumb">Brizza Aesthetics / ${crumb}</div>
             <div class="topright">
               ${(state.page === "patients") ? findPatientHtml() : ""}
               <span class="disclaimer">Synthetic data · prototype, not a production EMR</span>
@@ -4083,6 +4095,7 @@
       { id: "availability", label: "Availability" },
       { id: "types", label: "Appointment types" },
       { id: "reasons", label: "Appointment reasons" },
+      { id: "inventory", label: "Inventory" },
       { id: "settings", label: "Settings" }
     ];
     return '<div class="admin-tabs" role="tablist" aria-label="Admin">' + tabs.map(function (x) {
@@ -4524,7 +4537,7 @@
   }
   function bookPatientChipHtml(p) {
     if (!p) return "";
-    return '<div class="book-patient-chip" aria-label="Patient"><strong>' + esc(p.name) + "</strong><span>" +
+    return '<div class="book-patient-chip" aria-label="Patient"><strong>' + esc(p.name) + "</strong> <span>" +
       esc(fmtDob(p.dob)) + " · " + esc(displayId(p.id)) + "</span></div>";
   }
   function openBook(pid, preset) {
@@ -5665,6 +5678,76 @@
     render();
   }
 
+
+  function actingProviderStaff() {
+    return (BRIZZA.STAFF || []).find(function (s) { return s.isProvider && s.role === state.actingRole; }) || null;
+  }
+  function lastVisitBefore(pid, date) {
+    return (store.appointments || []).filter(function (a) {
+      return a.patientId === pid && a.date && a.date < date && a.status !== "Canceled" && a.status !== "Rescheduled";
+    }).sort(function (a, b) { return (b.date + " " + (b.time || "")).localeCompare(a.date + " " + (a.time || "")); })[0] || null;
+  }
+  function allergyLabel(p) {
+    const list = (p && p.allergies) || [];
+    if (!list.length) return "No allergies on file";
+    return list.join(", ");
+  }
+  function pendingNotesForProvider(providerName) {
+    const items = [];
+    (store.patients || []).forEach(function (p) {
+      (p.notes || []).forEach(function (n) {
+        if (!isNoteSigned(n) && n.provider === providerName) items.push({ p: p, n: n });
+      });
+    });
+    items.sort(function (a, b) { return String(b.n.date || "").localeCompare(String(a.n.date || "")); });
+    return items;
+  }
+  function renderEmr() {
+    const staff = actingProviderStaff();
+    const day = demoClockDate();
+    const head = pageHead("EMR", "Today", staff ? (esc(staff.name) + " · " + esc(fmtDate(day)) + " · Demo clock · " + esc(demoClockLabel())) : "The provider workspace", "");
+    if (!staff) {
+      const body = '<div class="card"><div class="cardbody"><div class="notice">EMR is the provider workspace. Act as MD / Clinic Owner, RN / NP Injector, or Aesthetician in the top bar to see today\'s patients and pending notes.</div></div></div>';
+      renderChrome('<a href="' + hashFor({ page: "emr" }) + '">EMR</a>', head, body);
+      return;
+    }
+    const list = (store.appointments || []).filter(function (a) {
+      return a.date === day && a.provider === staff.name && a.status !== "Canceled" && a.status !== "Rescheduled";
+    }).sort(function (a, b) { return String(a.time || "").localeCompare(String(b.time || "")); });
+    const cards = list.map(function (a) {
+      const p = patient(a.patientId);
+      if (!p) return "";
+      const alerts = ((p.alerts || []).map(function (al) { return '<span class="alert-item">' + esc(al.text) + "</span>"; }).join(" ")) || '<span class="row-sub">No alerts</span>';
+      const last = lastVisitBefore(p.id, day);
+      const lastText = last ? (fmtDate(last.date) + " · " + (last.type || "Visit")) : "No prior visit on file";
+      const noteBtn = isClinicalRole()
+        ? '<button class="btn small primary" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">＋ New note</button>'
+        : "";
+      return '<div class="emr-patient">' +
+        '<div><a class="patient-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>" +
+        '<div class="emr-snap">' + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(a.status || "") + " · " + esc(displayId(p.id)) + "</div>" +
+        '<div class="emr-alerts" aria-label="Alerts">' + alerts + "</div>" +
+        '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>" +
+        '<div class="emr-snap"><strong>Last visit</strong> ' + esc(lastText) + "</div></div>" +
+        '<div class="emr-actions">' + noteBtn + "</div></div>";
+    }).join("") || '<div class="empty">No patients on this provider\'s schedule today.</div>';
+    const pending = pendingNotesForProvider(staff.name);
+    const pendingRows = pending.map(function (item) {
+      const n = item.n, p = item.p;
+      const open = isNoteEditable(n)
+        ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"'
+        : ' data-open="note-view" data-nid="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"';
+      return '<button type="button" class="row" style="width:100%;text-align:left"' + open + ">" +
+        '<div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + '</div>' +
+        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.status || "Open") + " · " + esc(displayId(p.id)) + "</div></div>" +
+        badge(n.status || "Open") + "</button>";
+    }).join("") || '<div class="empty">No pending notes for this provider.</div>';
+    const body = '<div class="emr-grid">' +
+      '<div class="card"><div class="cardhead"><h2>Today\'s patients</h2></div><div class="cardbody">' + cards + "</div></div>" +
+      '<div class="card"><div class="cardhead"><h2>Pending notes</h2></div><div class="cardbody">' + pendingRows + "</div></div>" +
+      "</div>";
+    renderChrome('<a href="' + hashFor({ page: "emr" }) + '">EMR</a>', head, body);
+  }
   function renderNotesDash() {
     const mode = state.notesDash === "signed" ? "signed" : "pending";
     state.notesDash = mode;
@@ -5719,6 +5802,7 @@
       else if (tab === "availability") renderAvailability();
       else if (tab === "types") renderTypes();
       else if (tab === "reasons") renderReasons();
+      else if (tab === "inventory") renderInventory();
       else renderSettings();
     }
     else if (state.page === "visit") renderVisit();
@@ -5726,6 +5810,7 @@
     else if (state.page === "audit") renderAudit();
     else if (state.page === "rooming") renderRooming();
     else if (state.page === "inventory") renderInventory();
+    else if (state.page === "emr") renderEmr();
     else if (state.page === "notes") renderNotesDash();
     else renderPatients();
     if (state.demo.running) paintDemoPanel();

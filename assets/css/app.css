@@ -11,7 +11,7 @@ a{color:var(--ink)}
 .shell{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:100vh;height:100vh;overflow:hidden}
 .side{background:var(--sidebar);color:var(--sidebar-text);padding:20px 12px;display:flex;flex-direction:column;border-radius:0;height:100vh;overflow:auto;position:sticky;top:0;align-self:start}
 .brand{padding:4px 10px 18px}
-.brand-name{display:block;font-size:30px;letter-spacing:0.01em;line-height:1}
+.brand-name{display:block;font-size:30px;letter-spacing:0.06em;line-height:1;text-transform:uppercase}
 .brand small{display:block;color:var(--sidebar-muted);font-size:10px;letter-spacing:.14em;text-transform:uppercase;margin-top:4px;font-family:var(--font-text)}
 .nav-label{padding:12px 11px 6px;color:var(--sidebar-muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em}
 .nav a,.nav button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 11px;border-radius:var(--radius-sm);color:var(--sidebar-text);margin:1px 0;text-decoration:none}
@@ -615,3 +615,13 @@ button.audit-icon,a.audit-icon,.audit-icon{appearance:none;-webkit-appearance:no
 .book-times{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
 .book-new-step{margin:0}
 #bookPatientField #bookNewToggle{margin-top:8px}
+
+/* —— Round 14a: EMR overview —— */
+.emr-grid{display:grid;gap:16px}
+.emr-patient{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:start;padding:14px 0;border-bottom:1px solid var(--line)}
+.emr-patient:last-child{border-bottom:0}
+.emr-patient .patient-name{font-size:20px;text-decoration:none}
+.emr-snap{color:var(--muted);font-size:12.5px;margin-top:3px}
+.emr-snap strong{color:var(--ink);font-weight:600}
+.emr-alerts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.emr-actions{padding-top:2px}

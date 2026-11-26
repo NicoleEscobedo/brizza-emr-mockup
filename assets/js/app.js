@@ -477,6 +477,7 @@
   const store = BRIZZA.seed();
   store.collectTasks = store.collectTasks || [];
   store.tasks = seedClinicTasks();
+  store.noteTemplates = loadNoteTemplates();
   const state = {
     theme: "01", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BZ0001",
     tab: "demographics", visitId: null, invoiceId: null, appointmentId: null,
@@ -487,7 +488,7 @@
     expandedAppt: null, expandedPrep: null, auditId: null,
     actingRole: "Clinic Coordinator", adminTab: "home", showInactiveUsers: false, roomingDate: null, scheduleSearch: "", noteDraft: null, alertsOpen: null,
     worklistFilters: loadWorklistFilters(),
-    taskScope: "mine", taskDueToday: false, showCompletedTasks: false
+    taskScope: "mine", taskDueToday: false, showCompletedTasks: false, tplEditId: null, tplDraft: null
   };
 
   const patient = (id) => store.patients.find((p) => p.id === id);
@@ -1875,6 +1876,48 @@
     return st === "Finalized" || st === "Amended" || st === "Signed" || st === "Locked" || !!(n && n.locked);
   }
   function isNoteEditable(n) { return !isNoteSigned(n); }
+  function isNoteAuthor(n) {
+    if (!n || !n.provider) return true;
+    return n.provider === actingName();
+  }
+  function canFinalizeNote(n) {
+    if (!isClinicalRole()) return false;
+    if (isOwnerRole()) return true;
+    return isNoteAuthor(n);
+  }
+  function canMarkReady(n) {
+    return isClinicalRole() && (!n || !isNoteSigned(n));
+  }
+  function latestPatientNote(pid, exceptId) {
+    const p = patient(pid);
+    const list = ((p && p.notes) || []).filter(function (n) { return n && n.id !== exceptId; })
+      .slice()
+      .sort(function (a, b) { return String(b.date || "").localeCompare(String(a.date || "")) || String(b.id || "").localeCompare(String(a.id || "")); });
+    return list[0] || null;
+  }
+  function lastNoteLineHtml(pid, exceptId) {
+    const last = latestPatientNote(pid, exceptId);
+    if (!last) return '<p class="row-sub last-note-line" id="lastNoteLink">No earlier note</p>';
+    const label = (last.type || "Note") + " · " + fmtDate(last.date) + (last.time ? " · " + fmtTime(last.time) : "") + " · " + (last.status || "Draft");
+    return '<p class="row-sub last-note-line" id="lastNoteLink">Last note: <button type="button" class="text-link" data-view-note="' + esc(last.id) + '" data-pid="' + esc(pid) + '">' + esc(label) + "</button></p>";
+  }
+  function noteOutlineHtml(tpl) {
+    const items = [{ id: "noteHx", title: "Medical history" }].concat((tpl && tpl.sections || []).map(function (s, i) {
+      return { id: "sec-" + (s.id || i), title: s.title || ("Section " + (i + 1)) };
+    })).concat([{ id: "notePreviewWrap", title: "Generated note" }]);
+    return '<nav class="note-outline" aria-label="Note sections">' + items.map(function (it) {
+      return '<button type="button" class="text-link" data-note-jump="' + esc(it.id) + '">' + esc(it.title) + "</button>";
+    }).join(" ") + "</nav>";
+  }
+  function captureNoteReturn() {
+    if (!state.noteReturn) state.noteReturn = location.hash;
+  }
+  function returnAfterNote() {
+    const ret = state.noteReturn;
+    state.noteReturn = null;
+    if (ret && location.hash !== ret) location.hash = ret;
+    else render();
+  }
   function templateIdFromNote(n) {
     if (n && n.templateId) return n.templateId;
     const tpls = notesTemplatesForRole();
@@ -1906,8 +1949,10 @@
     return true;
   }
   function missingAnyNoteFields(tpl, values) {
+    const fromTpl = missingNoteFields(tpl, values);
+    if (fromTpl.length || (tpl && tpl.sections && tpl.sections.length)) return fromTpl;
     const qs = builderQuestions(tpl);
-    if (!qs) return missingNoteFields(tpl, values);
+    if (!qs) return fromTpl;
     const missing = [];
     qs.forEach(function (q) {
       if (!q.required || !questionVisible(q, values)) return;
@@ -1936,7 +1981,9 @@
     return "This visit note records only the details that were selected or entered. " + sentences.join(" ");
   }
   function faceMapEnabled(tpl) {
-    return !!(tpl && tpl.id === "inj-procedure");
+    if (templateHasType(tpl, "facemap")) return true;
+    const id = tpl && (tpl.familyId || tpl.id);
+    return id === "inj-procedure";
   }
   function faceRegions() {
     return [
@@ -2587,9 +2634,9 @@
         '<h3 class="section-title">Patient notes</h3><p class="row-sub">Non-clinical notes, timestamped with the author.</p>' +
         patientNotesHtml(p) +
         "</div></div>";
-    } else if (state.tab === "clinical-profile") {
-      const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">' + empty + "</div>";
-      body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3>${rows(p.conditions, "No history items recorded")}
+    } else if (state.tab === "clinical-profile") { /* B2 read-only history */
+      const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + "</span></div>").join("") : '<div class="empty">' + empty + "</div>";
+      body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3><p class="row-sub">This is a read-only summary. Edit history in a clinical note.</p>${lastNoteLineHtml(p.id)}${rows(p.conditions, "No history items recorded")}
         <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}
         <h3 class="section-title" style="margin-top:18px">Pharmacy</h3>${p.pharmacy ? '<div class="row"><span>' + esc(p.pharmacy) + "</span></div>" : '<div class="empty">No pharmacy recorded (if applicable)</div>'}</div>
         <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}</div></div></div>
@@ -3008,16 +3055,18 @@
     return isOwnerRole(role) || (BRIZZA.CLINICAL_NOTE_ROLES || []).indexOf(role) >= 0;
   }
   function canUseTemplate(tplOrId, role) {
-    const id = typeof tplOrId === "string" ? tplOrId : ((tplOrId && tplOrId.id) || "");
     role = role || state.actingRole;
+    const tpl = typeof tplOrId === "object" && tplOrId ? tplOrId : getNoteTemplate(tplOrId);
+    const id = (tpl && (tpl.familyId || tpl.id)) || (typeof tplOrId === "string" ? tplOrId : "");
     if (!id) return isClinicalRole(role);
     if (isOwnerRole(role)) return true;
+    if (tpl && tpl.roles && tpl.roles.length) return tpl.roles.indexOf(role) >= 0;
     if (role === "Aesthetician") return id.indexOf("aes-") === 0;
     if (role === "RN / NP Injector") return id.indexOf("inj-") === 0;
     return false;
   }
   function notesTemplatesForRole(role) {
-    return (BRIZZA.NOTE_TEMPLATES || []).filter(function (tpl) { return canUseTemplate(tpl.id, role); });
+    return currentNoteTemplates().filter(function (tpl) { return canUseTemplate(tpl, role); });
   }
   function createNoteButton(pid, apptId, visitId) {
     if (!isClinicalRole()) return "";
@@ -3462,25 +3511,16 @@
     (template.sections || []).forEach((sec) => {
       (sec.fields || []).forEach((f) => {
         if (!f.required) return;
-        const v = (values[f.id] || "").toString().trim();
-        if (!v) missing.push(f.label);
+        if (f.type === "section" || f.type === "static" || f.type === "prose" || f.type === "units-sum") return;
+        if (!fieldVisible(f, values)) return;
+        const raw = values[f.id];
+        const empty = raw == null || (Array.isArray(raw) ? !raw.length : String(raw).trim() === "");
+        if (empty) missing.push(f.label);
       });
     });
     return missing;
   }
-  function noteFieldControl(f, value) {
-    const req = f.required ? ' aria-required="true"' : "";
-    const star = f.required ? requiredMark() : "";
-    const label = '<label for="nf-' + esc(f.id) + '">' + esc(f.label) + star + "</label>";
-    if (f.type === "textarea") {
-      return '<div class="field full">' + label + '<textarea id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '"' + req + ">" + esc(value || "") + "</textarea></div>";
-    }
-    if (f.type === "select") {
-      const opts = ['<option value="">Select</option>'].concat(fieldOptions(f).map((o) => "<option" + (value === o ? " selected" : "") + ">" + esc(o) + "</option>"));
-      return '<div class="field">' + label + '<select id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '"' + req + ">" + opts.join("") + "</select></div>";
-    }
-    return '<div class="field">' + label + '<input id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '" type="text"' + req + ' value="' + esc(value || "") + '"></div>';
-  }
+  /* noteFieldControl is defined with the template builder helpers */
   function listToLines(arr) { return (arr || []).join("\n"); }
   function linesToList(s) {
     return String(s || "").split(/\n|;/).map(function (x) { return x.trim(); }).filter(Boolean);
@@ -3524,8 +3564,8 @@
     const locked = !!draft.hxConfirmLock;
     const checked = !!(draft.hxReviewed || locked);
     return '<section class="note-hx" id="noteHx">' +
-      '<h3 class="section-title">Medical history confirm</h3>' +
-      '<p class="row-sub">These details live on the chart and carry into every future note. Check Reviewed, no changes when nothing is new.</p>' +
+      '<h3 class="section-title">Medical history</h3>' +
+      '<p class="row-sub">Required on every note and cannot be removed. Edits update the chart right away. Check Reviewed, no changes when nothing is new. That confirmation auto-locks when you sign.</p>' +
       '<div class="field full"><label for="hxAllergies">Allergies</label><textarea id="hxAllergies" data-hx="allergies">' + esc(listToLines(p.allergies)) + "</textarea></div>" +
       '<div class="field full"><label for="hxMeds">Current medications</label><textarea id="hxMeds" data-hx="meds">' + esc(listToLines(p.meds)) + "</textarea></div>" +
       '<div class="field full"><label for="hxHistory">Medical history</label><textarea id="hxHistory" data-hx="conditions">' + esc(listToLines(p.conditions)) + "</textarea></div>" +
@@ -3535,7 +3575,7 @@
       '<input type="checkbox" id="hxReviewed"' + (checked ? " checked" : "") + (locked ? " disabled" : "") + '>' +
       '<label for="hxReviewed">Reviewed, no changes</label></div>' +
       '<div class="hx-lock">' +
-      '<button type="button" class="btn small" id="hxLockBtn"' + (locked ? " hidden" : "") + ">Lock confirmation</button>" +
+      '<button type="button" class="btn small" id="hxLockBtn" hidden>Lock confirmation</button>' +
       '<p class="row-sub" id="hxLockMeta"' + (locked ? "" : " hidden") + ">" + (locked ? ("Confirmation locked by " + hxLockLabel(draft.hxConfirmLock)) : "") + "</p>" +
       "</div>" +
       '<div id="hxWarn"></div></section>';
@@ -3577,6 +3617,10 @@
   function clearNoteFootButtons() {
     const b = $("#noteSaveDraft");
     if (b) b.remove();
+    const r = $("#noteReadyBtn");
+    if (r) r.remove();
+    const save = $("#modalSave");
+    if (save) save.hidden = false;
   }
   function ensureNoteFootButtons() {
     const foot = document.querySelector("#modal .modal-foot");
@@ -3591,12 +3635,52 @@
       foot.insertBefore(b, $("#modalSave"));
     }
     b.onclick = function (e) { e.preventDefault(); saveNoteDraft(); };
+    let r = $("#noteReadyBtn");
+    if (!r) {
+      r = document.createElement("button");
+      r.id = "noteReadyBtn";
+      r.className = "btn";
+      r.type = "button";
+      r.textContent = "Ready for review";
+      foot.insertBefore(r, $("#modalSave"));
+    }
+    r.onclick = function (e) { e.preventDefault(); saveNoteReady(); };
   }
   function collectNoteValues() {
     const values = {};
     $$("[data-nf]").forEach(function (el) {
       const id = el.getAttribute("data-nf");
-      if (id) values[id] = el.value;
+      if (!id) return;
+      const typ = el.getAttribute("data-nf-type") || el.type;
+      if (typ === "checkbox-group" || el.getAttribute("data-nf-group")) {
+        if (!Array.isArray(values[id])) values[id] = [];
+        if (el.checked) values[id].push(el.value);
+      } else if (typ === "checkbox" || el.type === "checkbox") {
+        values[id] = el.checked ? (el.value || "Yes") : "";
+      } else if (typ === "radio") {
+        if (el.checked) values[id] = el.value;
+        else if (values[id] == null) values[id] = "";
+      } else if (el.multiple || typ === "multiselect") {
+        values[id] = Array.prototype.filter.call(el.options, function (o) { return o.selected && o.value; }).map(function (o) { return o.value; });
+      } else {
+        values[id] = el.value;
+      }
+    });
+    $$("[data-nf-table]").forEach(function (tbl) {
+      const id = tbl.getAttribute("data-nf-table");
+      const cols = (tbl.getAttribute("data-cols") || "").split("|").filter(Boolean);
+      const rows = [];
+      tbl.querySelectorAll("tbody tr").forEach(function (tr) {
+        const row = {};
+        let empty = true;
+        cols.forEach(function (c) {
+          const inp = tr.querySelector('[data-col="' + c + '"]');
+          row[c] = inp ? inp.value : "";
+          if (row[c]) empty = false;
+        });
+        if (!empty) rows.push(row);
+      });
+      values[id] = rows;
     });
     return values;
   }
@@ -3609,11 +3693,27 @@
       if (miss) miss.innerHTML = '<div class="notice note-missing">Select a template to begin.</div>';
       return;
     }
-    const tpl = (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
+    const tpl = getNoteTemplate(draft.templateId) || (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
     if (!tpl) return;
     draft.values = collectNoteValues();
+    (tpl.sections || []).forEach(function (sec) {
+      (sec.fields || []).forEach(function (f) {
+        const wrap = document.querySelector('#modal [data-field-id="' + f.id + '"]');
+        if (wrap) wrap.hidden = !fieldVisible(f, draft.values);
+      });
+    });
     const missing = missingAnyNoteFields(tpl, draft.values);
-    if (save) save.disabled = missing.length > 0;
+    const rec = draft.noteId && patient(draft.pid) && (patient(draft.pid).notes || []).find(function (n) { return n.id === draft.noteId; });
+    const maySign = canFinalizeNote(rec || { provider: actingName() });
+    if (save) {
+      save.disabled = missing.length > 0 || !maySign;
+      save.hidden = !maySign;
+    }
+    const readyBtn = $("#noteReadyBtn");
+    if (readyBtn) {
+      readyBtn.hidden = !canMarkReady(rec);
+      readyBtn.disabled = missing.length > 0;
+    }
     const miss = $("#noteMissing");
     if (miss) {
       miss.innerHTML = missing.length
@@ -3625,7 +3725,9 @@
   }
   function openNoteComposer(pid, apptId, visitId, noteId) {
     if (!isClinicalRole()) { toast("Create Note is limited to clinical roles"); return; }
+    captureNoteReturn();
     const p = patient(pid);
+    const ap = apptId ? appt(apptId) : null;
     const existing = (noteId && p) ? (p.notes || []).find(function (n) { return n.id === noteId; }) : null;
     if (noteId && existing && (isNoteSigned(existing) || !canUseTemplate(templateIdFromNote(existing)))) {
       openNoteView(pid, noteId);
@@ -3646,34 +3748,39 @@
           otherUnits: existing.otherUnits || "",
           fromConsultId: existing.fromConsultId || null,
           hxReviewed: !!(existing.hxReviewed || existing.hxConfirmLock),
-          hxConfirmLock: existing.hxConfirmLock || null
+          hxConfirmLock: existing.hxConfirmLock || null,
+          date: existing.date || (ap && ap.date) || todayET(),
+          time: existing.time || (ap && ap.time) || (BRIZZA.DEMO_CLOCK && BRIZZA.DEMO_CLOCK.time) || ""
         }
-      : { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {}, preview: "", previewEdited: false, facePoints: [], otherAreaLabel: "", otherUnits: "", hxReviewed: false, hxConfirmLock: null };
+      : { pid: pid, apptId: apptId || null, visitId: visitId || null, templateId: "", values: {}, preview: "", previewEdited: false, facePoints: [], otherAreaLabel: "", otherUnits: "", hxReviewed: false, hxConfirmLock: null, date: (ap && ap.date) || todayET(), time: (ap && ap.time) || (BRIZZA.DEMO_CLOCK && BRIZZA.DEMO_CLOCK.time) || "" };
     paintNoteComposer();
   }
   function paintNoteComposer() {
     const draft = state.noteDraft;
     const p = patient(draft.pid);
     const tpls = notesTemplatesForRole();
-    const tpl = tpls.find((t) => t.id === draft.templateId);
-    const picker = '<div class="field"><label for="noteTpl">Template</label><select id="noteTpl"><option value="">Select a template</option>' +
-      tpls.map((t) => "<option value=\"" + esc(t.id) + "\"" + (draft.templateId === t.id ? " selected" : "") + ">" + esc(t.name) + "</option>").join("") + "</select></div>";
+    const tpl = tpls.find((t) => t.id === draft.templateId || t.familyId === draft.templateId) || getNoteTemplate(draft.templateId);
+    if (tpl) applyPullIns(draft, tpl);
+    const picker = '<div class="note-meta"><div class="field"><label for="noteTpl">Type</label><select id="noteTpl"><option value="">Select a template</option>' +
+      tpls.map((t) => "<option value=\"" + esc(t.id) + "\"" + (draft.templateId === t.id ? " selected" : "") + ">" + esc(t.name) + "</option>").join("") + "</select></div>" +
+      '<div class="field"><label for="noteTime">Time</label><input id="noteTime" type="time" value="' + esc(draft.time || "") + '"></div></div>' +
+      lastNoteLineHtml(draft.pid, draft.noteId);
     let sections = "";
     if (tpl) {
       const flag = tpl.draft ? openQ("Draft templates – Open question. This " + tpl.name + " template is not taken from the SOPs or V1 documents.") : '<div class="notice">' + esc(tpl.source) + "</div>";
-      const face = (typeof faceMapHtml === "function") ? faceMapHtml(tpl, draft) : "";
-      const builder = (typeof noteBuilderHtml === "function") ? noteBuilderHtml(tpl, draft) : "";
-      const fields = builder || tpl.sections.map((sec) => "<h3 class=\"section-title\">" + esc(sec.title) + "</h3><div class=\"formgrid\">" +
-        sec.fields.map((f) => noteFieldControl(f, (draft.values || {})[f.id])).join("") + "</div>").join("");
+      const face = templateHasType(tpl, "facemap") ? "" : ((typeof faceMapHtml === "function") ? faceMapHtml(tpl, draft) : "");
+      const builder = "";
+      const fields = (typeof templateFieldsHtml === "function") ? templateFieldsHtml(tpl, draft) : (builder || (tpl.sections || []).map(function (sec) { return "<h3 class=\"section-title\">" + esc(sec.title) + "</h3><div class=\"formgrid\">" + (sec.fields || []).map(function (f) { return noteFieldControl(f, (draft.values || {})[f.id], draft); }).join("") + "</div>"; }).join(""));
       const previewVal = draft.previewEdited ? (draft.preview || "") : (compileNoteSentences(tpl, draft.values || {}, draft) || compileFieldText(tpl, draft.values || {}));
-      const preview = '<div class="note-preview"><h3 class="section-title">Generated note</h3>' +
+      const preview = '<div class="note-preview" id="notePreviewWrap"><h3 class="section-title">Generated note</h3>' +
         '<p class="row-sub">This text is built only from what you selected or typed. You may edit it before saving.</p>' +
         '<label class="sr-only" for="notePreview">Generated note text</label>' +
         '<textarea id="notePreview">' + esc(previewVal) + "</textarea></div>";
       const proc = (isConsultNote({ templateId: tpl.id, type: tpl.name }) && isClinicalRole())
         ? '<div style="margin-top:14px"><button class="btn small" type="button" data-proc-from-draft="1">Create procedure note</button></div>'
         : "";
-      sections = flag + face + fields + preview + noteHistoryConfirmHtml(p, draft) + proc;
+      const faceBlock = face ? '<div class="field facemap-row" id="noteFaceRow">' + face + "</div>" : "";
+      sections = noteOutlineHtml(tpl) + noteHistoryConfirmHtml(p, draft) + flag + fields + faceBlock + preview + proc;
     }
     const title = (draft.noteId ? "Edit note · " : "Create note · ") + (p ? p.name : draft.pid);
     showModal(title, (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
@@ -3697,11 +3804,14 @@
       state.noteDraft.previewEdited = true;
       state.noteDraft.preview = prev.value;
     });
+    const timeEl = $("#noteTime");
+    if (timeEl) timeEl.addEventListener("change", function () { if (state.noteDraft) state.noteDraft.time = timeEl.value; });
     $$("[data-hx]").forEach(function (el) {
       el.addEventListener("input", function () {
         const box = $("#hxReviewed");
         if (state.noteDraft) state.noteDraft.hxConfirmLock = null;
         if (box) { box.checked = false; box.disabled = false; }
+        applyHxToPatient(patient(draft.pid), readHxFromForm());
         paintHxLockUi();
         persistHxReviewState();
       });
@@ -3743,7 +3853,7 @@
     opts = opts || {};
     const draft = state.noteDraft;
     if (!draft || !isClinicalRole()) return null;
-    const tpl = (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
+    const tpl = getNoteTemplate(draft.templateId) || (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
     if (!tpl) { toast("Select a template"); return null; }
     draft.values = collectNoteValues();
     if (opts.requireComplete) {
@@ -3764,7 +3874,8 @@
       rec = { id: nextId("N-", p.notes) };
       p.notes.unshift(rec);
     }
-    rec.date = rec.date || todayET();
+    rec.date = rec.date || draft.date || todayET();
+    rec.time = ($("#noteTime") && $("#noteTime").value) || draft.time || rec.time || "";
     rec.type = tpl.name;
     rec.templateId = tpl.id;
     rec.procedurePerformed = draft.values.procedurePerformed || rec.procedurePerformed || "";
@@ -3784,14 +3895,20 @@
       if (a && a.visitId) rec.visitId = a.visitId;
     }
     if (opts.sign) {
-      rec.status = "Signed";
+      rec.status = "Finalized";
       rec.locked = true;
       rec.signedAt = nowET();
       rec.historySnapshot = historySnapshotOf(p);
       rec.hxReviewed = true;
-      if (draft.hxConfirmLock) rec.hxConfirmLock = draft.hxConfirmLock;
+      rec.hxConfirmLock = draft.hxConfirmLock || { who: actingName(), role: state.actingRole, when: nowET() };
+      draft.hxConfirmLock = rec.hxConfirmLock;
+    } else if (opts.ready) {
+      rec.status = "Ready for review";
+      rec.locked = false;
+      rec.hxReviewed = !!(draft.hxReviewed || ($("#hxReviewed") && $("#hxReviewed").checked));
+      rec.hxConfirmLock = draft.hxConfirmLock || rec.hxConfirmLock || null;
     } else {
-      rec.status = "Open";
+      rec.status = "Draft";
       rec.locked = false;
       rec.hxReviewed = !!(draft.hxReviewed || ($("#hxReviewed") && $("#hxReviewed").checked));
       rec.hxConfirmLock = draft.hxConfirmLock || rec.hxConfirmLock || null;
@@ -3824,15 +3941,26 @@
     render();
   }
   function signNote() {
+    const existing = state.noteDraft && state.noteDraft.noteId && patient(state.noteDraft.pid) && (patient(state.noteDraft.pid).notes || []).find(function (n) { return n.id === state.noteDraft.noteId; });
+    if (!canFinalizeNote(existing || { provider: actingName() })) {
+      toast("Only the author or MD / Clinic Owner can finalize this note");
+      return;
+    }
     const rec = upsertNoteFromDraft({ sign: true, requireComplete: true });
     if (!rec) return;
-    const pid = state.noteDraft && state.noteDraft.pid;
     state.noteDraft = null;
     closeModal();
     toast("Note signed");
-    const next = hashFor({ page: "patients", selected: pid, tab: "demographics" });
-    if (location.hash !== next) go({ page: "patients", selected: pid, tab: "demographics" });
-    else render();
+    returnAfterNote();
+  }
+  function saveNoteReady() {
+    if (!canMarkReady()) { toast("Ready for review is limited to clinical roles"); return; }
+    const rec = upsertNoteFromDraft({ ready: true, requireComplete: true });
+    if (!rec) return;
+    state.noteDraft = null;
+    closeModal();
+    toast("Marked ready for review");
+    returnAfterNote();
   }
   function openProcedureFromConsult(pid, nid) {
     if (!isClinicalRole()) { toast("Create Note is limited to clinical roles"); return; }
@@ -3872,6 +4000,8 @@
     n.addenda = n.addenda || [];
     const rec = { id: nextId("ADD-", n.addenda), text: text, who: actingName(), role: state.actingRole, when: nowET() };
     n.addenda.push(rec);
+    n.status = "Amended";
+    n.locked = true;
     addAudit({ action: "Added note addendum", recordType: "Note", recordId: n.id,
       recordPath: { page: "patients", selected: p.id, tab: "demographics" },
       changes: [{ field: "addendum", before: "—", after: text }] });
@@ -4636,10 +4766,10 @@
       { id: "reasons", label: "Appointment reasons" },
       { id: "inventory", label: "Inventory", lockable: true },
       { id: "locations", label: "Locations" },
-      { id: "settings", label: "Settings" }
+      { id: "settings", label: "Settings" },
+      { id: "templates", label: "Note templates", editorsOnly: true }
     ].filter(function (x) {
-      if (x.id === "availability") return true;
-      if (x.id === "inventory") return true;
+      if (x.editorsOnly) return canEditTemplates();
       return true;
     });
     return '<div class="admin-tabs" role="tablist" aria-label="Admin">' + tabs.map(function (x) {
@@ -4795,18 +4925,586 @@
     renderAdminChrome(head, body);
   }
 
-  function renderTemplateBuilder() {
-    const allowed = canEditAdmin();
-    const head = pageHead("Admin", "Note templates", "", '<a class="btn small" href="' + hashFor({ page: "admin", adminTab: "settings" }) + '">Back to Settings</a>');
-    const list = (BRIZZA.NOTE_TEMPLATES || []).map(function (tpl) {
-      return '<div class="row"><span>' + esc(tpl.name) + '</span><span class="row-sub">' + esc(tpl.id) + (tpl.draft ? " · Draft" : "") + "</span></div>";
+  function noteTemplateKey() { return "brizza-emr-note-templates"; }
+  function noteFieldTypes() {
+    return [
+      { id: "text", label: "Short text" },
+      { id: "textarea", label: "Long text", hasHeight: true },
+      { id: "number", label: "Number with unit" },
+      { id: "date", label: "Date" },
+      { id: "time", label: "Time" },
+      { id: "checkbox", label: "Checkbox" },
+      { id: "checkbox-group", label: "Checkbox group", hasOptions: true },
+      { id: "select", label: "Dropdown (single)", hasOptions: true },
+      { id: "multiselect", label: "Dropdown (multi)", hasOptions: true },
+      { id: "radio", label: "Radio", hasOptions: true },
+      { id: "table", label: "Table", hasColumns: true, hasHeight: true },
+      { id: "section", label: "Section header" },
+      { id: "static", label: "Static text" },
+      { id: "signature", label: "Signature" },
+      { id: "facemap", label: "Face map" },
+      { id: "other", label: "Other area" },
+      { id: "units-sum", label: "Units sum" },
+      { id: "prose", label: "Generated prose" }
+    ];
+  }
+  function pullInSources() {
+    return [
+      { id: "", label: "None" },
+      { id: "demographics", label: "Demographics" },
+      { id: "allergies", label: "Allergies" },
+      { id: "meds", label: "Medications" },
+      { id: "history", label: "Medical history" },
+      { id: "pharmacy", label: "Pharmacy" },
+      { id: "lastVisit", label: "Last visit" },
+      { id: "provider", label: "Provider" },
+      { id: "type", label: "Appointment type" },
+      { id: "reason", label: "Reason" },
+      { id: "suite", label: "Suite" }
+    ];
+  }
+  function defaultRolesForTemplate(id) {
+    if (String(id).indexOf("aes-") === 0) return ["Aesthetician"];
+    if (String(id).indexOf("inj-") === 0) return ["RN / NP Injector"];
+    return ["RN / NP Injector", "Aesthetician"];
+  }
+  function normalizeNoteField(f) {
+    f = f || {};
+    return {
+      id: f.id || ("f-" + Math.random().toString(36).slice(2, 8)),
+      type: f.type || "text",
+      label: f.label || "Field",
+      required: !!f.required,
+      width: f.width || (f.type === "textarea" || f.type === "table" || f.type === "facemap" || f.type === "prose" || f.type === "static" || f.type === "section" ? "full" : "full"),
+      height: f.height || "",
+      options: (f.options || []).slice(),
+      unit: f.unit || "",
+      columns: (f.columns || []).slice(),
+      pullIn: f.pullIn || "",
+      pullMode: f.pullMode === "live" ? "live" : "copy",
+      staticText: f.staticText || f.text || "",
+      showIf: f.showIf || null,
+      sentence: f.sentence || ""
+    };
+  }
+  function cloneTemplate(tpl) {
+    return JSON.parse(JSON.stringify(tpl));
+  }
+  function defaultNoteTemplates() {
+    return (BRIZZA.NOTE_TEMPLATES || []).map(function (tpl) {
+      const copy = cloneTemplate(tpl);
+      copy.familyId = tpl.id;
+      copy.version = 1;
+      copy.hiddenFromNew = false;
+      copy.roles = defaultRolesForTemplate(tpl.id);
+      const qs = BRIZZA.NOTE_BUILDER && BRIZZA.NOTE_BUILDER[tpl.id];
+      if (qs && qs.length) {
+        copy.sections = [{ id: "visit", title: "Visit", fields: qs.map(normalizeNoteField) }];
+      } else {
+        (copy.sections || []).forEach(function (sec) {
+          sec.fields = (sec.fields || []).map(normalizeNoteField);
+        });
+      }
+      if (tpl.id === "inj-procedure") {
+        const hasMap = (copy.sections || []).some(function (s) {
+          return (s.fields || []).some(function (f) { return f.type === "facemap"; });
+        });
+        if (!hasMap) {
+          copy.sections = copy.sections || [];
+          copy.sections.push({
+            id: "map",
+            title: "Face map",
+            fields: [
+              normalizeNoteField({ id: "faceMap", type: "facemap", label: "Face map", width: "full" }),
+              normalizeNoteField({ id: "otherArea", type: "other", label: "Other", width: "1/2" }),
+              normalizeNoteField({ id: "unitsSum", type: "units-sum", label: "Units sum", width: "1/2" })
+            ]
+          });
+        }
+      }
+      return copy;
+    });
+  }
+  function loadNoteTemplates() {
+    try {
+      const raw = localStorage.getItem(noteTemplateKey());
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (err) {}
+    return defaultNoteTemplates();
+  }
+  function persistNoteTemplates() {
+    try { localStorage.setItem(noteTemplateKey(), JSON.stringify(store.noteTemplates || [])); } catch (err) {}
+  }
+  function currentNoteTemplates() {
+    return (store.noteTemplates || []).filter(function (t) { return !t.hiddenFromNew; });
+  }
+  function getNoteTemplate(id) {
+    if (!id) return null;
+    return currentNoteTemplates().find(function (t) { return t.id === id || t.familyId === id; }) ||
+      (store.noteTemplates || []).find(function (t) { return t.id === id; }) || null;
+  }
+  function pullInValue(source, pid, apptId) {
+    const p = patient(pid);
+    const a = apptId ? appt(apptId) : null;
+    if (source === "demographics") return p ? (p.name + " · " + fmtDob(p.dob) + " · " + displayId(p.id)) : "";
+    if (source === "allergies") return p ? allergyLabel(p) : "";
+    if (source === "meds") return p ? ((p.meds || []).join(", ") || "None recorded") : "";
+    if (source === "history") return p ? ((p.conditions || []).join(", ") || "None recorded") : "";
+    if (source === "pharmacy") return (p && p.pharmacy) || "";
+    if (source === "lastVisit") {
+      const last = p && (typeof lastCompletedVisit === "function" ? lastCompletedVisit(p.id) : lastAppt(p));
+      return last ? (fmtDate(last.date) + " · " + (last.type || "") + " · " + (last.provider || "")) : "";
+    }
+    if (source === "provider") return a ? a.provider : "";
+    if (source === "type") return a ? a.type : "";
+    if (source === "reason") return a ? (typeof visitReasonLabel === "function" ? visitReasonLabel(a) : reasonText(a)) : "";
+    if (source === "suite") return a ? (a.room || (typeof suiteName === "function" && a.suiteId ? suiteName(a.suiteId) : "") || "") : "";
+    return "";
+  }
+  function applyPullIns(draft, tpl) {
+    if (!draft || !tpl) return;
+    draft.values = draft.values || {};
+    (tpl.sections || []).forEach(function (sec) {
+      (sec.fields || []).forEach(function (f) {
+        if (!f.pullIn) return;
+        const v = pullInValue(f.pullIn, draft.pid, draft.apptId);
+        if (f.pullMode === "live" || draft.values[f.id] == null || draft.values[f.id] === "") draft.values[f.id] = v;
+      });
+    });
+  }
+  function fieldWidthClass(w) {
+    if (w === "1/2") return "w-12";
+    if (w === "1/3") return "w-13";
+    if (w === "1/4") return "w-14";
+    return "w-full";
+  }
+  function fieldVisible(f, values) {
+    const rule = f && f.showIf;
+    if (!rule) return true;
+    const cur = values && values[rule.field];
+    if (rule.filled) return !!(cur && String(cur).trim());
+    if (rule.in) return (rule.in || []).indexOf(cur) >= 0;
+    if (rule.equals != null) return cur === rule.equals;
+    return true;
+  }
+  function nextFieldId(tpl) {
+    return "f-" + Math.random().toString(36).slice(2, 8);
+  }
+
+  function canEditTemplates() { return canEditAdmin(); }
+  function templateHasType(tpl, typ) {
+    return !!(tpl && (tpl.sections || []).some(function (s) {
+      return (s.fields || []).some(function (f) { return f.type === typ; });
+    }));
+  }
+  function fieldHeightClass(h) {
+    if (h === "short" || h === "sm") return "h-sm";
+    if (h === "tall" || h === "lg") return "h-lg";
+    if (h === "medium" || h === "md" || h) return "h-md";
+    return "";
+  }
+  function stringifyOptions(list) { return (list || []).join("\n"); }
+  function parseOptions(s) { return String(s || "").split(/\n|;/).map(function (x) { return x.trim(); }).filter(Boolean); }
+  function templateFieldsHtml(tpl, draft, opts) {
+    opts = opts || {};
+    draft = draft || {};
+    const values = draft.values || {};
+    const sections = tpl && tpl.sections ? tpl.sections : [];
+    const html = sections.map(function (sec, si) {
+      const fields = (sec.fields || []).map(function (f) {
+        const html = noteFieldControl(f, values[f.id], draft, opts);
+        if (!fieldVisible(f, values) && !opts.preview) {
+          return html.replace('class="field', 'hidden class="field');
+        }
+        return html;
+      }).join("");
+      return '<section class="note-sec" id="sec-' + esc(sec.id || ("s" + si)) + '" data-sec="' + esc(sec.id || ("s" + si)) + '">' +
+        (sec.title ? '<h3 class="section-title">' + esc(sec.title) + "</h3>" : "") +
+        '<div class="note-fields">' + fields + "</div></section>";
     }).join("");
-    const body = allowed
-      ? '<div class="card"><div class="cardhead"><h2>Default templates</h2></div><div class="cardbody">' + list +
-        '<p class="row-sub">The full field editor, versions, and Export/Import follow in this round.</p></div></div>'
-      : '<div class="card"><div class="cardbody"><div class="notice">Note templates can be edited when acting as MD / Clinic Owner or Clinic Manager.</div></div></div>';
+    return '<div class="note-template-fields" id="noteTemplateFields">' + html + "</div>";
+  }
+  function noteFieldControl(f, value, draft, opts) {
+    opts = opts || {};
+    draft = draft || state.noteDraft || {};
+    const req = f.required ? ' aria-required="true"' : "";
+    const star = f.required ? requiredMark() : "";
+    const live = !!(f.pullIn && f.pullMode === "live");
+    const ro = live ? " readonly" : "";
+    const w = fieldWidthClass(f.width);
+    const h = fieldHeightClass(f.height);
+    const wrapOpen = '<div class="field ' + w + (h ? " " + h : "") + (f.type === "facemap" ? " facemap-row" : "") + (live ? " is-live" : "") + '"' +
+      ' data-field-id="' + esc(f.id) + '"' +
+      (f.showIf ? ' data-show-if-field="' + esc(f.showIf.field || "") + '"' : "") + ">";
+    const label = (f.type === "section" || f.type === "static" || f.type === "checkbox") ? "" :
+      '<label for="nf-' + esc(f.id) + '">' + esc(f.label) + star + (live ? ' <span class="row-sub">Live · freezes on sign</span>' : "") +
+      (f.unit && f.type === "number" ? ' <span class="row-sub">(' + esc(f.unit) + ")</span>" : "") + "</label>";
+    const idAttr = 'id="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '" data-nf-type="' + esc(f.type) + '"';
+    if (f.type === "section") return wrapOpen + '<h4 class="section-title">' + esc(f.label) + "</h4></div>";
+    if (f.type === "static") return wrapOpen + '<p class="row-sub">' + esc(f.staticText || f.label) + "</p></div>";
+    if (f.type === "textarea") return wrapOpen + label + "<textarea " + idAttr + req + ro + ">" + esc(value || "") + "</textarea></div>";
+    if (f.type === "select") {
+      const optsHtml = ['<option value="">Select</option>'].concat(fieldOptions(f).map(function (o) {
+        return "<option" + (value === o ? " selected" : "") + ">" + esc(o) + "</option>";
+      }));
+      return wrapOpen + label + "<select " + idAttr + req + (live ? " disabled" : "") + ">" + optsHtml.join("") + "</select></div>";
+    }
+    if (f.type === "multiselect") {
+      const picked = Array.isArray(value) ? value : String(value || "").split(/\n|,/).map(function (x) { return x.trim(); }).filter(Boolean);
+      const optsHtml = fieldOptions(f).map(function (o) {
+        return "<option" + (picked.indexOf(o) >= 0 ? " selected" : "") + ">" + esc(o) + "</option>";
+      });
+      return wrapOpen + label + "<select " + idAttr + " multiple" + req + (live ? " disabled" : "") + ">" + optsHtml.join("") + "</select></div>";
+    }
+    if (f.type === "radio") {
+      const radios = fieldOptions(f).map(function (o, i) {
+        const rid = "nf-" + f.id + "-" + i;
+        return '<label class="choice" for="' + esc(rid) + '"><input type="radio" id="' + esc(rid) + '" name="nf-' + esc(f.id) + '" data-nf="' + esc(f.id) + '" data-nf-type="radio" value="' + esc(o) + '"' + (value === o ? " checked" : "") + (live ? " disabled" : "") + ">" + esc(o) + "</label>";
+      }).join("");
+      return wrapOpen + '<fieldset><legend>' + esc(f.label) + star + "</legend>" + radios + "</fieldset></div>";
+    }
+    if (f.type === "checkbox") {
+      return wrapOpen + '<label class="choice" for="nf-' + esc(f.id) + '"><input type="checkbox" ' + idAttr + ' value="Yes"' + (value && value !== "No" && value !== "false" ? " checked" : "") + (live ? " disabled" : "") + ">" + esc(f.label) + star + "</label></div>";
+    }
+    if (f.type === "checkbox-group") {
+      const picked = Array.isArray(value) ? value : String(value || "").split(/\n|,/).map(function (x) { return x.trim(); }).filter(Boolean);
+      const boxes = fieldOptions(f).map(function (o, i) {
+        const rid = "nf-" + f.id + "-" + i;
+        return '<label class="choice" for="' + esc(rid) + '"><input type="checkbox" id="' + esc(rid) + '" data-nf="' + esc(f.id) + '" data-nf-type="checkbox-group" data-nf-group="1" value="' + esc(o) + '"' + (picked.indexOf(o) >= 0 ? " checked" : "") + (live ? " disabled" : "") + ">" + esc(o) + "</label>";
+      }).join("");
+      return wrapOpen + '<fieldset><legend>' + esc(f.label) + star + "</legend>" + boxes + "</fieldset></div>";
+    }
+    if (f.type === "number") return wrapOpen + label + "<input " + idAttr + ' type="number" inputmode="decimal"' + req + ro + ' value="' + esc(value == null ? "" : value) + '"></div>';
+    if (f.type === "date") return wrapOpen + label + "<input " + idAttr + ' type="date"' + req + ro + ' value="' + esc(value || "") + '"></div>';
+    if (f.type === "time") return wrapOpen + label + "<input " + idAttr + ' type="time"' + req + ro + ' value="' + esc(value || "") + '"></div>';
+    if (f.type === "signature") return wrapOpen + label + "<input " + idAttr + ' type="text" placeholder="Type your name"' + req + ro + ' value="' + esc(value || "") + '"></div>';
+    if (f.type === "table") {
+      const cols = (f.columns && f.columns.length) ? f.columns : ["Column 1"];
+      const rows = Array.isArray(value) ? value : [];
+      const shown = rows.length ? rows : [{}];
+      const head = cols.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("") + "<th></th>";
+      const body = shown.map(function (row, ri) {
+        const tds = cols.map(function (c) {
+          return '<td><input data-col="' + esc(c) + '" value="' + esc(row[c] || "") + '" aria-label="' + esc(c) + '"></td>';
+        }).join("");
+        return "<tr>" + tds + '<td><button type="button" class="btn small" data-tbl-del-row="' + ri + '">Remove</button></td></tr>';
+      }).join("");
+      return wrapOpen + label +
+        '<div class="note-table-wrap"><table class="note-table" data-nf-table="' + esc(f.id) + '" data-cols="' + esc(cols.join("|")) + '"><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table>" +
+        '<button type="button" class="btn small" data-tbl-add-row="' + esc(f.id) + '">Add row</button></div></div>';
+    }
+    if (f.type === "facemap") {
+      const map = (typeof faceMapHtml === "function") ? faceMapHtml({ id: "inj-procedure" }, draft) : "";
+      return wrapOpen + label + map + "</div>";
+    }
+    if (f.type === "other") {
+      return wrapOpen + label +
+        '<input id="faceOtherLabel" data-face-other-label type="text" value="' + esc(draft.otherLabel || value || "") + '" placeholder="Other area"></div>';
+    }
+    if (f.type === "units-sum") {
+      const sum = (draft.facePoints || []).reduce(function (n, pt) { return n + (Number(pt.units) || 0); }, 0) + (Number(draft.otherUnits) || 0);
+      return wrapOpen + label + '<p class="units-sum" data-units-sum>' + (sum ? String(sum) : "—") + (f.unit ? " " + esc(f.unit) : "") + "</p></div>";
+    }
+    if (f.type === "prose") {
+      const text = value || "";
+      return wrapOpen + label + "<textarea " + idAttr + " readonly>" + esc(text) + "</textarea></div>";
+    }
+    return wrapOpen + label + "<input " + idAttr + ' type="text"' + req + ro + ' value="' + esc(value || "") + '"></div>';
+  }
+  function ensureTplDraft() {
+    if (state.tplDraft) return state.tplDraft;
+    const list = currentNoteTemplates();
+    const id = state.tplEditId || (list[0] && list[0].id);
+    const src = getNoteTemplate(id) || list[0];
+    state.tplDraft = src ? cloneTemplate(src) : {
+      id: "custom-new", familyId: "custom-new", name: "New template", version: 1, hiddenFromNew: false,
+      roles: ["RN / NP Injector"], sections: [{ id: "visit", title: "Visit", fields: [normalizeNoteField({ id: "notes", type: "textarea", label: "Notes" })] }]
+    };
+    state.tplEditId = state.tplDraft.id;
+    return state.tplDraft;
+  }
+  function saveTemplateVersion() {
+    const draft = cloneTemplate(ensureTplDraft());
+    const familyId = draft.familyId || draft.id;
+    draft.familyId = familyId;
+    draft.name = (draft.name || "Untitled").trim() || "Untitled";
+    draft.hiddenFromNew = false;
+    store.noteTemplates = store.noteTemplates || [];
+    const prev = store.noteTemplates.filter(function (t) { return (t.familyId || t.id) === familyId; });
+    const maxV = prev.reduce(function (n, t) { return Math.max(n, Number(t.version) || 1); }, 0);
+    prev.forEach(function (t) {
+      if (!t.hiddenFromNew) {
+        t.hiddenFromNew = true;
+        if (t.id === familyId) t.id = familyId + "__v" + (t.version || 1);
+      }
+    });
+    draft.version = maxV + 1;
+    draft.id = familyId;
+    store.noteTemplates.push(draft);
+    persistNoteTemplates();
+    state.tplDraft = cloneTemplate(draft);
+    state.tplEditId = draft.id;
+    toast("Saved as version " + draft.version);
+  }
+  function exportNoteTemplates() {
+    const blob = new Blob([JSON.stringify(store.noteTemplates || [], null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "brizza-note-templates.json";
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 500);
+    toast("Exported templates");
+  }
+  function importNoteTemplates(text) {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (err) { toast("That file is not valid JSON."); return false; }
+    if (!Array.isArray(parsed) || !parsed.length) { toast("Import needs a list of templates."); return false; }
+    store.noteTemplates = parsed.map(function (t) {
+      const copy = cloneTemplate(t);
+      copy.sections = (copy.sections || []).map(function (s) {
+        s.fields = (s.fields || []).map(normalizeNoteField);
+        return s;
+      });
+      copy.familyId = copy.familyId || copy.id;
+      copy.version = copy.version || 1;
+      return copy;
+    });
+    persistNoteTemplates();
+    state.tplDraft = null;
+    state.tplEditId = null;
+    toast("Imported " + store.noteTemplates.length + " template versions");
+    return true;
+  }
+  function tplEditorHtml() {
+    const draft = ensureTplDraft();
+    const roleOpts = ["MD / Clinic Owner", "RN / NP Injector", "Aesthetician"];
+    const roles = roleOpts.map(function (r) {
+      const on = (draft.roles || []).indexOf(r) >= 0;
+      return '<label class="choice"><input type="checkbox" data-tpl-role="' + esc(r) + '"' + (on ? " checked" : "") + ">" + esc(r) + "</label>";
+    }).join("");
+    const types = noteFieldTypes();
+    const sections = (draft.sections || []).map(function (sec, si) {
+      const fields = (sec.fields || []).map(function (f, fi) {
+        const typMeta = types.find(function (t) { return t.id === f.type; }) || types[0];
+        const typeOpts = types.map(function (t) {
+          return "<option value=\"" + t.id + "\"" + (f.type === t.id ? " selected" : "") + ">" + esc(t.label) + "</option>";
+        }).join("");
+        const widthOpts = [["full", "Full"], ["1/2", "1/2"], ["1/3", "1/3"], ["1/4", "1/4"]].map(function (w) {
+          return "<option value=\"" + w[0] + "\"" + ((f.width || "full") === w[0] ? " selected" : "") + ">" + w[1] + "</option>";
+        }).join("");
+        const heightOpts = typMeta.hasHeight ? ("<label>Height <select data-tpl-f=\"" + si + "," + fi + "\" data-prop=\"height\">" +
+          [["", "Default"], ["short", "Short"], ["medium", "Medium"], ["tall", "Tall"]].map(function (h) {
+            return "<option value=\"" + h[0] + "\"" + ((f.height || "") === h[0] ? " selected" : "") + ">" + h[1] + "</option>";
+          }).join("") + "</select></label>") : "";
+        const optionsBlock = typMeta.hasOptions ? ('<label>Options <span class="row-sub">(one per line)</span><textarea data-tpl-f="' + si + "," + fi + '" data-prop="options" rows="3">' + esc(stringifyOptions(f.options)) + "</textarea></label>") : "";
+        const colsBlock = typMeta.hasColumns ? ('<label>Columns <span class="row-sub">(one per line)</span><textarea data-tpl-f="' + si + "," + fi + '" data-prop="columns" rows="3">' + esc(stringifyOptions(f.columns)) + "</textarea></label>") : "";
+        const unitBlock = (f.type === "number" || f.type === "units-sum") ? ('<label>Unit <input data-tpl-f="' + si + "," + fi + '" data-prop="unit" value="' + esc(f.unit || "") + '"></label>') : "";
+        const staticBlock = f.type === "static" ? ('<label>Text <textarea data-tpl-f="' + si + "," + fi + '" data-prop="staticText" rows="2">' + esc(f.staticText || "") + "</textarea></label>") : "";
+        const pullOpts = pullInSources().map(function (s) {
+          return "<option value=\"" + s.id + "\"" + (f.pullIn === s.id ? " selected" : "") + ">" + esc(s.label) + "</option>";
+        }).join("");
+        return '<div class="tpl-field-card" data-fi="' + fi + '">' +
+          '<div class="tpl-field-top">' +
+          '<label>Label <input data-tpl-f="' + si + "," + fi + '" data-prop="label" value="' + esc(f.label) + '"></label>' +
+          '<label>Type <select data-tpl-f="' + si + "," + fi + '" data-prop="type">' + typeOpts + "</select></label>" +
+          '<label>Width <select data-tpl-f="' + si + "," + fi + '" data-prop="width">' + widthOpts + "</select></label>" +
+          "</div>" +
+          '<div class="tpl-field-extra">' + heightOpts + unitBlock + optionsBlock + colsBlock + staticBlock +
+          '<label class="choice"><input type="checkbox" data-tpl-f="' + si + "," + fi + '" data-prop="required"' + (f.required ? " checked" : "") + "> Required</label>" +
+          '<label>Pull-in <select data-tpl-f="' + si + "," + fi + '" data-prop="pullIn">' + pullOpts + "</select></label>" +
+          '<label>Mode <select data-tpl-f="' + si + "," + fi + '" data-prop="pullMode">' +
+          '<option value="copy"' + (f.pullMode !== "live" ? " selected" : "") + ">Copy once</option>" +
+          '<option value="live"' + (f.pullMode === "live" ? " selected" : "") + ">Live read-only (freezes on sign)</option>" +
+          "</select></label></div>" +
+          '<div class="tpl-field-actions">' +
+          '<button type="button" class="btn small" data-tpl-move-field="' + si + "," + fi + '" data-dir="-1">Up</button>' +
+          '<button type="button" class="btn small" data-tpl-move-field="' + si + "," + fi + '" data-dir="1">Down</button>' +
+          '<button type="button" class="btn small" data-tpl-del-field="' + si + "," + fi + '">Delete field</button>' +
+          "</div></div>";
+      }).join("");
+      return '<div class="tpl-sec card"><div class="cardhead"><h3><input aria-label="Section title" data-tpl-sec-title="' + si + '" value="' + esc(sec.title || "") + '"></h3>' +
+        '<div class="head-actions">' +
+        '<button type="button" class="btn small" data-tpl-move-section="' + si + '" data-dir="-1">Up</button>' +
+        '<button type="button" class="btn small" data-tpl-move-section="' + si + '" data-dir="1">Down</button>' +
+        '<button type="button" class="btn small" data-tpl-del-section="' + si + '">Delete section</button>' +
+        '</div></div><div class="cardbody">' + fields +
+        '<button type="button" class="btn small" data-tpl-add-field="' + si + '">Add field</button></div></div>';
+    }).join("");
+    return '<div class="tpl-editor">' +
+      '<div class="field"><label for="tplName">Template name</label><input id="tplName" data-tpl-name value="' + esc(draft.name || "") + '"></div>' +
+      '<div class="field"><span class="row-sub">Version ' + esc(String(draft.version || 1)) + " · Save creates a new version. Older versions stay hidden from new notes.</span></div>" +
+      '<fieldset class="tpl-roles"><legend>Role gate</legend>' + roles + "</fieldset>" +
+      sections +
+      '<button type="button" class="btn" data-tpl-add-section>Add section</button></div>';
+  }
+  function tplPreviewHtml() {
+    const draft = ensureTplDraft();
+    const sample = { values: {}, pid: "BZ0001", apptId: null, facePoints: [], otherLabel: "", otherUnits: "" };
+    applyPullIns(sample, draft);
+    return '<div class="tpl-preview" id="tplPreview"><h3>Live preview</h3>' + templateFieldsHtml(draft, sample, { preview: true }) + "</div>";
+  }
+  function refreshTplPreview() {
+    const el = document.getElementById("tplPreview");
+    if (!el) return;
+    el.outerHTML = tplPreviewHtml();
+  }
+  function renderTemplateBuilder() {
+    if (!canEditTemplates()) {
+      const head = pageHead("Admin", "Note templates", "", "");
+      const body = '<div class="card"><div class="cardbody"><div class="notice">Note templates can be edited when acting as MD / Clinic Owner or Clinic Manager.</div></div></div>';
+      renderAdminChrome(head, body);
+      return;
+    }
+    const list = currentNoteTemplates();
+    const draft = ensureTplDraft();
+    const items = list.map(function (tpl) {
+      const on = (tpl.id === draft.id || tpl.familyId === draft.familyId) && !tpl.hiddenFromNew;
+      return '<button type="button" class="row tpl-pick' + (on ? " is-on" : "") + '" data-tpl-select="' + esc(tpl.id) + '"><span>' + esc(tpl.name) +
+        '</span><span class="row-sub">v' + esc(String(tpl.version || 1)) + " · " + esc((tpl.roles || []).join(", ") || "All clinical") + "</span></button>";
+    }).join("") || '<p class="row-sub">No current templates.</p>';
+    const head = pageHead("Admin", "Note templates", "",
+      '<button type="button" class="btn small" data-tpl-new>New template</button>' +
+      '<button type="button" class="btn small" data-tpl-export>Export JSON</button>' +
+      '<button type="button" class="btn small" data-tpl-import>Import JSON</button>' +
+      '<button type="button" class="btn small primary" data-tpl-save>Save version</button>' +
+      '<a class="btn small" href="' + hashFor({ page: "admin", adminTab: "settings" }) + '">Back to Settings</a>' +
+      '<input id="tplImportFile" type="file" accept="application/json,.json" hidden>');
+    const body = '<div class="tpl-builder" id="tplBuilder">' +
+      '<div class="card"><div class="cardhead"><h2>Templates</h2></div><div class="cardbody tpl-list">' + items + "</div></div>" +
+      '<div class="tpl-main">' + tplEditorHtml() + "</div>" +
+      tplPreviewHtml() + "</div>";
     renderAdminChrome(head, body);
   }
+  function moveItem(arr, i, dir) {
+    const j = i + Number(dir);
+    if (!arr || j < 0 || j >= arr.length) return;
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  function handleTplBuilderClick(e) {
+    const t = e.target.closest("[data-tpl-select], [data-tpl-new], [data-tpl-save], [data-tpl-export], [data-tpl-import], [data-tpl-add-section], [data-tpl-del-section], [data-tpl-move-section], [data-tpl-add-field], [data-tpl-del-field], [data-tpl-move-field], [data-tbl-add-row], [data-tbl-del-row]");
+    if (!t) return false;
+    e.preventDefault();
+    if (t.hasAttribute("data-tpl-select")) {
+      state.tplEditId = t.getAttribute("data-tpl-select");
+      state.tplDraft = null;
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-new")) {
+      const id = "custom-" + Math.random().toString(36).slice(2, 8);
+      state.tplDraft = {
+        id: id, familyId: id, name: "New template", version: 0, hiddenFromNew: false,
+        roles: ["RN / NP Injector"],
+        sections: [{ id: "visit", title: "Visit", fields: [normalizeNoteField({ id: "notes", type: "textarea", label: "Notes", width: "full" })] }]
+      };
+      state.tplEditId = id;
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-save")) { saveTemplateVersion(); render(); return true; }
+    if (t.hasAttribute("data-tpl-export")) { exportNoteTemplates(); return true; }
+    if (t.hasAttribute("data-tpl-import")) {
+      const inp = document.getElementById("tplImportFile");
+      if (inp) inp.click();
+      return true;
+    }
+    const draft = ensureTplDraft();
+    if (t.hasAttribute("data-tpl-add-section")) {
+      draft.sections = draft.sections || [];
+      draft.sections.push({ id: "s-" + Math.random().toString(36).slice(2, 6), title: "New section", fields: [] });
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-del-section")) {
+      draft.sections.splice(Number(t.getAttribute("data-tpl-del-section")), 1);
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-move-section")) {
+      moveItem(draft.sections, Number(t.getAttribute("data-tpl-move-section")), t.getAttribute("data-dir"));
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-add-field")) {
+      const si = Number(t.getAttribute("data-tpl-add-field"));
+      draft.sections[si].fields = draft.sections[si].fields || [];
+      draft.sections[si].fields.push(normalizeNoteField({ id: nextFieldId(draft), type: "text", label: "New field", width: "full" }));
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-del-field")) {
+      const p = t.getAttribute("data-tpl-del-field").split(",");
+      draft.sections[Number(p[0])].fields.splice(Number(p[1]), 1);
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tpl-move-field")) {
+      const p = t.getAttribute("data-tpl-move-field").split(",");
+      moveItem(draft.sections[Number(p[0])].fields, Number(p[1]), t.getAttribute("data-dir"));
+      render();
+      return true;
+    }
+    if (t.hasAttribute("data-tbl-add-row")) {
+      const tbl = document.querySelector('[data-nf-table="' + t.getAttribute("data-tbl-add-row") + '"] tbody');
+      if (tbl) {
+        const cols = (tbl.parentNode.getAttribute("data-cols") || "").split("|");
+        const tr = document.createElement("tr");
+        tr.innerHTML = cols.map(function (c) { return '<td><input data-col="' + c + '" aria-label="' + c + '"></td>'; }).join("") +
+          '<td><button type="button" class="btn small" data-tbl-del-row>Remove</button></td>';
+        tbl.appendChild(tr);
+      }
+      return true;
+    }
+    if (t.hasAttribute("data-tbl-del-row")) {
+      const tr = t.closest("tr");
+      if (tr) tr.remove();
+      return true;
+    }
+    return false;
+  }
+  function handleTplBuilderChange(e) {
+    const el = e.target;
+    if (!el || !el.getAttribute) return false;
+    if (el.id === "tplImportFile" && el.files && el.files[0]) {
+      const reader = new FileReader();
+      reader.onload = function () { if (importNoteTemplates(String(reader.result || ""))) render(); };
+      reader.readAsText(el.files[0]);
+      el.value = "";
+      return true;
+    }
+    if (el.hasAttribute("data-tpl-name")) { ensureTplDraft().name = el.value; return true; }
+    if (el.hasAttribute("data-tpl-role")) {
+      const draft = ensureTplDraft();
+      const role = el.getAttribute("data-tpl-role");
+      draft.roles = draft.roles || [];
+      if (el.checked && draft.roles.indexOf(role) < 0) draft.roles.push(role);
+      if (!el.checked) draft.roles = draft.roles.filter(function (r) { return r !== role; });
+      return true;
+    }
+    if (el.hasAttribute("data-tpl-sec-title")) {
+      const i = Number(el.getAttribute("data-tpl-sec-title"));
+      if (ensureTplDraft().sections[i]) ensureTplDraft().sections[i].title = el.value;
+      refreshTplPreview();
+      return true;
+    }
+    if (el.hasAttribute("data-tpl-f")) {
+      const p = el.getAttribute("data-tpl-f").split(",");
+      const field = ensureTplDraft().sections[Number(p[0])] && ensureTplDraft().sections[Number(p[0])].fields[Number(p[1])];
+      if (!field) return true;
+      const prop = el.getAttribute("data-prop");
+      if (prop === "required") field.required = !!el.checked;
+      else if (prop === "options" || prop === "columns") field[prop] = parseOptions(el.value);
+      else field[prop] = el.type === "checkbox" ? !!el.checked : el.value;
+      if (prop === "type" || prop === "width" || prop === "height") render();
+      else refreshTplPreview();
+      return true;
+    }
+    return false;
+  }
+
   function startDemo() {
     state.demo.running = true;
     state.demo.index = 0;
@@ -6558,9 +7256,35 @@
     renderChrome('<a href="' + hashFor({ page: "emr" }) + '">My board</a>', head, body);
   }
 
+  function noteVisitTime(n) {
+    if (n && n.time) return n.time;
+    const a = n && n.appointmentId ? appt(n.appointmentId) : null;
+    return (a && a.time) || "";
+  }
+  function notesGroupMode() {
+    if (state.notesGroup === "provider" || state.notesGroup === "date") return state.notesGroup;
+    return state.actingRole === "Clinic Manager" ? "provider" : "date";
+  }
+  function openNewNotePicker() {
+    if (!isClinicalRole()) { toast("New notes are limited to clinical roles"); return; }
+    captureNoteReturn();
+    const opts = (store.patients || []).map(function (p) {
+      return "<option value=\"" + esc(p.id) + "\">" + esc(p.name) + " · " + esc(displayId(p.id)) + "</option>";
+    }).join("");
+    showModal("New note",
+      '<div class="field"><label for="newNotePatient">Patient</label><select id="newNotePatient"><option value="">Select a patient</option>' + opts + "</select></div>",
+      function () {
+        const pid = $("#newNotePatient") && $("#newNotePatient").value;
+        if (!pid) { toast("Select a patient"); return; }
+        closeModal();
+        openNoteComposer(pid);
+      }, "Continue");
+  }
   function renderNotesDash() {
     const mode = state.notesDash === "signed" ? "signed" : "pending";
     state.notesDash = mode;
+    const groupBy = notesGroupMode();
+    const provFilter = state.notesProvider || "All providers";
     const items = [];
     (store.patients || []).forEach(function (p) {
       (p.notes || []).forEach(function (n) {
@@ -6568,18 +7292,30 @@
         if (mode === "signed" ? signed : !signed) items.push({ p: p, n: n });
       });
     });
-    items.sort(function (a, b) { return String(b.n.date || "").localeCompare(String(a.n.date || "")); });
+    items.sort(function (a, b) {
+      const dc = String(b.n.date || "").localeCompare(String(a.n.date || ""));
+      if (dc) return dc;
+      return String(noteVisitTime(b.n) || "").localeCompare(String(noteVisitTime(a.n) || ""));
+    });
     const from = state.notesFrom || "";
     const to = state.notesTo || "";
     const ranged = items.filter(function (item) {
       const d = item.n.date || "";
       if (from && d < from) return false;
       if (to && d > to) return false;
+      if (provFilter && provFilter !== "All providers" && (item.n.provider || "") !== provFilter) return false;
       return true;
     });
-    const head = pageHead("Provider", "Notes",
-      mode === "pending" ? "Unsigned clinical notes waiting for completion or signature." : "Signed clinical notes.",
-      "");
+    const providers = [];
+    items.forEach(function (item) {
+      const name = item.n.provider || "";
+      if (name && providers.indexOf(name) < 0) providers.push(name);
+    });
+    providers.sort();
+    const newBtn = isClinicalRole() ? '<button type="button" class="btn small primary" data-new-dash-note="1">＋ New note</button>' : "";
+    const head = pageHead("Clinic", "Notes",
+      "Clinic-wide clinical notes.",
+      newBtn);
     const toggle = '<div class="notes-dash-toggle" role="tablist" aria-label="Note lists">' +
       '<button type="button" class="btn small' + (mode === "pending" ? " primary" : "") + '" data-notes-dash="pending" aria-pressed="' + (mode === "pending" ? "true" : "false") + '">Pending clinical notes</button>' +
       '<button type="button" class="btn small' + (mode === "signed" ? " primary" : "") + '" data-notes-dash="signed" aria-pressed="' + (mode === "signed" ? "true" : "false") + '">Signed notes</button></div>';
@@ -6588,17 +7324,43 @@
       '<label for="notesTo">To</label><input id="notesTo" type="date" value="' + esc(to) + '">' +
       '<button type="button" class="btn small" data-notes-today="1">Today</button>' +
       (from || to ? '<button type="button" class="btn small" data-notes-range-clear="1">All dates</button>' : "") +
-      "</div>";
-    const list = ranged.map(function (item) {
+      '<label for="notesProvider">Provider</label><select id="notesProvider">' +
+      '<option value="All providers"' + (provFilter === "All providers" ? " selected" : "") + ">All providers</option>" +
+      providers.map(function (name) {
+        return "<option" + (provFilter === name ? " selected" : "") + ">" + esc(name) + "</option>";
+      }).join("") + "</select>" +
+      '<label for="notesGroup">Group by</label><select id="notesGroup">' +
+      '<option value="date"' + (groupBy === "date" ? " selected" : "") + ">Date</option>" +
+      '<option value="provider"' + (groupBy === "provider" ? " selected" : "") + ">Provider</option></select></div>";
+    function rowHtml(item) {
       const n = item.n, p = item.p;
-      const open = isNoteEditable(n)
-        ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"'
-        : ' data-open="note-view" data-nid="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"';
-      return '<button type="button" class="row" style="width:100%;text-align:left"' + open + ">" +
-        '<div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + '</div>' +
-        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + " · " + esc(displayId(p.id)) + "</div></div>" +
-        badge(n.status || "Open") + "</button>";
-    }).join("") || '<div class="empty">' + (mode === "pending" ? "No unsigned clinical notes." : "No signed clinical notes.") + "</div>";
+      const tm = noteVisitTime(n);
+      const canEdit = isNoteEditable(n) && isClinicalRole() && canUseTemplate(templateIdFromNote(n));
+      const menu = '<details class="row-menu"><summary>Actions</summary><div class="row-menu-list">' +
+        '<button type="button" class="btn small" data-open="note-view" data-nid="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">View</button>' +
+        (canEdit ? '<button type="button" class="btn small" data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Edit</button>' : "") +
+        '<a class="btn small" href="' + hashFor({ page: "patients", selected: p.id, tab: "snapshot" }) + '">Open chart</a>' +
+        "</div></details>";
+      return '<div class="row note-dash-row">' +
+        '<div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + "</div>" +
+        '<div class="row-sub">' + esc(fmtDate(n.date)) + (tm ? " · " + esc(fmtTime(tm)) : "") +
+        " · " + esc(n.provider || "") + " · " + esc(displayId(p.id)) +
+        (n.status ? " · " + esc(n.status) : "") + "</div></div>" + menu + "</div>";
+    }
+    const groups = [];
+    const seen = {};
+    ranged.forEach(function (item) {
+      const key = groupBy === "provider" ? (item.n.provider || "Unassigned") : (item.n.date || "");
+      if (!seen[key]) { seen[key] = []; groups.push({ key: key, items: seen[key] }); }
+      seen[key].push(item);
+    });
+    if (groupBy === "provider") groups.sort(function (a, b) { return a.key.localeCompare(b.key); });
+    const list = groups.length
+      ? groups.map(function (g) {
+          const title = groupBy === "provider" ? (g.key || "Unassigned") : (g.key ? fmtDate(g.key) : "No date");
+          return '<section class="notes-group"><h3 class="section-title">' + esc(title) + "</h3>" + g.items.map(rowHtml).join("") + "</section>";
+        }).join("")
+      : '<div class="empty">' + (mode === "pending" ? "No unsigned clinical notes." : "No signed clinical notes.") + "</div>";
     renderChrome('<a href="' + hashFor({ page: "notes" }) + '">Notes</a>', head, '<div class="card"><div class="cardbody notes-dash">' + toggle + range + list + "</div></div>");
   }
   function render() {
@@ -6633,6 +7395,23 @@
   }
 
   function onClick(e) {
+    if (handleTplBuilderClick(e)) return;
+    const jump = e.target.closest("[data-note-jump]");
+    if (jump) {
+      e.preventDefault();
+      const el = document.getElementById(jump.getAttribute("data-note-jump"));
+      if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
+    const viewN = e.target.closest("[data-view-note]");
+    if (viewN) {
+      e.preventDefault();
+      const pid = viewN.getAttribute("data-pid");
+      const nid = viewN.getAttribute("data-view-note");
+      if (state.noteDraft) upsertNoteFromDraft({ sign: false, requireComplete: false });
+      openNoteView(pid, nid);
+      return;
+    }
     if (e.target.closest(".status-dd, [data-visit-status], [data-toggle-paperwork], .audit-icon")) {
       if (e.target.closest("[data-toggle-paperwork]") && e.target.closest("[data-toggle-paperwork]").contains(e.target)) {
         /* handled below */
@@ -6790,6 +7569,8 @@
       render();
       return;
     }
+    const newDash = e.target.closest("[data-new-dash-note]");
+    if (newDash) { e.preventDefault(); openNewNotePicker(); return; }
     const notesClear = e.target.closest("[data-notes-range-clear]");
     if (notesClear) { e.preventDefault(); state.notesFrom = ""; state.notesTo = ""; render(); return; }
     const openForm = e.target.closest("[data-open-form]");
@@ -7107,6 +7888,7 @@
   }
 
   function onChange(e) {
+    if (handleTplBuilderChange(e)) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute("data-task-owner")) {
       const rec = (store.tasks || []).find(function (t) { return t.id === e.target.getAttribute("data-task-owner"); });
       if (rec) rec.owner = e.target.value || "";
@@ -7125,6 +7907,8 @@
     else if (e.target.id === "showInactiveUsers") { state.showInactiveUsers = !!e.target.checked; render(); }
     else if (e.target.id === "notesFrom") { state.notesFrom = e.target.value; render(); }
     else if (e.target.id === "notesTo") { state.notesTo = e.target.value; render(); }
+    else if (e.target.id === "notesProvider") { state.notesProvider = e.target.value; render(); }
+    else if (e.target.id === "notesGroup") { state.notesGroup = e.target.value; render(); }
     else if (e.target.id === "sched-search") {
       state.scheduleSearch = e.target.value;
       const hold = e.target.selectionStart;
@@ -7247,6 +8031,7 @@
       }
     });
     document.addEventListener("input", function (e) {
+      if (handleTplBuilderChange(e)) return;
       if (e.target && e.target.getAttribute && e.target.getAttribute("data-mask")) applyInputMask(e.target);
       if (e.target && e.target.getAttribute && e.target.getAttribute("data-zip-lookup")) applyZipLookup(e.target);
       if (e.target.id === "patient-search" || e.target.id === "sched-search" || e.target.id === "notes-search" || e.target.id === "patient-find" || e.target.id === "lot-trace" || e.target.dataset.cost) onChange(e);

@@ -677,3 +677,56 @@ span.alert-pill{cursor:default}
 .pos-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,280px);gap:20px;align-items:start}
 .pos-side h3{font-size:14px;margin:0 0 8px}
 .pos-summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 0 12px;border-bottom:1px solid var(--line);font-weight:600;color:var(--ink)}
+
+/* Round 15 Part B — note template builder and field widths */
+.note-fields, .tpl-preview-fields, .note-template-fields .note-fields {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.note-fields .field.w-full, .note-template-fields .field.w-full, .tpl-preview .field.w-full { grid-column: span 12; }
+.note-fields .field.w-12, .note-template-fields .field.w-12, .tpl-preview .field.w-12 { grid-column: span 6; }
+.note-fields .field.w-13, .note-template-fields .field.w-13, .tpl-preview .field.w-13 { grid-column: span 4; }
+.note-fields .field.w-14, .note-template-fields .field.w-14, .tpl-preview .field.w-14 { grid-column: span 3; }
+.field.h-sm textarea, .field.h-sm .note-table-wrap { min-height: 4.5rem; }
+.field.h-md textarea, .field.h-md .note-table-wrap { min-height: 8rem; }
+.field.h-lg textarea, .field.h-lg .note-table-wrap { min-height: 12rem; }
+.field.facemap-row { grid-column: 1 / -1; }
+.tpl-builder { display: grid; grid-template-columns: 220px minmax(0, 1fr) minmax(240px, 320px); gap: 16px; align-items: start; }
+.tpl-list { display: flex; flex-direction: column; gap: 4px; }
+.tpl-pick { display: flex; flex-direction: column; align-items: flex-start; text-align: left; width: 100%; background: transparent; border: 0; padding: 8px; cursor: pointer; font: inherit; color: inherit; }
+.tpl-pick.is-on { background: #F6EDE8; }
+.tpl-field-card { border: 1px solid #E4D5C4; padding: 10px; margin-bottom: 8px; background: #FFFCF6; }
+.tpl-field-top, .tpl-field-extra, .tpl-field-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.tpl-roles { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0 16px; border: 0; padding: 0; }
+.tpl-preview { position: sticky; top: 12px; }
+.tpl-preview h3 { font-family: "Cormorant Garamond", serif; margin: 0 0 8px; }
+.note-table { width: 100%; border-collapse: collapse; }
+.note-table th, .note-table td { border: 1px solid #E4D5C4; padding: 4px; vertical-align: top; }
+.note-table-wrap { overflow: auto; }
+.choice { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+@media (max-width: 1100px) {
+  .tpl-builder { grid-template-columns: 1fr; }
+  .note-fields .field.w-12, .note-fields .field.w-13, .note-fields .field.w-14,
+  .note-template-fields .field.w-12, .note-template-fields .field.w-13, .note-template-fields .field.w-14 { grid-column: span 12; }
+}
+
+/* Round 15 Part B2 — note composer layout */
+.note-meta { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 12px; margin-bottom: 8px; }
+.note-outline { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 14px; }
+button.text-link, a.text-link { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: #6B1C1C; text-decoration: underline; cursor: pointer; }
+.last-note-line { margin: 0 0 12px; }
+#noteHx { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid #E4D5C4; }
+.field.facemap-row, #noteFaceRow { grid-column: 1 / -1; }
+.field.facemap-row .face-map, #noteFaceRow .face-map { min-height: 280px; }
+#notePreviewWrap { margin-top: 16px; }
+
+/* Round 15 Part B3 — notes dashboard */
+.notes-range { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0; }
+.notes-group { margin-top: 16px; }
+.note-dash-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.row-menu { position: relative; }
+.row-menu summary { cursor: pointer; list-style: none; font-size: 13px; }
+.row-menu summary::-webkit-details-marker { display: none; }
+.row-menu-list { position: absolute; right: 0; top: 100%; z-index: 5; background: #FFFCF6; border: 1px solid #E4D5C4; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+

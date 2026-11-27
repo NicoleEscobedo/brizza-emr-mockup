@@ -56,7 +56,7 @@
     return String(h).padStart(2, "0") + ":" + String(min).padStart(2, "0");
   }
   function scheduleHours() {
-    return ["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30"];
+    return (BRIZZA.BOOKING_TIMES || []).filter(function (t) { return t >= "10:00" && t < "18:00"; });
   }
   function bookingEndTimes() {
     const times = (BRIZZA.BOOKING_TIMES || scheduleHours()).slice();
@@ -474,14 +474,64 @@
   BRIZZA.contrastRatio = contrastRatio;
   BRIZZA.checkContrast = checkContrast;
 
+  const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function daysBetween(a, b) {
+    const [ay, am, ad] = String(a).split("-").map(Number);
+    const [by, bm, bd] = String(b).split("-").map(Number);
+    const da = new Date(ay, am - 1, ad);
+    const db = new Date(by, bm - 1, bd);
+    return Math.round((db - da) / 86400000);
+  }
+  function shiftDisplayDates(str, n) {
+    if (!str || typeof str !== "string") return str;
+    return str.replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.? (\d{1,2}), (\d{4})\b/g, function (_, mon, day, year) {
+      const mi = MONTH_NAMES.indexOf(mon) >= 0 ? MONTH_NAMES.indexOf(mon) : MONTH_SHORT.indexOf(mon);
+      if (mi < 0) return _;
+      const dt = new Date(Number(year), mi, Number(day));
+      dt.setDate(dt.getDate() + n);
+      const names = mon.length > 3 ? MONTH_NAMES : MONTH_SHORT;
+      return names[dt.getMonth()] + " " + dt.getDate() + ", " + dt.getFullYear();
+    });
+  }
+  function shiftValueDates(value, key, n) {
+    if (value == null) return value;
+    if (key === "dob" || key === "phone" || key === "email" || key === "zip") return value;
+    if (typeof value === "string") {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return addDays(value, n);
+      return shiftDisplayDates(value, n);
+    }
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i += 1) value[i] = shiftValueDates(value[i], key, n);
+      return value;
+    }
+    if (typeof value === "object") {
+      Object.keys(value).forEach(function (k) { value[k] = shiftValueDates(value[k], k, n); });
+      return value;
+    }
+    return value;
+  }
+  function shiftSampleDataToToday() {
+    const origin = (BRIZZA.DEMO_CLOCK && BRIZZA.DEMO_CLOCK.date) || "2026-11-18";
+    const today = todayET();
+    const n = daysBetween(origin, today);
+    BRIZZA.sampleShiftDays = n;
+    if (!n) return;
+    shiftValueDates(store, "", n);
+    if (BRIZZA.availabilityTemplates) shiftValueDates(BRIZZA.availabilityTemplates, "", n);
+    if (BRIZZA.DEMO_CLOCK) BRIZZA.DEMO_CLOCK.date = today;
+    if (BRIZZA.SAMPLE_DAY) BRIZZA.SAMPLE_DAY = addDays(BRIZZA.SAMPLE_DAY, n);
+  }
+
   const store = BRIZZA.seed();
   store.collectTasks = store.collectTasks || [];
   store.tasks = seedClinicTasks();
   store.noteTemplates = loadNoteTemplates();
+  shiftSampleDataToToday();
   const state = {
-    theme: "01", page: "patients", date: BRIZZA.SAMPLE_DAY, selected: "BZ0001",
+    theme: "01", page: "patients", date: todayET(), selected: "BZ0001",
     tab: "demographics", visitId: null, invoiceId: null, appointmentId: null,
-    providerFilter: "All providers", providerChips: null, compareLocations: false,
+    providerFilter: "All providers", providerChips: null, weekProviderId: "rossi", compareLocations: false,
     search: "", reschedulingId: null, modal: null,
     demo: { running: false, index: 0, timer: null }, contrast: null,
     scheduleView: "calendar", calMode: loadCalMode(), locationId: BRIZZA.DEFAULT_LOCATION,
@@ -579,8 +629,9 @@
         const tab = ({ home: "home", users: "users", team: "users", availability: "availability", types: "types", reasons: "reasons", settings: "settings", locations: "locations", templates: "templates" })[parts[1]] || "home";
         route = { page: "admin", adminTab: tab };
       }
-    } else if (p0 === "emr" || p0 === "board" || p0 === "my-board") {
-      route = { page: "emr", redirect: p0 === "emr" };
+    } else if (p0 === "emr" || p0 === "board" || p0 === "my-board" || p0 === "today") {
+      const tab = (parts[1] === "tomorrow" || parts[1] === "week") ? parts[1] : "today";
+      route = { page: "emr", todayTab: tab, redirect: p0 === "emr" || p0 === "board" || p0 === "my-board" };
     } else if (p0 === "configuration") {
       route = { page: "admin", adminTab: "settings", redirect: true };
     } else if (p0 === "appointment-types") {
@@ -601,7 +652,7 @@
       route = { page: "demo" };
     } else if (p0 === "audit") {
       route = { page: "audit", auditId: parts[1] };
-    } else if (p0 === "rooming") {
+    } else if (p0 === "rooming" || p0 === "patient-flow" || p0 === "flow") {
       const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || todayET());
       route = { page: "rooming", date: date };
     } else if (p0 === "inventory") {
@@ -645,9 +696,9 @@
     }
     else if (route.page === "demo") path = "/demo";
     else if (route.page === "audit") path = "/audit/" + route.auditId;
-    else if (route.page === "rooming") path = "/rooming/" + (route.date || state.roomingDate || todayET());
+    else if (route.page === "rooming") path = "/patient-flow/" + (route.date || state.roomingDate || todayET());
     else if (route.page === "inventory") path = "/admin/inventory/" + (route.invTab || state.invTab || "summary");
-    else if (route.page === "emr") path = "/board";
+    else if (route.page === "emr") path = "/today" + (route.todayTab && route.todayTab !== "today" ? "/" + route.todayTab : (state.todayTab && state.todayTab !== "today" && !route.todayTab ? "/" + state.todayTab : ""));
     else if (route.page === "notes") path = "/notes" + (route.notesDash === "signed" ? "/signed" : "");
     return "#" + path + "?theme=01";
   }
@@ -669,6 +720,7 @@
       state.selected = r.selected;
       state.tab = normalizePatientTab(r.tab || "snapshot");
     }
+    if (r.todayTab) state.todayTab = r.todayTab;
     if (r.notesDash) state.notesDash = r.notesDash;
     if (r.invTab) state.invTab = r.invTab;
     if (r.page === "admin" && r.adminTab) state.adminTab = r.adminTab;
@@ -713,15 +765,9 @@
     clearTimeout(toast._t);
     toast._t = setTimeout(() => el.classList.remove("show"), 2800);
   }
-  function openQ(text) {
-    return '<div class="open-q" role="note"><strong>Open question</strong>' + text + "</div>";
-  }
-  function optionalIdea(text) {
-    return '<div class="optional-idea" role="note"><strong>Optional idea (undecided)</strong>' + text + "</div>";
-  }
-  function concept(text) {
-    return '<div class="open-q" role="note"><strong>Concept</strong>' + text + "</div>";
-  }
+  function openQ(text) { return ""; }
+  function optionalIdea(text) { return ""; }
+  function concept(text) { return ""; }
   function invoiceBadge(a) {
     const inv = invoiceForAppt(a);
     if (!inv) return '<span class="row-sub">No invoice</span>';
@@ -766,11 +812,31 @@
     });
     return Math.round(p * 100) / 100;
   }
+  function lineKind(l) {
+    if (l && l.kind) return l.kind;
+    if (l && l.catalogId) {
+      const c = (store.catalog || BRIZZA.CATALOG || []).find(function (x) { return x.id === l.catalogId; });
+      if (c && c.kind) return c.kind;
+    }
+    return "";
+  }
+  function retailLineSum(inv) {
+    let sum = 0, tbd = false, any = false;
+    (inv && inv.lines || []).forEach(function (l) {
+      if (lineKind(l) !== "retail") return;
+      any = true;
+      const a = lineAmount(l);
+      if (a == null) tbd = true;
+      else sum += a;
+    });
+    return { sum: Math.round(sum * 100) / 100, tbd: tbd, any: any };
+  }
   function invoiceTotals(inv) {
     const ls = lineSum(inv);
     const paid = invoicePaid(inv);
     const rate = (typeof BRIZZA.TAX_RATE === "number") ? BRIZZA.TAX_RATE : 0.08875;
-    const tax = ls.sum ? Math.round(ls.sum * rate * 100) / 100 : 0;
+    const retail = retailLineSum(inv);
+    const tax = retail.sum ? Math.round(retail.sum * rate * 100) / 100 : 0;
     const total = Math.round((ls.sum + tax) * 100) / 100;
     let balance;
     if (inv && inv.carriedToAccount) balance = 0;
@@ -778,7 +844,7 @@
     else if (!ls.tbd) balance = Math.round((total - paid) * 100) / 100;
     else balance = null;
     const label = ls.tbd && !ls.sum ? "TBD" : (money(total) + (ls.tbd ? " + TBD" : ""));
-    return { sum: ls.sum, tax: tax, taxRate: rate, total: total, tbd: ls.tbd, paid: paid, balance: balance, label: label };
+    return { sum: ls.sum, tax: tax, taxRate: rate, retail: retail.sum, total: total, tbd: ls.tbd, paid: paid, balance: balance, label: label };
   }
   function refreshInvoiceBalance(inv) {
     if (!inv) return;
@@ -1013,6 +1079,7 @@
     return parts.map(function (w) { return w.charAt(0).toUpperCase(); }).join("") || "—";
   }
   function openClinicalNotesGroupHtml(date) {
+    return "";
     const items = [];
     (store.patients || []).forEach(function (p) {
       (p.notes || []).forEach(function (n) {
@@ -1069,10 +1136,32 @@
       '<button type="button" class="btn small primary" data-checkout-visit="' + esc(a.id) + '">Check out</button>' +
       '<button type="button" class="btn small" data-left-unpaid="' + esc(a.id) + '">Left without paying</button></div>';
   }
+  function ensureBalanceTask(a) {
+    if (!a || !visitUnpaid(a).unpaid) return;
+    store.tasks = store.tasks || [];
+    const exists = store.tasks.some(function (t) { return t.appointmentId === a.id && t.kind === "balance" && !t.done; });
+    if (exists) return;
+    store.tasks.push({
+      id: nextId("T-BAL-", store.tasks),
+      kind: "balance",
+      text: "Collect unpaid balance",
+      patientId: a.patientId,
+      appointmentId: a.id,
+      owner: "Serena Collins",
+      due: todayET(),
+      done: false,
+      createdAt: todayET()
+    });
+  }
   function checkoutVisit(id) {
     const a = appt(id);
     if (!a) return;
+    if ((isFrontDeskRole() || isOwnerRole()) && !visitHasCharges(a)) {
+      toast("Check out once charges exist");
+      return;
+    }
     setVisitStatus(id, "Checked out", { silent: true });
+    if (visitUnpaid(a).unpaid) ensureBalanceTask(a);
     if ($("#modal") && $("#modal").classList.contains("pos-mode")) closeModal();
     toast(visitUnpaid(a).unpaid ? "Checked out with an unpaid or partial balance. Checkout is allowed." : "Status: Checked out");
     render();
@@ -1160,7 +1249,7 @@
       "</div>";
     const hits = q ? scheduleSearchHits(q) : "";
     const timed = rows.slice().sort((a, b) => a.time.localeCompare(b.time) || a.id.localeCompare(b.id));
-    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider / Room</div><div>Type / Reason</div><div>Reg</div><div>Prep</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
+    const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider / Suite</div><div>Type / Reason</div><div>Reg</div><div>Prep</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
     const collapsed = wlBucketState();
     let groups = "";
     if (isWeekend(date)) {
@@ -1192,8 +1281,6 @@
             <strong>${esc(fmtLong(date))}</strong> <span class="count">${esc(patientCount(date))}</span>
             <a class="btn small" id="sched-next" href="${hashFor({ page: "worklist", date: addDays(date, 1) })}" aria-label="Next day">›</a>
             <a class="btn small" id="sched-today" href="${hashFor({ page: "worklist", date: todayET() })}">Today</a>
-            <a class="btn small" href="${hashFor({ page: "worklist", date: BRIZZA.SAMPLE_DAY })}">Sample day</a>
-            <a class="btn small" href="${hashFor({ page: "worklist", date: demoClockDate() })}">Demo day</a>
             <span class="demo-clock" title="Fixed demo time used for Late tags and the next pending row">${esc("Demo clock · " + demoClockLabel())}</span>
           </div>
           <div class="sched-tools">
@@ -1234,11 +1321,10 @@
     const unpaidMark = due.unpaid ? '<span class="wl-unpaid-mark">' + (due.tbd ? "Unpaid TBD" : "Unpaid") + "</span>" : "";
     const cls = "wl-row" + (opts.late ? " is-late" : "") + (due.unpaid ? " is-unpaid" : "");
     const suiteLine = '<span class="wl-suite">' + esc(suite) + "</span>";
-    const room = a.room || "";
-    const roomLine = room ? '<span class="wl-room">' + esc(room) + "</span>" : '<span class="wl-room muted">No room</span>';
+    const roomLine = a.suiteId ? '<span class="wl-room">' + esc(suite) + "</span>" : '<span class="wl-room muted">No suite</span>';
     const prepOpen = state.expandedPrep === a.id;
     const prepCell = prepCellHtml(a, prepOpen);
-    return '<div class="' + cls + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-wl-row="' + esc(a.id) + '" style="--status-bar:' + statusColor(a.status) + '">' +
+    return '<div class="' + cls + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-wl-row="' + esc(a.id) + '" style="' + cardTypeStyle(a) + '">' +
       '<div class="wl-time"><span class="wl-time-val">' + esc(fmtTime(a.time)) + "</span>" + late + suiteLine + "</div>" +
       '<div class="wl-patient">' + (p ? patientLink(p) : esc(a.patientId)) + " " + historyIcon("Appointment", a.id) +
         (p ? '<span class="wl-sub">' + esc(fmtDob(p.dob)) + " - " + esc(displayId(p.id)) + "</span>" : "") + "</div>" +
@@ -1380,7 +1466,7 @@
           '<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th><th></th></tr></thead><tbody>' + lines + "</tbody></table>" +
           '<div class="pos-summary">' +
             '<div>Subtotal ' + (t.tbd && !t.sum ? "TBD" : money(t.sum || 0)) + "</div>" +
-            "<div>Tax 8.875% · " + (t.tbd && !t.sum ? "TBD" : money(t.tax || 0)) + "</div>" +
+            "<div>Tax 8.875% on retail · " + (t.tbd && !t.sum ? "TBD" : money(t.tax || 0)) + "</div>" +
             "<div>Total " + esc(t.label) + "</div>" +
             (inv.status === "Paid" ? badge("Paid") : badge(inv.status || "Draft")) +
           "</div>" +
@@ -1434,7 +1520,7 @@
       (a ? "<p>" + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + "</p>" : "") +
       "<table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>" + lineRows + "</tbody></table>" +
       "<p>Subtotal " + (t.tbd && !t.sum ? "TBD" : money(t.sum || 0)) + "</p>" +
-      '<p>Tax ' + ((t.taxRate || 0) * 100).toFixed(3).replace(/0+$/, "").replace(/\.$/, "") + "% · " + (t.tbd && !t.sum ? "TBD" : money(t.tax || 0)) + "</p>" +
+      '<p>Tax ' + ((t.taxRate || 0) * 100).toFixed(3).replace(/0+$/, "").replace(/\.$/, "") + "% on retail · " + (t.tbd && !t.sum ? "TBD" : money(t.tax || 0)) + "</p>" +
       '<p class="tot">Total ' + esc(t.label) + "</p>" +
       '<p class="tot">Balance ' + esc(t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance)) + "</p>" +
       (pays ? "<h2>Payments</h2>" + pays : "") +
@@ -1446,6 +1532,19 @@
     w.document.close();
     w.focus();
     w.print();
+  }
+  function syncPayAmount(inv) {
+    const el = document.getElementById("pay-amount");
+    if (!el || !inv) return;
+    const t = invoiceTotals(inv);
+    if (t.balance != null && !t.tbd && t.balance > 0) el.value = String(t.balance);
+    else if (t.balance != null && !t.tbd && t.balance <= 0) el.value = "0";
+  }
+  function refreshPosView() {
+    if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
+    else render();
+    const inv = invoice(state.invoiceId);
+    if (inv) syncPayAmount(inv);
   }
   function paintInvoiceLive(inv) {
     const wrap = document.querySelector(".pos-simple");
@@ -1462,6 +1561,14 @@
       if (els[0]) els[0].textContent = "Total " + t.label;
       if (els[els.length - 1]) els[els.length - 1].textContent = "Balance " + (t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance));
     }
+    const sum = wrap.querySelector(".pos-summary");
+    if (sum) {
+      const els = sum.querySelectorAll("div");
+      if (els[0]) els[0].textContent = "Subtotal " + (t.tbd && !t.sum ? "TBD" : money(t.sum || 0));
+      if (els[1]) els[1].textContent = "Tax 8.875% on retail · " + (t.tbd && !t.sum ? "TBD" : money(t.tax || 0));
+      if (els[2]) els[2].textContent = "Total " + t.label;
+    }
+    syncPayAmount(inv);
   }
   function refreshInvoicePopup() {
     if (!$("#modal") || !$("#modal").classList.contains("pos-mode")) return;
@@ -2307,7 +2414,7 @@
         const time = times[t];
         const end = fromMinutes(toMinutes(time) + mins);
         if (toMinutes(end) > 18 * 60) continue;
-        if (appointmentTouchesLunch(day, time, end)) continue;
+        if (appointmentTouchesLunch(day, time, end, provider)) continue;
         if (i === 0 && time < fromTime) continue;
         if (!slotOverlapsAppt(day, time, provider, mins)) return { date: day, time: time, provider: provider, minutes: mins };
       }
@@ -2380,8 +2487,29 @@
 
 
 
+  function pendingNotesCount() {
+    const staff = actingProviderStaff();
+    const list = pendingNotesForProvider(staff && isClinicalRole() && !isOwnerRole() ? staff.name : null) || [];
+    if (isOwnerRole() || state.actingRole === "Clinic Manager") {
+      return list.filter(function (item) { return isNoteLate(item.n); }).length || list.length;
+    }
+    return list.length;
+  }
+  function notesNavLabel() {
+    const n = pendingNotesCount();
+    const name = (isClinicalRole() && !isOwnerRole()) ? "My notes" : "Notes";
+    return n ? (name + ' <span class="nav-badge">' + n + "</span>") : name;
+  }
+  function canSeeNav(key) {
+    const role = state.actingRole;
+    if (role === "Marketing Specialist") {
+      return key === "schedule" || key === "patients";
+    }
+    return true;
+  }
   function renderChrome(crumb, titleArea, body) {
     const nav = (href, key, label, icon) => {
+      if (!canSeeNav(key)) return "";
       const active = (key === "patients" && (state.page === "patients" || state.page === "visit" || state.page === "demo")) ||
         (key === "notes" && state.page === "notes") ||
         (key === "schedule" && state.page === "schedule") ||
@@ -2392,7 +2520,7 @@
         (key === "inventory" && state.page === "admin" && state.adminTab === "inventory") ||
         (key === "emr" && state.page === "emr") ||
         (key === "admin" && state.page === "admin");
-      return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '"><span class="ico">' + icon + "</span>" + label + "</a>";
+      return '<a href="' + href + '" class="' + (active ? "active" : "") + '" data-nav="' + key + '" title="' + String(label).replace(/<[^>]+>/g, "") + '"><span class="ico">' + icon + '</span><span class="nav-text">' + label + "</span></a>";
     };
     $("#app-root").innerHTML = `
       <a class="skip" href="#main">Skip to content</a>
@@ -2404,14 +2532,14 @@
             ${nav(hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }), "schedule", "Schedule", "▦")}
             ${nav(hashFor({ page: "worklist", date: state.date }), "worklist", "Worklist", "≡")}
             ${nav(hashFor({ page: "patients", selected: state.selected, tab: state.tab }), "patients", "Patients", "♙")}
-            ${nav(hashFor({ page: "notes", notesDash: state.notesDash || "pending" }), "notes", "Notes", "✎")}
+            ${nav(hashFor({ page: "notes", notesDash: state.notesDash || "pending" }), "notes", notesNavLabel(), "✎")}
             ${nav(hashFor({ page: "queue", date: state.date }), "queue", "Tasks", "☷")}
+            ${nav(hashFor({ page: "rooming" }), "rooming", "Patient flow", "▣")}
             ${nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰")}
           </nav>
-          <div class="nav-label">My board</div>
-          <nav class="nav" aria-label="My board">
-            ${nav(hashFor({ page: "emr" }), "emr", "My board", "✚")}
-            ${nav(hashFor({ page: "rooming" }), "rooming", "Rooming", "▣")}
+          <div class="nav-label">Today</div>
+          <nav class="nav" aria-label="Today">
+            ${nav(hashFor({ page: "emr", todayTab: "today" }), "emr", "Today", "✚")}
           </nav>
           <div class="nav-label">Clinic</div>
           <nav class="nav" aria-label="Clinic">
@@ -2423,7 +2551,7 @@
             <div class="crumb">Brizza Aesthetics / ${crumb}</div>
             <div class="topright">
               ${(state.page === "patients") ? findPatientHtml() : ""}
-              <span class="disclaimer">Synthetic data · prototype, not a production EMR</span>
+              
               <span class="clinic-pill">${esc(BRIZZA.CLINIC.location)}</span>
               <div class="user-bar">
                 <div class="avatar">SC</div>
@@ -2634,13 +2762,28 @@
         '<h3 class="section-title">Patient notes</h3><p class="row-sub">Non-clinical notes, timestamped with the author.</p>' +
         patientNotesHtml(p) +
         "</div></div>";
-    } else if (state.tab === "clinical-profile") { /* B2 read-only history */
+    } else if (state.tab === "clinical-profile") {
       const rows = (items, empty) => items.length ? items.map((x) => '<div class="row"><span>' + esc(Array.isArray(x) ? x.join(" · ") : x) + "</span></div>").join("") : '<div class="empty">' + empty + "</div>";
-      body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3><p class="row-sub">This is a read-only summary. Edit history in a clinical note.</p>${lastNoteLineHtml(p.id)}${rows(p.conditions, "No history items recorded")}
+      const reviewed = p.hxChartReviewedAt ? ("Reviewed on the chart · " + esc(p.hxChartReviewedAt) + (p.hxChartReviewedBy ? " · " + esc(p.hxChartReviewedBy) : "")) : "Not yet marked reviewed on the chart.";
+      if (canEditChartHistory()) {
+        body = '<div class="profile-block"><p class="row-sub">Medical assistants update history on the chart. The provider confirms it in the visit note.</p>' +
+          lastNoteLineHtml(p.id) +
+          '<div class="formgrid">' +
+          '<div class="field full"><label for="chartHxConditions">Medical history</label><textarea id="chartHxConditions">' + esc((p.conditions || []).join("\n")) + "</textarea></div>" +
+          '<div class="field full"><label for="chartHxMeds">Current medications</label><textarea id="chartHxMeds">' + esc((p.meds || []).join("\n")) + "</textarea></div>" +
+          '<div class="field full"><label for="chartHxAllergies">Allergies</label><textarea id="chartHxAllergies">' + esc((p.allergies || []).join("\n")) + "</textarea></div>" +
+          "</div>" +
+          '<p class="row-sub">' + reviewed + "</p>" +
+          '<div class="actions"><button class="btn primary" type="button" data-save-chart-hx="' + esc(p.id) + '">Save history</button>' +
+          '<button class="btn" type="button" data-review-chart-hx="' + esc(p.id) + '">Mark reviewed</button></div></div>' +
+          '<div class="profile-block"><h3 class="section-title">Treatment history</h3>' + (p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>') + "</div>";
+      } else {
+        body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3><p class="row-sub">Providers confirm history in the visit note. Medical assistants update it on this chart.</p>${lastNoteLineHtml(p.id)}${rows(p.conditions, "No history items recorded")}
         <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}
         <h3 class="section-title" style="margin-top:18px">Pharmacy</h3>${p.pharmacy ? '<div class="row"><span>' + esc(p.pharmacy) + "</span></div>" : '<div class="empty">No pharmacy recorded (if applicable)</div>'}</div>
-        <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}</div></div></div>
+        <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}<p class="row-sub">${reviewed}</p></div></div></div>
         <div class="profile-block"><h3 class="section-title">Treatment history</h3>${p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}</div>`;
+      }
     } else if (state.tab === "appointments") {
       const list = apptsFor(p).slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
       body = `<div class="labelrow"><h3 class="section-title">Appointment history</h3>
@@ -3145,16 +3288,57 @@
     if (isWeekend(date)) return true;
     return time < "10:00" || time >= "18:00";
   }
-  function appointmentTouchesLunch(date, time, end) {
+  function staffRecord(nameOrRole) {
+    const list = BRIZZA.STAFF || [];
+    return list.find(function (s) { return s.name === nameOrRole || s.id === nameOrRole || s.role === nameOrRole; }) || null;
+  }
+  function defaultLunchWindow() { return { start: "13:00", end: "14:00" }; }
+  function lunchWindow(date, provider) {
+    const staff = staffRecord(provider);
+    const roleLunch = staff && BRIZZA.STAFF_LUNCH && BRIZZA.STAFF_LUNCH[staff.role];
+    if (roleLunch && roleLunch.start && roleLunch.end) return { start: roleLunch.start, end: roleLunch.end };
+    if (date && provider) {
+      const lunchBlk = (typeof dayBlocks === "function" ? dayBlocks(date) : []).filter(function (b) {
+        return b.staff === provider && (b.reason === "Lunch" || b.type === "Lunch");
+      })[0];
+      if (lunchBlk && lunchBlk.start && lunchBlk.end) return { start: lunchBlk.start, end: lunchBlk.end };
+      if (typeof blocksOnDate === "function") {
+        const byLoc = {};
+        (blocksOnDate(provider, date) || []).forEach(function (b) {
+          const key = b.locationId || "_";
+          (byLoc[key] = byLoc[key] || []).push(b);
+        });
+        const locIds = Object.keys(byLoc);
+        for (let i = 0; i < locIds.length; i += 1) {
+          const list = byLoc[locIds[i]].slice().sort(function (x, y) { return String(x.start).localeCompare(String(y.start)); });
+          for (let j = 0; j < list.length - 1; j += 1) {
+            if (list[j].end && list[j + 1].start && list[j].end < list[j + 1].start) {
+              return { start: list[j].end, end: list[j + 1].start };
+            }
+          }
+        }
+      }
+    }
+    return defaultLunchWindow();
+  }
+  function lunchWindowLabel(win) {
+    const w = win || defaultLunchWindow();
+    return fmtTime(w.start) + "–" + fmtTime(w.end);
+  }
+  function appointmentTouchesLunch(date, time, end, provider) {
     if (!date || !time || isWeekend(date)) return false;
+    const w = lunchWindow(date, provider);
     const start = toMinutes(time);
     const fin = end ? toMinutes(end) : start + 15;
-    if (fin <= start) return start >= 13 * 60 && start < 14 * 60;
-    return start < 14 * 60 && fin > 13 * 60;
+    const ls = toMinutes(w.start);
+    const le = toMinutes(w.end);
+    if (fin <= start) return start >= ls && start < le;
+    return start < le && fin > ls;
   }
-  function isLunchSlot(date, time) {
+  function isLunchSlot(date, time, provider) {
     if (!date || !time || isWeekend(date)) return false;
-    return time >= "13:00" && time < "14:00";
+    const w = lunchWindow(date, provider);
+    return time >= w.start && time < w.end;
   }
   function staffRecord(name) {
     return (BRIZZA.STAFF || []).find(function (s) { return s.name === name || s.calendarName === name; }) || null;
@@ -3272,15 +3456,31 @@
     else if (av === "available-outside") cls = "clinic-open available outside-clinic cal-outside";
     else cls = "clinic-open unavailable";
     if (outside && cls.indexOf("cal-outside") < 0) cls += " outside-clinic cal-outside";
-    if (isLunchSlot(date, time)) cls += " cal-lunch";
+    if (isLunchSlot(date, time, provider)) cls += " cal-lunch";
     return cls.trim();
   }
   function canManageAvailability() {
     return (BRIZZA.AVAILABILITY_ROLES || []).indexOf(state.actingRole) >= 0;
   }
+  function typeFamilyFor(type) {
+    const fams = BRIZZA.TYPE_FAMILIES || [];
+    return fams.find(function (f) { return (f.types || []).indexOf(type) >= 0; }) || null;
+  }
+  function typeFill(type) {
+    const fam = typeFamilyFor(type);
+    if (fam && fam.bg) return fam.bg;
+    const tc = (BRIZZA.TYPE_COLORS || {})[type];
+    return (tc && tc.bg) || BRIZZA.CARD_CREAM || "#FFFCF6";
+  }
+  function cardTypeStyle(a) {
+    const status = statusColor((a && a.status) || "");
+    return "--type-fill:" + typeFill(a && a.type) + ";--status-bar:" + status + ";border-left-color:" + status;
+  }
   function typeLegend() {
     return '<div class="legend" aria-label="Appointment type colors">' +
-      typesList().map((tp) => '<span class="type-chip" data-type="' + esc(tp.name) + '">' + esc(tp.name) + "</span>").join("") +
+      (BRIZZA.TYPE_FAMILIES || []).map(function (f) {
+        return '<span class="type-chip type-family-chip" data-family="' + esc(f.id) + '" style="--type-fill:' + esc(f.bg) + '">' + esc(f.name) + "</span>";
+      }).join("") +
       '<span class="legend-item"><span class="swatch clinic"></span>Office hours (Mon–Fri 10:00 a.m.–6:00 p.m. ET)</span>' +
       '<span class="legend-item"><span class="swatch avail"></span>Available</span>' +
       '<span class="legend-item"><span class="swatch unavail"></span>Outside office hours</span></div>';
@@ -3330,6 +3530,7 @@
   }
   function providerMatches(name) {
     if (!shouldFilterProvider()) return true;
+    if (typeof isWeekCalendar === "function" && isWeekCalendar()) return name === weekProviderName();
     const chips = state.providerChips || ["all"];
     if (!chips.length || chips.indexOf("all") >= 0) return true;
     return selectedProviderNames().indexOf(name) >= 0;
@@ -3345,8 +3546,31 @@
     saveProviderChips(chips);
     render();
   }
+  function isWeekCalendar() {
+    return state.page === "schedule" && state.scheduleView === "calendar" && state.calMode === "week";
+  }
+  function weekProviderId() {
+    const list = providerChipList();
+    const id = state.weekProviderId;
+    if (id && list.some(function (p) { return p.id === id; })) return id;
+    const chips = (state.providerChips || []).filter(function (c) { return c !== "all"; });
+    if (chips.length && list.some(function (p) { return p.id === chips[0]; })) return chips[0];
+    return (list[0] && list[0].id) || "rossi";
+  }
+  function weekProviderName() {
+    const rec = providerChipList().find(function (p) { return p.id === weekProviderId(); });
+    return rec ? rec.name : ((BRIZZA.PROVIDERS || [])[0] || "");
+  }
   function providerChipsHtml() {
     if (!state.providerChips) state.providerChips = loadProviderChips();
+    if (isWeekCalendar()) {
+      const cur = weekProviderId();
+      const rest = providerChipList().map(function (p) {
+        const on = p.id === cur;
+        return '<button type="button" class="prov-chip' + (on ? " active" : "") + '" data-week-prov="' + esc(p.id) + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(p.short) + "</button>";
+      }).join("");
+      return '<div class="prov-chips" role="radiogroup" aria-label="Week provider (one at a time)">' + rest + "</div>";
+    }
     const allOn = !state.providerChips.length || state.providerChips.indexOf("all") >= 0;
     const allBtn = '<button type="button" class="prov-chip' + (allOn ? " active" : "") + '" data-prov-chip="all" aria-pressed="' + (allOn ? "true" : "false") + '">All</button>';
     const rest = providerChipList().map(function (p) {
@@ -3362,7 +3586,7 @@
       const on = !compare && state.locationId === l.id;
       return '<button type="button" class="loc-chip' + (on ? " active" : "") + '" data-loc-chip="' + esc(l.id) + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(l.name) + "</button>";
     }).join("");
-    const cmp = '<button type="button" class="loc-chip' + (compare ? " active" : "") + '" data-loc-compare="1" aria-pressed="' + (compare ? "true" : "false") + '">Compare</button>';
+    const cmp = '<button type="button" class="loc-chip' + (compare ? " active" : "") + '" data-loc-compare="1" aria-pressed="' + (compare ? "true" : "false") + '">Compare locations</button>';
     return '<div class="loc-toggle" role="group" aria-label="Location">' + buttons + cmp + "</div>";
   }
   function providerAvailLabel(name) {
@@ -3404,12 +3628,14 @@
     const reasons = a.reasons || [];
     const isNew = reasons.indexOf("New Patient") >= 0;
     const isEst = reasons.indexOf("Existing Patient") >= 0 || reasons.indexOf("Established Patient") >= 0;
-    if (isNew) return service ? ("New Patient – " + service) : "New Patient";
-    if (isEst) return service ? ("Established Patient – " + service) : "Established Patient";
-    if (isConsultType(a.type)) return service ? ("Consult · " + service) : "Consult";
-    const reason = visitReasonLabel(a);
-    if (reason && reason !== a.type) return a.type + " · " + reason;
-    return a.type || "";
+    let mid = a.type || "";
+    if (isConsultType(a.type)) mid = service ? ("Consult · " + service) : "Consult";
+    else {
+      const reason = visitReasonLabel(a);
+      if (reason && reason !== a.type) mid = (a.type || "") + " · " + reason;
+    }
+    const tag = isNew ? "New" : (isEst ? "Existing" : "");
+    return tag ? ((mid ? mid + " · " : "") + tag) : mid;
   }
 
   function slotKey(date, time, provider) {
@@ -4016,7 +4242,7 @@
     (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status)).forEach(ensureRooming);
     const records = (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status) && a.status !== "Rescheduled")
       .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-    const head = pageHead("Rooming manager", "Rooming", esc(locationName(state.locationId)) + " · " + esc(fmtLong(date)), "");
+    const head = pageHead("Patient flow", "Patient flow", esc(locationName(state.locationId)) + " · " + esc(fmtLong(date)), "");
     const toolbar = `<div class="room-toolbar datebar">
       <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
       <strong>${esc(fmtLong(date))}</strong>
@@ -4069,11 +4295,11 @@
         '<div class="suite-zones"><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With clinical">Clinical</div><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With provider">Provider</div></div></div>';
     }).join("");
     const body = '<div class="rooming-fit">' + head + toolbar +
-      '<div class="room-flow-wrap"><h2 class="section-title">Patient Flow</h2><div class="room-board">' + cols + "</div></div>" +
-      '<div class="room-suites-wrap"><h2 class="section-title">Rooms</h2>' +
+      '<div class="room-flow-wrap"><h2 class="section-title">Patient flow</h2><div class="room-board">' + cols + "</div></div>" +
+      '<div class="room-suites-wrap"><h2 class="section-title">Suites</h2>' +
       '<div class="room-suites">' + suites + "</div>" +
       '<div class="suite-unassign" data-drop-suite="" data-unassign="1">Drop here to remove from a suite</div></div></div>';
-    renderChrome('<a href="' + hashFor({ page: "rooming", date: date }) + '">Rooming</a>', "", body);
+    renderChrome('<a href="' + hashFor({ page: "rooming", date: date }) + '">Patient flow</a>', "", body);
     startRoomingTick();
     bindRoomingDrag();
     bindStatusStops();
@@ -4181,7 +4407,7 @@
       const posHref = a.invoiceId
         ? hashFor({ page: "pos", invoiceId: a.invoiceId, posTab: "invoice" })
         : hashFor({ page: "pos", appointmentId: a.id, posTab: "invoice" });
-      return `<div class="appt-card" data-type="${esc(a.type)}" data-open-appt="${esc(a.id)}">
+      return `<div class="appt-card" data-type="${esc(a.type)}" data-open-appt="${esc(a.id)}" style="${cardTypeStyle(a)}">
         <div class="appt-card-top">
           <div>
             <div class="appt-title">${statusDot(a.status)} <a href="${openHref}">${esc(fmtTime(a.time))}</a> · ${p ? patientLink(p) : esc(a.patientId)} ${auditIconFor("Appointment", a.id)}</div>
@@ -4212,7 +4438,6 @@
             <strong>${esc(fmtLong(state.date))}</strong> <span class="count">${esc(patientCount(state.date))}</span>
             <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: addDays(state.date, 1), view: "list" })}" aria-label="Next day">›</a>
             <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "list" })}">Today</a>
-            <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "list" })}">Sample day</a>
           </div>
           <div class="sched-tools">
             <label class="sr-only" for="sched-search">Search patients and appointments</label>
@@ -4256,12 +4481,12 @@
     const cancelBadge = canceled ? ' <span class="badge canceled-badge">Canceled</span>' : "";
     const mate = linkedVisitMate(a);
     const linkBadge = mate ? '<span class="cal-link-tag" title="Linked visit, one invoice">Linked · ' + esc(mate.type) + "</span>" : "";
-    const noRoom = !(a.room || a.suiteId) ? '<span class="cal-noroom">No room</span>' : "";
+    const noRoom = !a.suiteId ? '<span class="cal-noroom">No suite</span>' : "";
     const due = visitUnpaid(a);
     const payCue = due.unpaid
       ? '<span class="cal-pay unpaid">' + (due.tbd ? "Unpaid TBD" : "Unpaid") + "</span>"
       : ((invoiceForAppt(a) || {}).status === "Paid" ? '<span class="cal-pay paid">Paid</span>' : "");
-    return '<div class="cal-event' + (canceled ? " is-canceled" : "") + (mate ? " is-linked" : "") + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked || canceled ? "false" : "true") + '" style="--status-bar:' + color + ";border-left-color:" + color + '">' +
+    return '<div class="cal-event' + (canceled ? " is-canceled" : "") + (mate ? " is-linked" : "") + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked || canceled ? "false" : "true") + '" style="' + cardTypeStyle(a) + '">' +
       '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + cancelBadge + "</span>" +
       '<span class="cal-event-mid"><a href="' + href + '">' + esc(cardTypeLabel(a)) + "</a>" + linkBadge + "</span>" +
       '<span class="row-sub">' + esc(a.provider) + " · " + esc(a.status) + noRoom + payCue + "</span>" + dd +
@@ -4277,6 +4502,14 @@
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   }
 
+  function weekJumperHtml(date) {
+    const jumps = [2, 4, 6, 12];
+    const links = jumps.map(function (w) {
+      const d = addDays(date, w * 7);
+      return '<a class="btn small" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "week" }) + '">+' + w + "w</a>";
+    }).join("");
+    return '<span class="week-jump" role="group" aria-label="Jump ahead by weeks">' + links + "</span>";
+  }
   function renderCalendar() {
     if (!state.providerChips) state.providerChips = loadProviderChips();
     const modes = calendarModeToggle();
@@ -4292,8 +4525,7 @@
       <strong>${esc(title)}</strong>
       <a class="btn small" id="sched-next" href="${hashFor({ page: "schedule", date: shiftNext, view: "calendar", calMode: state.calMode })}" aria-label="Next">›</a>
       <a class="btn small" id="sched-today" href="${hashFor({ page: "schedule", date: todayET(), view: "calendar", calMode: state.calMode })}">Today</a>
-      <a class="btn small" href="${hashFor({ page: "schedule", date: BRIZZA.SAMPLE_DAY, view: "calendar", calMode: state.calMode })}">Sample day</a>
-      <a class="btn small" href="${hashFor({ page: "schedule", date: demoClockDate(), view: "calendar", calMode: state.calMode })}">Demo day</a>
+      ${state.calMode === "week" ? weekJumperHtml(state.date) : ""}
     </div>`;
     const tools = '<div class="cal-tools">' + locationToggleHtml() + providerChipsHtml() + hideCanceledToggleHtml() +
       '<label class="sr-only" for="sched-search">Search patients and appointments</label>' +
@@ -4347,30 +4579,31 @@
   function calendarWeekGrid(date, locationId) {
     const mon = weekMonday(date);
     const days = [0, 1, 2, 3, 4].map(function (i) { return addDays(mon, i); });
-    const appts = rangeAppointments(mon, addDays(mon, 4), locationId);
-    const blocks = rangeBlocks(mon, addDays(mon, 4)).filter(function (b) { return !locationId || b.locationId === locationId; });
+    const hours = scheduleHours();
+    const provider = weekProviderName();
+    const appts = rangeAppointments(mon, addDays(mon, 4), locationId).filter(function (a) { return a.provider === provider; });
+    const blocks = rangeBlocks(mon, addDays(mon, 4)).filter(function (b) {
+      return (!locationId || b.locationId === locationId) && (!b.staff || b.staff === provider);
+    });
     const q = (state.scheduleSearch || "").trim().toLowerCase();
     const vis = function (a) {
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
-    const daysHtml = days.map(function (d) {
-      const dayAppts = appts.filter(function (a) { return a.date === d && vis(a); }).sort(function (a, b) { return a.time.localeCompare(b.time) || a.id.localeCompare(b.id); });
-      const dayBlks = blocks.filter(function (b) { return b.date === d; });
-      const morning = dayAppts.filter(function (a) { return a.time < "13:00"; }).map(calendarEvent).join("") +
-        dayBlks.filter(function (b) { return b.start < "13:00"; }).map(calendarBlock).join("");
-      const mid = dayAppts.filter(function (a) { return a.time >= "13:00" && a.time < "14:00"; }).map(calendarEvent).join("") +
-        dayBlks.filter(function (b) { return b.start >= "13:00" && b.start < "14:00"; }).map(calendarBlock).join("");
-      const afternoon = dayAppts.filter(function (a) { return a.time >= "14:00"; }).map(calendarEvent).join("") +
-        dayBlks.filter(function (b) { return b.start >= "14:00"; }).map(calendarBlock).join("");
-      const lunch = '<div class="cal-lunch-band cal-lunch" aria-label="Lunch 1:00–2:00 p.m.">Lunch 1:00–2:00 p.m.</div>';
-      const empty = dayAppts.length || dayBlks.length ? "" : '<div class="empty">No appointments</div>';
-      return '<section class="cal-week-day">' +
-        '<h3 class="cal-week-day-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' +
-          esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })) +
-        '</a> <span class="count">' + esc(patientCount(d)) + "</span></h3>" +
-        '<div class="cal-week-list">' + morning + lunch + mid + afternoon + empty + addSlotButton(d, "10:00", null) + "</div></section>";
+    const heads = '<div class="cal-time"></div>' + days.map(function (d) {
+      return '<div class="cal-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' +
+        esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) +
+        '</a> <span class="count">' + esc(patientCount(d)) + "</span></div>";
     }).join("");
-    return '<div class="cal-week-stack">' + daysHtml + "</div>";
+    const rows = hours.map(function (h) {
+      const cells = days.map(function (d) {
+        const here = appts.filter(function (a) { return a.date === d && a.time === h; });
+        const inner = here.filter(vis).map(calendarEvent).join("") +
+          blocks.filter(function (b) { return b.date === d && b.start === h; }).map(calendarBlock).join("");
+        return slotCellHtml(d, h, provider, inner);
+      }).join("");
+      return '<div class="cal-time">' + esc(fmtTime(h)) + "</div>" + cells;
+    }).join("");
+    return '<div class="cal-grid-week" data-week-provider="' + esc(provider) + '">' + heads + rows + "</div>";
   }
 
   function calendarMonthGrid(date, locationId) {
@@ -4514,8 +4747,10 @@
     items.push({ label: "Clinical consent", ok: consentOk });
     items.push({ label: "Intake documents", ok: intakeOk });
     items.push({ label: "Allergies recorded", ok: allergyOk });
-    const unsigned = p && (p.notes || []).some((n) => !isNoteSigned(n));
-    if (unsigned) items.push({ label: "Unsigned note", ok: false });
+    const confirmed = a.status !== "Scheduled" || !!a.confirmedAt || a.status === "Confirmed" || isBoardStatus(a.status);
+    const reminder = !!a.reminderAt || confirmed;
+    items.push({ label: "Confirmed (48 hours before)", ok: confirmed });
+    items.push({ label: "Reminder sent (24 hours before)", ok: reminder });
     return { ready: items.every((i) => i.ok), items };
   }
 
@@ -4921,7 +5156,7 @@
         : '<div class="notice">Note templates can be edited when acting as MD / Clinic Owner or Clinic Manager.</div>') +
       "</div></div>" +
       "</div>" +
-      '<div class="card" style="margin-top:16px"><div class="cardhead"><h2>Theme contrast (WCAG 2.1 AA)</h2></div><div class="cardbody">' + themeRows + "</div></div>";
+      "";
     renderAdminChrome(head, body);
   }
 
@@ -5059,7 +5294,7 @@
     if (source === "provider") return a ? a.provider : "";
     if (source === "type") return a ? a.type : "";
     if (source === "reason") return a ? (typeof visitReasonLabel === "function" ? visitReasonLabel(a) : reasonText(a)) : "";
-    if (source === "suite") return a ? (a.room || (typeof suiteName === "function" && a.suiteId ? suiteName(a.suiteId) : "") || "") : "";
+    if (source === "suite") return a ? ((typeof suiteName === "function" && a.suiteId ? suiteName(a.suiteId) : "") || "") : "";
     return "";
   }
   function applyPullIns(draft, tpl) {
@@ -5810,7 +6045,7 @@
     const outside = date && time && isOutsideClinicHours(date, time);
     const outsideReason = ($("#fOutsideReason") && $("#fOutsideReason").value.trim()) || "";
     if (outside && !outsideReason) missing.push("Outside-hours reason");
-    const lunch = date && time && appointmentTouchesLunch(date, time, end);
+    const lunch = date && time && appointmentTouchesLunch(date, time, end, provider);
     const lunchReason = ($("#fLunchReason") && $("#fLunchReason").value.trim()) || "";
     if (lunch && !lunchReason) missing.push("Lunch-hours reason");
     const roleNeed = providerRoleMismatch(type, provider);
@@ -5995,9 +6230,10 @@
         '<label for="fOutsideReason">Reason for booking outside office hours <span class="req">required</span></label>' +
         '<input id="fOutsideReason" type="text" required value="' + esc(prior) + '">';
     }
-    if (date && time && appointmentTouchesLunch(date, time, end)) {
+    if (date && time && appointmentTouchesLunch(date, time, end, $("#fProvider") && $("#fProvider").value)) {
       const priorL = $("#fLunchReason") ? $("#fLunchReason").value : "";
-      html += '<div class="notice lunch-notice" role="alert">This time falls during lunch (1:00–2:00 p.m.). Booking is allowed if you record a reason, which is logged.</div>' +
+      const lunchLbl = lunchWindowLabel(lunchWindow(date, $("#fProvider") && $("#fProvider").value));
+      html += '<div class="notice lunch-notice" role="alert">This time falls during lunch (' + esc(lunchLbl) + '). Booking is allowed if you record a reason, which is logged.</div>' +
         '<label for="fLunchReason">Reason for booking during lunch <span class="req">required</span></label>' +
         '<input id="fLunchReason" type="text" required value="' + esc(priorL) + '">';
     }
@@ -6118,7 +6354,7 @@
     const date = $("#fDate") ? $("#fDate").value : "";
     const time = $("#fTime") ? $("#fTime").value : "";
     const provider = ($("#fProvider") && $("#fProvider").value) || slotProvider() || "";
-    const room = $("#fRoom") ? $("#fRoom").value : "";
+    const suiteId = $("#fSuite") ? $("#fSuite").value : "";
     const locationId = $("#fLocation") ? $("#fLocation").value : "";
     let consultingFor = $("#fConsultingFor") ? $("#fConsultingFor").value : "";
     if (isConsultType(type)) {
@@ -6141,7 +6377,7 @@
     const outsideReason = ($("#fOutsideReason") && $("#fOutsideReason").value.trim()) || "";
     if (outside && !outsideReason) missing.push("Reason for booking outside office hours");
     const end = $("#fEnd") ? $("#fEnd").value : "";
-    const lunch = date && time && appointmentTouchesLunch(date, time, end);
+    const lunch = date && time && appointmentTouchesLunch(date, time, end, provider);
     const lunchReason = ($("#fLunchReason") && $("#fLunchReason").value.trim()) || "";
     if (lunch && !lunchReason) missing.push("Reason for booking during lunch");
     if (missing.length) {
@@ -6162,7 +6398,7 @@
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
     const mins = bookSelectedMinutes() || durationMinutes(type, reasons);
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: (mins ? mins + " min" : durationLabelFor(type, reasons)), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", room: room, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", lunchReason: lunchReason || "", statusSince: nowMs() };
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: (mins ? mins + " min" : durationLabelFor(type, reasons)), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", suiteId: suiteId || null, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", lunchReason: lunchReason || "", statusSince: nowMs() };
     const roleNeed = providerRoleMismatch(type, provider);
     if (roleNeed) {
       rec.providerRoleWarning = roleNeed;
@@ -6819,13 +7055,13 @@
     const head = pageHead("Quote", q.name, (p ? patientLink(p) : "") + " · " + esc(q.id), badge(q.status));
     const body = posTabs("quotes") +
       '<div class="card"><div class="cardbody">' +
-      (q.broughtToRoom ? '<div class="notice">Brought to the room' + (q.broughtAt ? " · " + esc(q.broughtAt) : "") + ".</div>" : "") +
+      (q.broughtToRoom ? '<div class="notice">Brought to the suite' + (q.broughtAt ? " · " + esc(q.broughtAt) : "") + ".</div>" : "") +
       q.lines.map(lineHtml).join("") +
       '<p class="row-sub">Prices are per unit or vial when known. Quantity stays blank until entered. Total: ' + esc(invoiceTotals({ lines: q.lines }).label) + '</p>' +
       (a ? '<div class="row"><span>From appointment</span><a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id }) + '">' + esc(a.id) + " · " + esc(fmtTime(a.time)) + "</a></div>" : "") +
       (q.invoiceId ? '<div class="row"><span>Invoice</span><a href="' + hashFor({ page: "pos", invoiceId: q.invoiceId, posTab: "invoice" }) + '">' + esc(q.invoiceId) + "</a></div>" : "") +
       '<div class="actions" style="margin-top:14px">' +
-      (!q.broughtToRoom && q.status === "Open" ? '<button class="btn" type="button" data-pos="bring" data-quote="' + q.id + '">Bring quote to room</button>' : "") +
+      (!q.broughtToRoom && q.status === "Open" ? '<button class="btn" type="button" data-pos="bring" data-quote="' + q.id + '">Bring quote to suite</button>' : "") +
       (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn" type="button" data-pos="prepay" data-quote="' + q.id + '">Collect prepayment</button>' : "") +
       (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn primary" type="button" data-pos="treat-today" data-quote="' + q.id + '">Treat today</button>' : "") +
       (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn" type="button" data-pos="return" data-quote="' + q.id + '">Return</button>' : "") +
@@ -6967,7 +7203,7 @@
     });
     addAudit({ action: "Updated appointment types", recordType: "Configuration", recordId: "appointment-types",
       recordPath: { page: "types" }, changes: [{ field: "types", before: "prior in-memory values", after: "updated in this session" }] });
-    toast("Types saved in memory");
+    toast("Types saved");
     render();
   }
   function saveReasons() {
@@ -6980,7 +7216,7 @@
     });
     addAudit({ action: "Updated appointment reasons", recordType: "Configuration", recordId: "appointment-reasons",
       recordPath: { page: "reasons" }, changes: [{ field: "reasons", before: "prior in-memory values", after: "updated in this session" }] });
-    toast("Reasons saved in memory");
+    toast("Reasons saved");
     render();
   }
 
@@ -7197,64 +7433,198 @@
     });
     return n ? { n: n, visit: last } : null;
   }
-  function renderEmr() {
-    const staff = actingProviderStaff();
-    const isProvider = !!staff;
-    const day = demoClockDate();
-    const head = pageHead("My board", "Today",
-      isProvider ? (esc(staff.name) + " · " + esc(fmtDate(day)) + " · Demo clock · " + esc(demoClockLabel()))
-        : ("All providers · " + esc(fmtDate(day)) + " · read-only · Demo clock · " + esc(demoClockLabel())),
-      "");
-    const list = (store.appointments || []).filter(function (a) {
-      if (a.date !== day || a.status === "Canceled" || a.status === "Rescheduled" || a.status === "No-show") return false;
-      if (isProvider) return a.provider === staff.name;
-      return true;
-    }).sort(function (a, b) { return String(a.time || "").localeCompare(String(b.time || "")) || String(a.id).localeCompare(String(b.id)); });
-    const cards = list.map(function (a) {
-      const p = patient(a.patientId);
-      if (!p) return "";
-      const alerts = ((p.alerts || []).map(function (al) { return '<span class="alert-item">' + esc(al.text) + "</span>"; }).join(" ")) || '<span class="row-sub">No alerts</span>';
-      const last = lastVisitBefore(p.id, day);
-      const lastText = last ? (fmtDate(last.date) + " · " + (last.type || "Visit")) : "No prior visit on file";
-      const note = lastNoteOf(p);
-      const noteStatus = note ? (note.status || "Draft") : "No note";
-      const pendingLast = pendingNoteFromLastVisit(p, day);
-      const reminder = pendingLast
-        ? '<div class="notice emr-pending-reminder">Pending note from the last visit · ' + esc(pendingLast.n.status || "Draft") + " · " + esc(fmtDate(pendingLast.visit.date)) + " · " + esc(pendingLast.visit.type || "Visit") + "</div>"
-        : "";
-      const noteBtn = isProvider && isClinicalRole()
-        ? '<button class="btn small primary" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">＋ New note</button>'
-        : "";
-      return '<div class="emr-patient">' +
-        '<div><a class="patient-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>" +
-        '<div class="emr-snap">' + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(a.status || "") + " · " + esc(a.provider) + " · " + esc(displayId(p.id)) + "</div>" +
-        '<div class="emr-snap"><strong>Last note</strong> ' + esc(noteStatus) + "</div>" +
-        '<div class="emr-alerts" aria-label="Alerts">' + alerts + "</div>" +
-        '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>" +
-        '<div class="emr-snap"><strong>Last visit</strong> ' + esc(lastText) + "</div>" + reminder + "</div>" +
-        '<div class="emr-actions">' +
-          '<button type="button" class="btn small" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
-          '<a class="btn small" href="' + hashFor({ page: "rooming", date: a.date }) + '">Room</a>' +
-          noteBtn +
-        "</div></div>";
-    }).join("") || '<div class="empty">' + (isProvider ? "No patients on this provider's schedule today." : "No patients on the clinic schedule today.") + "</div>";
-    const pending = pendingNotesForProvider(isProvider ? staff.name : null);
-    const pendingRows = pending.map(function (item) {
-      const n = item.n, p = item.p;
-      const open = isProvider && isNoteEditable(n)
-        ? ' data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"'
-        : ' data-open="note-view" data-nid="' + esc(n.id) + '" data-pid="' + esc(p.id) + '"';
-      return '<button type="button" class="row" style="width:100%;text-align:left"' + open + ">" +
-        '<div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + '</div>' +
-        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.status || "Draft") + " · " + esc(n.provider || "") + " · " + esc(displayId(p.id)) + "</div></div>" +
-        badge(n.status || "Draft") + "</button>";
-    }).join("") || '<div class="empty">No pending notes' + (isProvider ? " for this provider." : ".") + "</div>";
-    const body = '<div class="emr-grid">' +
-      '<div class="card"><div class="cardhead"><h2>Today\'s patients</h2></div><div class="cardbody">' + cards + "</div></div>" +
-      '<div class="card"><div class="cardhead"><h2>Pending notes</h2></div><div class="cardbody">' + pendingRows + "</div></div>" +
-      "</div>";
-    renderChrome('<a href="' + hashFor({ page: "emr" }) + '">My board</a>', head, body);
+  function isMaRole(role) {
+    role = role || state.actingRole;
+    return role === "Medical Assistant";
   }
+  function isFrontDeskRole(role) {
+    role = role || state.actingRole;
+    return role === "Clinic Coordinator" || role === "Clinic Manager";
+  }
+  function canEditChartHistory(role) {
+    return isMaRole(role);
+  }
+  function canSignNotes(role) {
+    return isClinicalRole(role);
+  }
+  function nextBusinessDay(iso) {
+    let d = addDays(iso, 1);
+    while (isWeekend(d)) d = addDays(d, 1);
+    return d;
+  }
+  function visitHasCharges(a) {
+    const inv = invoiceForAppt(a) || (a && a.invoiceId ? invoice(a.invoiceId) : null);
+    if (!inv) return false;
+    return (inv.lines || []).some(function (l) { const amt = lineAmount(l); return amt != null && Number(amt) > 0; });
+  }
+  function chargesMissing(a) {
+    if (!a) return false;
+    if (a.status === "Canceled" || a.status === "No-show" || a.status === "Scheduled" || a.status === "Confirmed") return false;
+    return !visitHasCharges(a);
+  }
+  function clinicDayAppointments(date, opts) {
+    opts = opts || {};
+    return (store.appointments || []).filter(function (a) {
+      if (a.date !== date || a.status === "Rescheduled") return false;
+      if (a.status === "Canceled" && !opts.includeCanceled) return false;
+      if (opts.provider && a.provider !== opts.provider) return false;
+      if (opts.statuses && opts.statuses.indexOf(a.status) < 0) return false;
+      return true;
+    }).sort(function (a, b) { return String(a.time).localeCompare(String(b.time)) || String(a.id).localeCompare(String(b.id)); });
+  }
+  function todayTab() {
+    return state.todayTab === "tomorrow" || state.todayTab === "week" ? state.todayTab : "today";
+  }
+  function todayTabsHtml() {
+    if (!isFrontDeskRole() && !isOwnerRole()) return "";
+    const cur = todayTab();
+    const tabs = [
+      ["today", "Today"],
+      ["tomorrow", "Tomorrow prep"],
+      ["week", "Next 7 days"]
+    ];
+    return '<div class="today-tabs" role="tablist" aria-label="Front desk Today">' + tabs.map(function (t) {
+      const on = t[0] === cur;
+      return '<a class="btn small' + (on ? " primary" : "") + '" role="tab" aria-selected="' + (on ? "true" : "false") + '" href="' + hashFor({ page: "emr", todayTab: t[0] }) + '">' + t[1] + "</a>";
+    }).join("") + "</div>";
+  }
+  function checkoutIfAllowedHtml(a) {
+    if (!(isFrontDeskRole() || isOwnerRole())) return "";
+    if (a.status === "Checked out") {
+      const due = visitUnpaid(a);
+      return due.unpaid ? '<span class="wl-unpaid-mark">Completed, unpaid</span>' : "";
+    }
+    if (a.status !== "Ready for checkout") return "";
+    if (!visitHasCharges(a)) return '<span class="row-sub">Check out once charges exist</span>';
+    return '<button class="btn small primary" type="button" data-fd-checkout="' + esc(a.id) + '">Check out</button>';
+  }
+  function compactVisitRow(a, opts) {
+    opts = opts || {};
+    const p = patient(a.patientId);
+    const prep = opts.prep ? prepCellHtml(a, state.expandedPrep === a.id) : "";
+    const charge = (opts.providerCue && chargesMissing(a)) ? '<span class="cal-pay unpaid">Charges missing</span>' : "";
+    const dueFlag = checkoutIfAllowedHtml(a);
+    const href = p ? hashFor({ page: "patients", selected: p.id, tab: "demographics" }) : "#";
+    return '<div class="emr-patient" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" style="' + cardTypeStyle(a) + '">' +
+      '<div><a class="patient-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a>" +
+      '<div class="emr-snap">' + esc(fmtDate(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + " · " + esc(a.status) + " · " + esc(providerAvailLabel(a.provider) || a.provider) +
+      (a.suiteId ? " · " + esc(suiteName(a.suiteId)) : "") + "</div>" +
+      (opts.prep ? '<div class="emr-snap">' + prep + "</div>" : "") +
+      charge + dueFlag + "</div>" +
+      '<div class="emr-actions">' +
+        '<button type="button" class="btn small" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
+        '<a class="btn small" href="' + hashFor({ page: "rooming", date: a.date }) + '">Patient flow</a>' +
+      "</div></div>";
+  }
+  function pendingOpenItemsHtml(providerName) {
+    const pending = pendingNotesForProvider(providerName || null);
+    const late = pending.filter(function (item) { return isNoteLate(item.n); });
+    const rows = pending.map(function (item) {
+      const n = item.n, p = item.p;
+      const lateMark = isNoteLate(n) ? ' <span class="wl-late">Late</span>' : "";
+      return '<a class="row" href="' + hashFor({ page: "notes" }) + '"><div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + lateMark + '</div>' +
+        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.status || "Draft") + " · due " + esc(fmtDate(noteDueDate(n))) + "</div></div>" + badge(n.status || "Draft") + "</a>";
+    }).join("") || '<div class="empty">No open notes.</div>';
+    return '<div class="card"><div class="cardhead"><h2>Open items</h2><a class="btn small" href="' + hashFor({ page: "notes" }) + '">My notes' + (pending.length ? " · " + pending.length : "") + '</a></div><div class="cardbody">' +
+      (late.length ? '<div class="notice">Late notes (due end of the next business day) are flagged to the Owner and visible to the provider, Owner, and Manager.</div>' : "") +
+      rows + "</div></div>";
+  }
+  function noteDueDate(n) {
+    const d = n && n.date ? n.date : todayET();
+    return nextBusinessDay(d);
+  }
+  function isNoteLate(n) {
+    if (!n || isNoteSigned(n)) return false;
+    return noteDueDate(n) < todayET();
+  }
+  function renderToday() {
+    const day = todayET();
+    const staff = actingProviderStaff();
+    const ma = isMaRole();
+    const fd = isFrontDeskRole() || (isOwnerRole() && !staff);
+    const tab = todayTab();
+    let sub = esc(fmtDate(day));
+    if (fd) sub += " · Front desk";
+    else if (ma) sub += " · Medical assistant · all providers";
+    else if (staff) sub += " · " + esc(staff.name);
+    const head = pageHead("Today", "Today", sub, todayTabsHtml());
+    let main = "";
+    if (fd) {
+      if (tab === "tomorrow") {
+        const nxt = nextBusinessDay(day);
+        const list = clinicDayAppointments(nxt);
+        main = '<div class="card"><div class="cardhead"><h2>Tomorrow prep · ' + esc(fmtDate(nxt)) + '</h2></div><div class="cardbody">' +
+          (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits to prep for the next business day.</div>') +
+          "</div></div>";
+      } else if (tab === "week") {
+        const days = [];
+        let d = day;
+        for (let i = 0; i < 7; i += 1) { days.push(d); d = addDays(d, 1); }
+        main = days.map(function (dt) {
+          if (isWeekend(dt)) return '<div class="card"><div class="cardhead"><h2>' + esc(fmtLong(dt)) + "</h2></div><div class=\"cardbody\"><div class=\"empty\">Clinic closed</div></div></div>";
+          const list = clinicDayAppointments(dt);
+          return '<div class="card"><div class="cardhead"><h2>' + esc(fmtLong(dt)) + " · " + list.length + "</h2></div><div class=\"cardbody\">" +
+            (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits.</div>') +
+            "</div></div>";
+        }).join("");
+      } else {
+        const list = clinicDayAppointments(day);
+        main = '<div class="card"><div class="cardhead"><h2>Today\'s visits</h2></div><div class="cardbody">' +
+          (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits on the clinic schedule today.</div>') +
+          "</div></div>";
+      }
+    } else if (ma) {
+      const statuses = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider"];
+      const list = clinicDayAppointments(day, { statuses: statuses });
+      main = '<div class="card"><div class="cardhead"><h2>Ready for clinical work</h2><span class="row-sub">Checked in through Ready for provider, all providers</span></div><div class="cardbody">' +
+        (list.map(function (a) {
+          const p = patient(a.patientId);
+          return compactVisitRow(a, { prep: false }) +
+            (p ? '<div class="emr-actions" style="margin-top:-8px"><a class="btn small primary" href="' + hashFor({ page: "patients", selected: p.id, tab: "clinical-profile" }) + '">Update history</a></div>' : "");
+        }).join("") || '<div class="empty">No patients in Checked in through Ready for provider.</div>') +
+        "</div></div>";
+    } else {
+      const list = clinicDayAppointments(day, { provider: staff ? staff.name : null }).filter(function (a) {
+        return a.status !== "No-show" && a.status !== "Canceled";
+      });
+      const cards = list.map(function (a) {
+        const p = patient(a.patientId);
+        if (!p) return "";
+        const alerts = ((p.alerts || []).map(function (al) { return '<span class="alert-item">' + esc(al.text) + "</span>"; }).join(" ")) || '<span class="row-sub">No alerts</span>';
+        const last = lastVisitBefore(p.id, day);
+        const lastText = last ? (fmtDate(last.date) + " · " + (last.type || "Visit")) : "No prior visit on file";
+        const note = lastNoteOf(p);
+        const noteStatus = note ? (note.status || "Draft") : "No note";
+        const pendingLast = pendingNoteFromLastVisit(p, day);
+        const reminder = pendingLast
+          ? '<div class="notice emr-pending-reminder">Pending note from the last visit · ' + esc(pendingLast.n.status || "Draft") + " · " + esc(fmtDate(pendingLast.visit.date)) + " · " + esc(pendingLast.visit.type || "Visit") + "</div>"
+          : "";
+        const noteBtn = isClinicalRole()
+          ? '<button class="btn small primary" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">＋ New note</button>'
+          : "";
+        const missing = chargesMissing(a) ? '<div class="emr-snap"><strong>Charges missing</strong></div>' : "";
+        return '<div class="emr-patient" style="' + cardTypeStyle(a) + '">' +
+          '<div><a class="patient-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>" +
+          '<div class="emr-snap">' + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(a.status || "") + " · " + esc(displayId(p.id)) + "</div>" +
+          '<div class="emr-snap"><strong>Last note</strong> ' + esc(noteStatus) + "</div>" +
+          '<div class="emr-alerts" aria-label="Alerts">' + alerts + "</div>" +
+          '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>" +
+          '<div class="emr-snap"><strong>Last visit</strong> ' + esc(lastText) + "</div>" + missing + reminder + "</div>" +
+          '<div class="emr-actions">' +
+            '<button type="button" class="btn small" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
+            '<a class="btn small" href="' + hashFor({ page: "rooming", date: a.date }) + '">Patient flow</a>' +
+            noteBtn +
+          "</div></div>";
+      }).join("") || '<div class="empty">' + (staff ? "No patients on this provider's schedule today." : "No patients on the clinic schedule today.") + "</div>";
+      main = '<div class="emr-grid">' +
+        '<div class="card"><div class="cardhead"><h2>Today\'s patients</h2></div><div class="cardbody">' + cards + "</div></div>" +
+        pendingOpenItemsHtml(staff ? staff.name : null) +
+        "</div>";
+    }
+    renderChrome('<a href="' + hashFor({ page: "emr" }) + '">Today</a>', head, main);
+  }
+
+  function renderEmr() { renderToday(); }
 
   function noteVisitTime(n) {
     if (n && n.time) return n.time;
@@ -7313,8 +7683,9 @@
     });
     providers.sort();
     const newBtn = isClinicalRole() ? '<button type="button" class="btn small primary" data-new-dash-note="1">＋ New note</button>' : "";
-    const head = pageHead("Clinic", "Notes",
-      "Clinic-wide clinical notes.",
+    const mine = isClinicalRole() && !isOwnerRole() && ! (state.actingRole === "Clinic Manager");
+    const head = pageHead(mine ? "My notes" : "Notes", mine ? "My notes" : "Notes",
+      mine ? "Your open notes. Late notes are due at the end of the next business day." : "Clinic-wide clinical notes. Late notes are flagged to the Owner.",
       newBtn);
     const toggle = '<div class="notes-dash-toggle" role="tablist" aria-label="Note lists">' +
       '<button type="button" class="btn small' + (mode === "pending" ? " primary" : "") + '" data-notes-dash="pending" aria-pressed="' + (mode === "pending" ? "true" : "false") + '">Pending clinical notes</button>' +
@@ -7394,8 +7765,36 @@
     if (state.page === "schedule" && state.scheduleView === "calendar") bindCalendarDrag();
   }
 
+  function saveChartHistory(pid, markReviewed) {
+    const p = patient(pid);
+    if (!p || !canEditChartHistory()) { toast("Only the medical assistant updates history on the chart"); return; }
+    function lines(id) { const el = document.getElementById(id); return el ? String(el.value || "").split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean) : []; }
+    const before = { allergies: (p.allergies || []).slice(), meds: (p.meds || []).slice(), conditions: (p.conditions || []).slice() };
+    p.conditions = lines("chartHxConditions");
+    p.meds = lines("chartHxMeds");
+    p.allergies = lines("chartHxAllergies");
+    if (markReviewed) {
+      p.hxChartReviewedAt = nowET();
+      p.hxChartReviewedBy = "Camila Ortiz";
+    }
+    addAudit({ action: markReviewed ? "Reviewed chart history" : "Updated chart history", recordType: "Patient", recordId: p.id,
+      recordPath: { page: "patients", selected: p.id, tab: "clinical-profile" },
+      changes: [
+        { field: "allergies", before: (before.allergies || []).join(", ") || "—", after: (p.allergies || []).join(", ") || "—" },
+        { field: "medications", before: (before.meds || []).join(", ") || "—", after: (p.meds || []).join(", ") || "—" },
+        { field: "medical history", before: (before.conditions || []).join(", ") || "—", after: (p.conditions || []).join(", ") || "—" }
+      ] });
+    toast(markReviewed ? "History saved and marked reviewed" : "History saved on the chart");
+    render();
+  }
   function onClick(e) {
     if (handleTplBuilderClick(e)) return;
+    const fdOut = e.target.closest("[data-fd-checkout]");
+    if (fdOut) { e.preventDefault(); checkoutVisit(fdOut.getAttribute("data-fd-checkout")); return; }
+    const saveHx = e.target.closest("[data-save-chart-hx]");
+    if (saveHx) { e.preventDefault(); saveChartHistory(saveHx.getAttribute("data-save-chart-hx"), false); return; }
+    const reviewHx = e.target.closest("[data-review-chart-hx]");
+    if (reviewHx) { e.preventDefault(); saveChartHistory(reviewHx.getAttribute("data-review-chart-hx"), true); return; }
     const jump = e.target.closest("[data-note-jump]");
     if (jump) {
       e.preventDefault();
@@ -7641,7 +8040,7 @@
           recordPath: { page: "pos", invoiceId: inv.id },
           changes: [{ field: "line", before: name, after: "Removed" }] });
         toast("Line removed");
-        refreshInvoicePopup();
+        refreshPosView();
       }
       return;
     }
@@ -7795,6 +8194,13 @@
       e.preventDefault();
       if (adm.dataset.admin === "save-types") saveTypes();
       else if (adm.dataset.admin === "save-reasons") saveReasons();
+      return;
+    }
+    const weekChip = e.target.closest("[data-week-prov]");
+    if (weekChip) {
+      e.preventDefault();
+      state.weekProviderId = weekChip.getAttribute("data-week-prov");
+      render();
       return;
     }
     const chip = e.target.closest("[data-prov-chip]");
@@ -7959,6 +8365,8 @@
         inv.lines[Number(e.target.dataset.lineQty)].amount = amt == null ? "TBD" : amt;
         refreshInvoiceBalance(inv);
         if ($("#modal") && $("#modal").classList.contains("pos-mode")) paintInvoiceLive(inv);
+        else paintInvoiceLive(inv);
+        syncPayAmount(inv);
       }
     }
     else if (e.target.dataset.linePrice != null) {
@@ -7981,6 +8389,7 @@
         }
         e.target.dataset.prevPrice = after == null ? "" : String(after);
         if ($("#modal") && $("#modal").classList.contains("pos-mode")) refreshInvoicePopup();
+        else { render(); syncPayAmount(inv); }
       }
     }
     else if (e.target.dataset.roomSet) { setRoomingStatus(e.target.dataset.roomSet, e.target.value); }
@@ -8018,7 +8427,7 @@
     state.contrast = checkContrast();
     if (state.contrast.failed) console.warn("Contrast check failures", state.contrast);
     else console.info("Theme contrast: all configured text/background pairs meet their WCAG targets.");
-    if (!location.hash) history.replaceState(null, "", hashFor({ page: "patients", selected: "BZ0001", tab: "demographics" }));
+    if (!location.hash) history.replaceState(null, "", hashFor({ page: "emr", todayTab: "today" }));
     window.addEventListener("hashchange", applyRoute);
     document.addEventListener("click", onClick);
     document.addEventListener("change", function (e) {

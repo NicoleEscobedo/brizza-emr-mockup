@@ -730,3 +730,24 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
 .row-menu summary::-webkit-details-marker { display: none; }
 .row-menu-list { position: absolute; right: 0; top: 100%; z-index: 5; background: #FFFCF6; border: 1px solid #E4D5C4; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
 
+
+.type-family-chip{background:var(--type-fill,#FFFCF6);color:#352820;border:1px solid var(--line);padding:2px 8px;border-radius:999px;font-size:12px;margin-right:6px}
+.cal-event,.appt-card,.wl-row{background:var(--type-fill,#FFFCF6);color:#352820}
+.week-jump{display:inline-flex;gap:6px;margin-left:8px;flex-wrap:wrap}
+
+.room-board{overflow-x:auto}
+.room-flow-wrap .room-board{display:grid;grid-template-columns:repeat(7,minmax(140px,1fr));gap:10px}
+
+.today-tabs{display:flex;gap:8px;flex-wrap:wrap}
+
+.nav-badge{display:inline-block;min-width:1.15em;padding:0 6px;margin-left:6px;border-radius:999px;background:#FFFCF6;color:#352820;font-size:11px;line-height:1.6;text-align:center}
+.pos-invoice-grid,.pos-simple,table,.cardbody,.wl-head,main .content{max-width:100%}
+.cardbody,table,.pos-invoice-grid,.room-board{overflow-x:auto}
+@media (max-width:1200px){
+  .shell{grid-template-columns:72px minmax(0,1fr)}
+  .side{padding:16px 8px}
+  .nav-label,.brand small,.nav-text{display:none}
+  .brand-name{font-size:16px;text-align:center}
+  .nav a{display:flex;justify-content:center;align-items:center;padding:10px 4px}
+  .nav a .ico{font-size:16px;line-height:1}
+}

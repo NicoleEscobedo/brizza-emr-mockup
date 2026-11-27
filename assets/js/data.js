@@ -15,7 +15,7 @@ BRIZZA.CLINIC = {
 /* Manhattan Clinic is the sourced location. Long Island is a synthetic sample location (Open question 26). */
 BRIZZA.LOCATIONS = [
   { id: "LOC-MANHATTAN", name: "Manhattan Clinic", short: "Manhattan", hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET", tz: "America/New_York", synthetic: false },
-  { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Synthetic sample location", tz: "America/New_York", synthetic: true }
+  { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET", tz: "America/New_York" }
 ];
 BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
 /* Built-in ZIP lookup for address auto-fill (NYC / Long Island / NJ plus a handful more). Prototype only. */
@@ -238,6 +238,8 @@ BRIZZA.STAFF = [
   { id: "serena", short: "Collins", name: "Serena Collins", role: "Clinic Coordinator", title: "Clinic Coordinator", isProvider: false },
   { id: "ortiz", short: "Ortiz", name: "Camila Ortiz", role: "Medical Assistant", title: "Medical Assistant", isProvider: false }
 ];
+/* Real calendar holidays — not shifted with sample data. */
+BRIZZA.HOLIDAYS = { "2026-11-26": "Thanksgiving" };
 BRIZZA.PROVIDERS = BRIZZA.STAFF.filter(function (s) { return s.isProvider; }).map(function (s) { return s.name; });
 
 

@@ -751,3 +751,49 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
   .nav a{display:flex;justify-content:center;align-items:center;padding:10px 4px}
   .nav a .ico{font-size:16px;line-height:1}
 }
+
+/* Round 16 Part B3 polish */
+.toast{display:none;align-items:center;gap:10px;max-width:min(420px,calc(100vw - 32px))}
+.toast.show{display:flex}
+.toast-undo{margin-left:8px;background:transparent;color:var(--sidebar-text);border-color:currentColor}
+.btn-danger{color:#8A2F2F;border-color:#E4C9C4}
+.crumb{max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reg-minis,.reg-widget{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.reg-mini{font-size:11px;padding:1px 5px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.reg-mini.ok{background:#EEF4EA}
+.wl-head,.wl-row{grid-template-columns:80px minmax(110px,1.2fr) minmax(72px,.7fr) minmax(130px,1.1fr) minmax(120px,.9fr) minmax(88px,.7fr) 132px 88px minmax(120px,1fr) minmax(96px,.7fr) 80px}
+.wl-money{min-width:6.5rem;white-space:nowrap}
+.wl-checkout-btns{flex-shrink:0}
+.wl-note-one{display:flex;align-items:center;gap:6px;min-width:0}
+.wl-note-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-prov{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wl-filters .chip.active .count,.wl-filters .chip.active{color:var(--ink)}
+.wl-filters .chip.active{background:#F4EFE6}
+.tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:4px}
+.tabs .tab{flex:0 0 auto}
+.pos-simple input.price,.pos-simple input.qty,#pay-amount{width:7.5em;min-width:7.5em}
+.pos-simple td:first-child,.pos-simple .row-title{white-space:normal;overflow:visible}
+.badge.status,.patient-banner .badge{font-size:12px;padding:3px 8px;letter-spacing:.02em}
+.cal-event .badge,.cal-event .tag,.appt-card .badge{margin:0 4px}
+.status-ro.cal-status-text{font-size:11px;margin-left:4px}
+.appt-mode #modal,.modal.appt-mode{max-width:min(920px,calc(100vw - 32px))}
+.appt-mode select,.appt-mode input,.appt-mode textarea{max-width:100%}
+#modalTitle{overflow-wrap:anywhere}
+.task-owner-chip{display:inline-flex;align-items:center;gap:6px}
+.appt-card-id{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px}
+
+.tpl-builder{display:grid;grid-template-columns:minmax(180px,220px) minmax(0,1fr);gap:16px;align-items:start}
+.tpl-editor-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,280px);gap:16px;align-items:start}
+.tpl-canvas-field{position:relative;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;background:#fff}
+.tpl-canvas-field.is-on{outline:2px solid var(--ink)}
+.tpl-hover-actions{display:none;gap:4px;flex-wrap:wrap;margin-top:6px}
+.tpl-canvas-field:hover .tpl-hover-actions,.tpl-sec-h:hover .tpl-hover-actions,.tpl-canvas-field.is-on .tpl-hover-actions{display:flex}
+.tpl-sec-canvas{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:#FBF8F2}
+.tpl-sec-canvas.is-locked{background:#F4F1EA}
+.tpl-sec-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.tpl-settings-col{position:sticky;top:16px;border:1px solid var(--line);border-radius:10px;padding:14px;background:#fff}
+.tpl-more-menu{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px}
+.tpl-pick.is-on{background:#F4EFE6}
+@media (max-width:900px){
+  .tpl-builder,.tpl-editor-grid{grid-template-columns:1fr}
+}

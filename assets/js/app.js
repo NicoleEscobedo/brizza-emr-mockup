@@ -538,8 +538,10 @@
     expandedAppt: null, expandedPrep: null, auditId: null,
     actingRole: "Clinic Coordinator", adminTab: "home", showInactiveUsers: false, roomingDate: null, scheduleSearch: "", noteDraft: null, alertsOpen: null,
     worklistFilters: loadWorklistFilters(),
-    taskScope: "mine", taskDueToday: false, showCompletedTasks: false, tplEditId: null, tplDraft: null
+    taskScope: "mine", taskDueToday: false, showCompletedTasks: false, tplEditId: null, tplDraft: null,
+    notesFrom: "", notesTo: ""
   };
+  reconcileSampleSchedule();
 
   const patient = (id) => store.patients.find((p) => p.id === id);
   const appt = (id) => store.appointments.find((a) => a.id === id);
@@ -2910,16 +2912,11 @@
   function chartSnapshotHtml(p) {
     const last = lastAppt(p);
     const next = nextAppt(p);
-    const bal = patientBalanceValue(p.id);
-    const due = (bal && (bal.tbd || (bal.sum || 0) > 0)) ? (bal.tbd && !(bal.sum > 0) ? "TBD" : money(bal.sum || 0)) : money(0);
     const note = lastNoteOf(p);
     const hx = (p.conditions || []).join(", ") || "No history items recorded";
     return '<div class="chart-snapshot">' +
       '<div class="two">' +
-        '<div><h3 class="section-title">Snapshot</h3>' +
-          '<div class="row"><span>Patient</span><strong>' + esc(p.name) + " · " + esc(displayId(p.id)) + "</strong></div>" +
-          '<div class="row"><span>Date of birth</span><strong>' + esc(fmtDob(p.dob)) + "</strong></div>" +
-          '<div class="row"><span>Balance</span><strong>' + due + "</strong></div>" +
+        '<div><h3 class="section-title">Visit snapshot</h3>' +
           '<div class="row"><span>Last visit</span><strong>' + esc(last ? (fmtDate(last.date) + " · " + (last.type || "")) : "None") + "</strong></div>" +
           '<div class="row"><span>Next visit</span><strong>' + esc(next ? (fmtDate(next.date) + " · " + fmtTime(next.time) + " · " + (next.type || "")) : "None scheduled") + "</strong></div>" +
           '<div class="row"><span>Last note</span><strong>' + esc(note ? ((note.status || "Draft") + " · " + fmtDate(note.date)) : "No note") + "</strong></div>" +
@@ -2927,7 +2924,6 @@
         '<div><h3 class="section-title">Clinical summary</h3>' +
           '<div class="row"><span>Allergies</span><strong>' + esc(allergyLabel(p)) + "</strong></div>" +
           '<div class="row"><span>Medical history</span><strong>' + esc(hx) + "</strong></div>" +
-          '<div class="row"><span>Alerts</span><strong>' + esc(((p.alerts || []).map(function (al) { return al.text; }).join(" · ")) || "None") + "</strong></div>" +
         "</div></div></div>";
   }
   function marketingConsentHtml(p) {
@@ -3099,7 +3095,6 @@
       '<button type="button" class="btn small" data-collect-balance="' + p.id + '">Collect balance</button>' +
       '<button type="button" class="btn small" data-send-forms="' + p.id + '">' + (formsSent ? "Send forms again" : "Send forms") + "</button>" +
       (p.formsSent && p.formsSent.when ? '<span class="row-sub forms-last-sent">Last sent ' + esc(p.formsSent.when) + "</span>" : "") +
-      '<button type="button" class="btn small" data-open="rebook" data-pid="' + p.id + '">Rebook / Recall</button>' +
       "</div>");
     const head = pageHead("", isMarketingRole() ? "Patients" : "Patient chart", "", isMarketingRole() ? "" : '<a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
     const body = `<div class="grid">
@@ -3108,7 +3103,7 @@
           <div class="patient-banner">
             <div class="patient-avatar">${esc(initials(p.name))}</div>
             <div style="flex:1">
-              <div class="patient-name"><span class="patient-name-text">${esc(p.name)}</span> ${isMarketingRole() ? "" : badge(p.status)}
+              <div class="patient-name"><span class="patient-name-text">${esc(p.name)}</span> ${isMarketingRole() ? "" : badge(p.status).replace('class="badge"', 'class="badge chart-status-badge"')}
                 ${isMarketingRole() ? "" : alertPillsHtml(p)}
                 ${isMarketingRole() ? "" : '<a class="btn small" href="#modal-edit" data-open="edit" data-pid="' + p.id + '">Edit chart</a>'}
               </div>
@@ -3689,6 +3684,140 @@
     const w = lunchWindow(date, provider);
     return time >= w.start && time < w.end;
   }
+  function appointmentDuration(a) {
+    return Number(a && a.durationMinutes) || durationMinutes(a && a.type, a && a.reasons) || 15;
+  }
+  function appointmentEndTime(a, time) {
+    return fromMinutes(toMinutes(time || (a && a.time) || "10:00") + appointmentDuration(a));
+  }
+  function isOutsideProviderAvailability(date, time, end, provider, locationId) {
+    if (!date || !time || !provider) return false;
+    const blocks = (blocksOnDate(provider, date) || []).filter(function (b) {
+      return !locationId || b.locationId === locationId;
+    });
+    if (!blocks.length) return true;
+    const start = toMinutes(time);
+    const fin = end ? toMinutes(end) : start + 15;
+    if (fin <= start) return !blocks.some(function (b) { return timeInBlock(time, b); });
+    return !blocks.some(function (b) {
+      return start >= toMinutes(b.start) && fin <= toMinutes(b.end);
+    });
+  }
+  function providerAvailSummary(provider, date, locationId) {
+    const blocks = (blocksOnDate(provider, date) || []).filter(function (b) {
+      return !locationId || b.locationId === locationId;
+    }).slice().sort(function (x, y) { return String(x.start).localeCompare(String(y.start)); });
+    if (!blocks.length) return "";
+    return blocks.map(function (b) { return compactRange(b.start, b.end); }).join(" and ");
+  }
+  function slotsOverlap(date, time, mins, provider, exceptId) {
+    const start = toMinutes(time);
+    const end = start + (mins || 15);
+    return (store.appointments || []).some(function (a) {
+      if (!a || a.id === exceptId || a.date !== date) return false;
+      if (a.status === "Canceled" || a.status === "Rescheduled") return false;
+      if (provider && a.provider && a.provider !== provider) return false;
+      const s = toMinutes(a.time);
+      const e = s + appointmentDuration(a);
+      return start < e && end > s;
+    });
+  }
+  function slotIsBookable(date, time, mins, provider, exceptId, opts) {
+    opts = opts || {};
+    if (!date || !time || isClinicClosedDay(date)) return false;
+    const end = fromMinutes(toMinutes(time) + (mins || 15));
+    if (time < "10:00" || end > "18:00") return false;
+    if (appointmentTouchesLunch(date, time, end, provider)) return false;
+    if (slotsOverlap(date, time, mins, provider, exceptId)) return false;
+    if (opts.requireAvail && provider && isOutsideProviderAvailability(date, time, end, provider, opts.locationId)) return false;
+    return true;
+  }
+  function nextOpenClinicDay(date) {
+    let d = date, guard = 0;
+    while (d && isClinicClosedDay(d) && guard < 21) { d = addDays(d, 1); guard += 1; }
+    return d;
+  }
+  function findOpenSampleSlot(a, startDate) {
+    const mins = appointmentDuration(a);
+    const prefer = a.time || "10:00";
+    let date = startDate || a.date;
+    if (isClinicClosedDay(date)) date = nextOpenClinicDay(date);
+    for (let d = 0; d < 21; d += 1) {
+      const day = addDays(date, d);
+      if (isClinicClosedDay(day)) continue;
+      const times = [];
+      if (d === 0) {
+        times.push(prefer);
+        const lunch = lunchWindow(day, a.provider);
+        if (lunch && lunch.end) times.push(lunch.end);
+      }
+      let t = "10:00";
+      while (t < "18:00") { times.push(t); t = fromMinutes(toMinutes(t) + 15); }
+      const seen = {};
+      const tryList = function (requireAvail) {
+        for (let i = 0; i < times.length; i += 1) {
+          const tm = times[i];
+          if (seen[tm + ":" + requireAvail]) continue;
+          seen[tm + ":" + requireAvail] = 1;
+          if (slotIsBookable(day, tm, mins, a.provider, a.id, { requireAvail: requireAvail, locationId: a.locationId })) {
+            return { date: day, time: tm };
+          }
+        }
+        return null;
+      };
+      const hit = tryList(true) || tryList(false);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  function retargetLinkedDates(a, beforeDate, afterDate) {
+    if (!a || beforeDate === afterDate) return;
+    (store.visits || []).forEach(function (v) {
+      if ((a.visitId && v.id === a.visitId) || v.appointmentId === a.id) {
+        if (v.date === beforeDate) v.date = afterDate;
+      }
+    });
+    (store.patients || []).forEach(function (p) {
+      if (p.id !== a.patientId) return;
+      (p.notes || []).forEach(function (n) {
+        if (n.appointmentId === a.id && n.date === beforeDate) {
+          n.date = afterDate;
+          if (n.dos === beforeDate) n.dos = afterDate;
+        }
+      });
+    });
+    (store.tasks || []).forEach(function (t) {
+      if ((t.appointmentId === a.id || t.recordId === a.id) && (t.due === beforeDate || t.date === beforeDate)) {
+        if (t.due === beforeDate) t.due = afterDate;
+        if (t.date === beforeDate) t.date = afterDate;
+      }
+    });
+  }
+  function appointmentNeedsRehome(a) {
+    if (!a || !a.date || !a.time) return false;
+    if (isClinicClosedDay(a.date)) return true;
+    return appointmentTouchesLunch(a.date, a.time, appointmentEndTime(a), a.provider);
+  }
+  function reconcileSampleSchedule() {
+    (store.appointments || []).forEach(function (a) {
+      if (!appointmentNeedsRehome(a)) return;
+      const start = isClinicClosedDay(a.date) ? nextOpenClinicDay(a.date) : a.date;
+      const slot = findOpenSampleSlot(a, start);
+      if (!slot) return;
+      const before = a.date;
+      a.date = slot.date;
+      a.time = slot.time;
+      retargetLinkedDates(a, before, slot.date);
+    });
+    const today = todayET();
+    const inflight = ["Scheduled", "Confirmed", "Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"];
+    const room = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"];
+    (store.appointments || []).forEach(function (a) {
+      if (!a || a.status === "Canceled" || a.status === "No-show" || a.status === "Rescheduled") return;
+      if (a.date < today && inflight.indexOf(a.status) >= 0) a.status = "Checked out";
+      if (a.date > today && room.indexOf(a.status) >= 0) a.status = "Confirmed";
+    });
+  }
   function staffRecord(name) {
     return (BRIZZA.STAFF || []).find(function (s) { return s.name === name || s.calendarName === name; }) || null;
   }
@@ -4107,14 +4236,39 @@
     const providers = selectedProviderNames();
     const lines = [];
     providers.forEach(function (pv) {
-      const blocks = blocksOnDate(pv, date).filter(function (b) { return !locationId || b.locationId === locationId; });
+      const blocks = blocksOnDate(pv, date).filter(function (b) { return !locationId || b.locationId === locationId; })
+        .slice().sort(function (x, y) { return String(x.start).localeCompare(String(y.start)); });
       if (!blocks.length) {
         lines.push('<div class="avail-line">' + esc(providerAvailLabel(pv)) + " · " + esc(locationShort(locationId) || locationName(locationId) || "—") + " · Off</div>");
         return;
       }
+      const byLoc = {};
       blocks.forEach(function (b) {
-        const loc = locationShort(b.locationId) || locationName(b.locationId);
-        lines.push('<div class="avail-line">' + esc(providerAvailLabel(pv)) + " · " + esc(loc) + " · " + esc(compactRange(b.start, b.end)) + "</div>");
+        const key = b.locationId || "_";
+        (byLoc[key] = byLoc[key] || []).push(b);
+      });
+      Object.keys(byLoc).forEach(function (key) {
+        const list = byLoc[key];
+        const loc = locationShort(list[0].locationId) || locationName(list[0].locationId);
+        const label = esc(providerAvailLabel(pv)) + " · " + esc(loc) + " · ";
+        let gap = null, contiguous = list.length > 1;
+        for (let i = 0; i < list.length - 1; i += 1) {
+          if (list[i].end && list[i + 1].start && list[i].end < list[i + 1].start) {
+            if (gap) { contiguous = false; break; }
+            gap = { start: list[i].end, end: list[i + 1].start };
+          } else if (list[i].end && list[i + 1].start && list[i].end > list[i + 1].start) {
+            contiguous = false;
+            break;
+          }
+        }
+        if (contiguous && gap) {
+          lines.push('<div class="avail-line">' + label + esc(compactRange(list[0].start, list[list.length - 1].end)) +
+            " (lunch " + esc(compactRange(gap.start, gap.end)) + ")</div>");
+        } else {
+          list.forEach(function (b) {
+            lines.push('<div class="avail-line">' + label + esc(compactRange(b.start, b.end)) + "</div>");
+          });
+        }
       });
     });
     return '<div class="avail-lines" aria-label="Provider availability">' + (lines.join("") || '<div class="avail-line">No provider availability for this date.</div>') + "</div>";
@@ -4417,12 +4571,17 @@
   function updateNoteSignState() {
     const draft = state.noteDraft;
     const save = $("#modalSave");
+    const draftBtn = $("#noteSaveDraft");
+    const readyBtn0 = $("#noteReadyBtn");
     if (!draft || !draft.templateId) {
-      if (save) save.disabled = true;
+      if (save) { save.disabled = true; save.title = "Pick a template to start"; }
+      if (draftBtn) { draftBtn.disabled = true; draftBtn.title = "Pick a template to start"; }
+      if (readyBtn0) { readyBtn0.disabled = true; readyBtn0.title = "Pick a template to start"; }
       const miss = $("#noteMissing");
-      if (miss) miss.innerHTML = '<div class="notice note-missing">Select a template to begin.</div>';
+      if (miss) miss.innerHTML = '<div class="notice note-missing">Pick a template to start.</div>';
       return;
     }
+    if (draftBtn) { draftBtn.disabled = false; draftBtn.title = ""; }
     const tpl = getNoteTemplate(draft.templateId) || (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
     if (!tpl) return;
     draft.values = collectNoteValues();
@@ -4443,12 +4602,14 @@
     if (readyBtn) {
       readyBtn.hidden = !canMarkReady(rec);
       readyBtn.disabled = missing.length > 0;
+      readyBtn.title = readyBtn.disabled ? "Fill required fields before marking ready for review." : "";
     }
+    if (save) save.title = save.disabled ? (maySign ? "Sign stays disabled until required fields are filled." : "You can start this note but you cannot sign it.") : "";
     const miss = $("#noteMissing");
     if (miss) {
       miss.innerHTML = missing.length
         ? '<div class="notice note-missing">Sign stays disabled until required fields are filled: ' + missing.map(esc).join(", ") + ".</div>"
-        : "";
+        : (!maySign ? '<div class="notice note-missing">You can edit and save this note. Signing is limited to the authoring clinical role.</div>' : "");
     }
     const prev = $("#notePreview");
     if (prev && !draft.previewEdited) prev.value = compileNoteSentences(tpl, draft.values, draft) || compileFieldText(tpl, draft.values);
@@ -4493,7 +4654,9 @@
     if (tpl) applyPullIns(draft, tpl);
     const picker = '<div class="note-meta"><div class="field"><label for="noteTpl">Type</label><select id="noteTpl"><option value="">Select a template</option>' +
       tpls.map((t) => "<option value=\"" + esc(t.id) + "\"" + (draft.templateId === t.id ? " selected" : "") + ">" + esc(t.name) + "</option>").join("") + "</select></div>" +
-      '<div class="field"><label for="noteTime">Time</label><input id="noteTime" type="time" value="' + esc(draft.time || "") + '"></div></div>' +
+      '<div class="field"><label for="noteTime">Time</label><input id="noteTime" type="time" value="' + esc(draft.time || "") + '">' +
+      (draft.time ? '<p class="row-sub note-time-label" id="noteTimeLabel">' + esc(fmtTime(draft.time)) + "</p>" : '<p class="row-sub note-time-label" id="noteTimeLabel"></p>') +
+      "</div></div>" +
       lastNoteLineHtml(draft.pid, draft.noteId);
     let sections = "";
     if (tpl) {
@@ -4513,7 +4676,8 @@
       sections = noteOutlineHtml(tpl) + noteHistoryConfirmHtml(p, draft) + flag + fields + faceBlock + preview + proc;
     }
     const title = (draft.noteId ? "Edit note · " : "Create note · ") + (p ? p.name : draft.pid);
-    showModal(title, (p ? alertsBanner(p) : "") + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
+    const alerts = p ? (alertsBanner(p, { readonly: true }) + '<p class="row-sub">Alerts are shown here for reference. Edit them on the patient chart.</p>') : "";
+    showModal(title, alerts + picker + sections + '<div id="noteMissing"></div>', function () { signNote(); }, "Sign");
     ensureNoteFootButtons();
     updateNoteSignState();
     const sel = $("#noteTpl");
@@ -4535,7 +4699,11 @@
       state.noteDraft.preview = prev.value;
     });
     const timeEl = $("#noteTime");
-    if (timeEl) timeEl.addEventListener("change", function () { if (state.noteDraft) state.noteDraft.time = timeEl.value; });
+    if (timeEl) timeEl.addEventListener("change", function () {
+      if (state.noteDraft) state.noteDraft.time = timeEl.value;
+      const lab = $("#noteTimeLabel");
+      if (lab) lab.textContent = fmtTime(timeEl.value) || "";
+    });
     $$("[data-hx]").forEach(function (el) {
       el.addEventListener("input", function () {
         const box = $("#hxReviewed");
@@ -4773,30 +4941,35 @@
       const apptLink = '<a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "list" }) + '">' + esc(a.id) + "</a>";
       const uid = esc(a.id) + (place ? "-" + place : "");
       const sel = place === "suite" ? "" : ('<label class="sr-only" for="visit-status-' + esc(a.id) + '-flow">Set visit status</label>' + statusSelect(a, "flow"));
-      const suiteOpts = ['<option value="">Not in a suite</option>'].concat((BRIZZA.SUITES || []).map(function (s) {
+      const suiteOpts = ['<option value="">No suite</option>'].concat((BRIZZA.SUITES || []).map(function (s) {
         return "<option value=\"" + esc(s.id) + "\"" + (a.suiteId === s.id ? " selected" : "") + ">" + esc(s.name) + "</option>";
       }));
       const suiteSel = place === "suite" ? "" : ('<label class="sr-only" for="suite-set-' + uid + '">Move to suite</label><select id="suite-set-' + uid + '" class="suite-dd" data-suite-role="' + esc(a.id) + '">' + suiteOpts.join("") + "</select>");
       const adv = nxt && place !== "suite" ? '<button class="btn tiny" type="button" data-room-advance="' + esc(a.id) + '">Advance</button>' : "";
       const chartBtn = p ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">Open chart</a>' : "";
-      const noteBtn = (isClinicalRole() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
+      const noteBtn = (canStartNote() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
       const inSuite = a.suiteId ? ((BRIZZA.SUITES.find(function (s) { return s.id === a.suiteId; }) || {}).name || a.suiteId) : "";
       const nameHtml = p
         ? '<a class="room-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>"
         : esc(a.patientId);
       const wait = place === 'suite' ? '' : ('<span class="' + timerClass(a.statusSince) + '" data-room-mins="' + esc(String(a.statusSince || nowMs())) + '">' + minutesLabel(a.statusSince) + "</span>");
+      const menuItems = (chartBtn + noteBtn + adv);
+      const more = (place === "suite" || !menuItems)
+        ? ""
+        : ('<div class="flow-more"><button class="btn tiny flow-more-btn" type="button" data-flow-more="' + esc(a.id) + '" aria-expanded="false" aria-haspopup="true" aria-label="Card actions">⋯</button><div class="flow-more-menu">' + menuItems + "</div></div>");
       const inner =
         '<div class="flow-head">' + nameHtml + last + wait + "</div>" +
         '<div class="row-sub">' + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + apptLink + "</div>" +
-        '<div class="row-sub">' + esc(a.provider) + (inSuite && place !== "suite" ? " · " + esc(inSuite) : "") + "</div>" +
-        '<div class="flow-actions">' + chartBtn + noteBtn + adv + sel + suiteSel + "</div>";
+        '<div class="row-sub">' + esc(providerShortName(a.provider)) + (inSuite && place !== "suite" ? " · " + esc(inSuite) : "") + "</div>" +
+        (place === "suite" ? (menuItems ? '<div class="flow-actions">' + menuItems + "</div>" : "") : ('<div class="flow-toolbar">' + sel + more + suiteSel + "</div>"));
       return jewelWrap(a, inner, "room-card flow-card", 'data-rooming="' + esc(a.id) + '" tabindex="0"');
     };
     const buckets = BRIZZA.ROOMING_FLOW_BUCKETS || (BRIZZA.ROOMING_BOARD_STATUSES || []).map(function (s) { return { label: s, statuses: [s] }; });
     const cols = buckets.map(function (bk) {
       const here = records.filter((a) => (bk.statuses || []).indexOf(a.status) >= 0);
+      const empty = !here.length;
       const cards = here.map((a) => cardHtml(a, "flow")).join("") || '<div class="empty">No patients in this step</div>';
-      return '<div class="room-col" data-drop-status="' + esc((bk.statuses || []).join("|")) + '"><h2>' + esc(bk.label) + " · " + here.length + '</h2><div class="room-col-body">' + cards + "</div></div>";
+      return '<div class="room-col' + (empty ? " is-empty" : "") + '" data-drop-status="' + esc((bk.statuses || []).join("|")) + '"><h2>' + esc(bk.label) + " · " + here.length + '</h2><div class="room-col-body">' + cards + "</div></div>";
     }).join("");
     const suites = (BRIZZA.SUITES || []).map((s) => {
       const occ = occupantInSuite(s.id, date, null);
@@ -6760,10 +6933,14 @@
     const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
     const override = $("#fOverride") ? $("#fOverride").value.trim() : "";
     if (hits.length && !override) missing.push("Admin override reason");
-    const outside = date && time && isOutsideClinicHours(date, time);
+    const closed = date && isClinicClosedDay(date);
+    const outside = !closed && date && time && isOutsideClinicHours(date, time);
     const outsideReason = ($("#fOutsideReason") && $("#fOutsideReason").value.trim()) || "";
     if (outside && !outsideReason) missing.push("Outside-hours reason");
-    const lunch = date && time && appointmentTouchesLunch(date, time, end, provider);
+    const availOff = !closed && !outside && date && time && provider && isOutsideProviderAvailability(date, time, end, provider, locationId);
+    const availReason = ($("#fAvailReason") && $("#fAvailReason").value.trim()) || "";
+    if (availOff && !availReason) missing.push("Outside-availability reason");
+    const lunch = date && time && !closed && appointmentTouchesLunch(date, time, end, provider);
     const lunchReason = ($("#fLunchReason") && $("#fLunchReason").value.trim()) || "";
     if (lunch && !lunchReason) missing.push("Lunch-hours reason");
     const roleNeed = providerRoleMismatch(type, provider);
@@ -6832,7 +7009,8 @@
         "</div>" +
       "</div>"
     );
-    const apptGrid = '<div class="book-grid formgrid" id="bookApptGrid">' +
+    const apptGrid = '<p class="row-sub book-req-legend">Fields marked <span class="req">required</span> must be completed before the appointment is saved.</p>' +
+      '<div class="book-grid formgrid" id="bookApptGrid">' +
       '<div class="field"><label for="fType">Appointment type <span class="req">required</span></label>' +
         '<select id="fType" required>' + typesList().map((tp) => "<option" + (typeVal === tp.name ? " selected" : "") + ">" + esc(tp.name) + "</option>").join("") + "</select></div>" +
       '<div class="field"><label for="fProvider">Provider <span class="req">required</span></label>' +
@@ -6904,8 +7082,8 @@
     if ($("#fTime")) $("#fTime").addEventListener("change", function () { syncBookTimes("start"); });
     if ($("#fEnd")) $("#fEnd").addEventListener("change", function () { syncBookTimes("end"); });
     if ($("#fDate")) $("#fDate").addEventListener("change", function () { updateBookDuration(); updateBookSaveState(); });
-    if ($("#fProvider")) $("#fProvider").addEventListener("change", function () { updateProviderRoleWarn(); updateBookSaveState(); });
-    if ($("#fLocation")) $("#fLocation").addEventListener("change", updateBookSaveState);
+    if ($("#fProvider")) $("#fProvider").addEventListener("change", function () { updateBookDuration(); updateBookSaveState(); });
+    if ($("#fLocation")) $("#fLocation").addEventListener("change", function () { updateBookDuration(); updateBookSaveState(); });
     const body = $("#modalBody");
     if (body) body.addEventListener("input", updateBookSaveState);
     if (body) body.addEventListener("change", updateBookSaveState);
@@ -6935,25 +7113,63 @@
     }
     updateHoursWarn();
   }
+  function productsForBookReasons(reasons) {
+    const out = [];
+    const seen = {};
+    (reasons || []).forEach(function (name) {
+      const item = catalogItem(name);
+      if (item && item.trackLots && !seen[item.id]) { seen[item.id] = 1; out.push(item); }
+    });
+    return out;
+  }
+  function outOfStockForReasons(reasons) {
+    return productsForBookReasons(reasons).filter(function (c) {
+      const on = catalogOnHand(c);
+      return on != null && on <= 0;
+    });
+  }
   function updateHoursWarn() {
     const wrap = $("#hoursWrap");
     if (!wrap) return;
     const date = $("#fDate") ? $("#fDate").value : "";
     const time = $("#fTime") ? $("#fTime").value : "";
     const end = $("#fEnd") ? $("#fEnd").value : "";
+    const provider = $("#fProvider") ? $("#fProvider").value : "";
+    const locationId = $("#fLocation") ? $("#fLocation").value : "";
     let html = "";
-    if (date && time && isOutsideClinicHours(date, time)) {
+    if (date && isClinicClosedDay(date)) {
+      const hol = holidayName(date);
+      html += '<div class="notice avail-warn" role="alert">The clinic is closed on ' + esc(fmtLong(date)) +
+        (hol ? " (" + esc(hol) + ")" : "") + ". Choose another date. Bookings cannot be saved on a closed day.</div>";
+    } else if (date && time && isOutsideClinicHours(date, time)) {
       const prior = $("#fOutsideReason") ? $("#fOutsideReason").value : "";
-      html += '<div class="notice" role="alert">This time is outside office hours (Monday–Friday, 10:00 a.m.–6:00 p.m. ET). Booking is allowed if you record a reason, which is logged.</div>' +
+      html += '<div class="notice avail-warn" role="alert">This time is outside office hours (Monday–Friday, 10:00 a.m.–6:00 p.m. ET). Booking is allowed if you record a reason, which is logged.</div>' +
         '<label for="fOutsideReason">Reason for booking outside office hours <span class="req">required</span></label>' +
         '<input id="fOutsideReason" type="text" required value="' + esc(prior) + '">';
+    } else if (date && time && provider && isOutsideProviderAvailability(date, time, end, provider, locationId)) {
+      const priorA = $("#fAvailReason") ? $("#fAvailReason").value : "";
+      const summary = providerAvailSummary(provider, date, locationId);
+      const who = providerAvailLabel(provider) || provider;
+      const loc = locationShort(locationId) || locationName(locationId) || "this location";
+      const msg = summary
+        ? (who + " is available at " + loc + " " + summary + " on this date. This time is outside that availability.")
+        : (who + " is not on the schedule at " + loc + " on this date.");
+      html += '<div class="notice avail-warn" role="alert">' + esc(msg) + " Booking is allowed if you record a reason, which is logged.</div>" +
+        '<label for="fAvailReason">Reason for booking outside provider availability <span class="req">required</span></label>' +
+        '<input id="fAvailReason" type="text" required value="' + esc(priorA) + '">';
     }
-    if (date && time && appointmentTouchesLunch(date, time, end, $("#fProvider") && $("#fProvider").value)) {
+    if (date && time && !isClinicClosedDay(date) && appointmentTouchesLunch(date, time, end, provider)) {
       const priorL = $("#fLunchReason") ? $("#fLunchReason").value : "";
-      const lunchLbl = lunchWindowLabel(lunchWindow(date, $("#fProvider") && $("#fProvider").value));
+      const lunchLbl = lunchWindowLabel(lunchWindow(date, provider));
       html += '<div class="notice lunch-notice" role="alert">This time falls during lunch (' + esc(lunchLbl) + '). Booking is allowed if you record a reason, which is logged.</div>' +
         '<label for="fLunchReason">Reason for booking during lunch <span class="req">required</span></label>' +
         '<input id="fLunchReason" type="text" required value="' + esc(priorL) + '">';
+    }
+    const stock = outOfStockForReasons(selectedBookReasons());
+    if (stock.length) {
+      html += '<div class="notice stock-warn" role="alert">' + stock.map(function (c) {
+        return esc(c.name) + " is out of stock (0 on hand)";
+      }).join(". ") + ". You can still book; a substitution may be needed.</div>";
     }
     wrap.innerHTML = html;
     updateProviderRoleWarn();
@@ -7091,11 +7307,15 @@
     const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
     const override = $("#fOverride") ? $("#fOverride").value.trim() : "";
     if (hits.length && !override) missing.push("Admin override reason");
-    const outside = date && time && isOutsideClinicHours(date, time);
+    const closedDay = date && isClinicClosedDay(date);
+    const outside = !closedDay && date && time && isOutsideClinicHours(date, time);
     const outsideReason = ($("#fOutsideReason") && $("#fOutsideReason").value.trim()) || "";
     if (outside && !outsideReason) missing.push("Reason for booking outside office hours");
     const end = $("#fEnd") ? $("#fEnd").value : "";
-    const lunch = date && time && appointmentTouchesLunch(date, time, end, provider);
+    const availOff = !closedDay && !outside && date && time && provider && isOutsideProviderAvailability(date, time, end, provider, locationId);
+    const availReason = ($("#fAvailReason") && $("#fAvailReason").value.trim()) || "";
+    if (availOff && !availReason) missing.push("Reason for booking outside provider availability");
+    const lunch = date && time && !closedDay && appointmentTouchesLunch(date, time, end, provider);
     const lunchReason = ($("#fLunchReason") && $("#fLunchReason").value.trim()) || "";
     if (lunch && !lunchReason) missing.push("Reason for booking during lunch");
     if (missing.length) {
@@ -7116,7 +7336,7 @@
     if (cf) history.push("Consultation-first check noted · " + nowET());
     if (!reasons.length) history.push("Reason required before Confirmed · " + nowET());
     const mins = bookSelectedMinutes() || durationMinutes(type, reasons);
-    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: (mins ? mins + " min" : durationLabelFor(type, reasons)), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", suiteId: suiteId || null, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", lunchReason: lunchReason || "", statusSince: nowMs() };
+    const rec = { id: id, time: time, patientId: pid, type: type, reasons: reasons, provider: provider, durationLabel: (mins ? mins + " min" : durationLabelFor(type, reasons)), durationMinutes: mins, status: "Scheduled", consultation: "", treatment: "", suiteId: suiteId || null, date: date, locationId: locationId, consultingFor: consultingFor || "", prepNotes: ($("#fPrepNotes") && $("#fPrepNotes").value.trim()) || "", history: history, blockOverride: override || "", outsideHoursReason: outsideReason || "", outsideAvailReason: availReason || "", lunchReason: lunchReason || "", statusSince: nowMs() };
     const roleNeed = providerRoleMismatch(type, provider);
     if (roleNeed) {
       rec.providerRoleWarning = roleNeed;
@@ -7492,11 +7712,13 @@
     showModal("Edit chart", `
       <div class="formgrid">
         <div class="field"><label>Patient number</label><input value="${esc(displayId(p.id))}" disabled></div>
-        <div class="field"><label>Name</label><input value="${esc(p.name)}" disabled></div>
+        <div class="field"><label for="edFirst">First name</label><input id="edFirst" value="${esc(p.firstName || "")}"></div>
+        <div class="field"><label for="edLast">Last name</label><input id="edLast" value="${esc(p.lastName || "")}"></div>
+        <div class="field"><label for="edPreferred">Preferred name</label><input id="edPreferred" value="${esc(p.preferredName || "")}" placeholder="Optional"></div>
         <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(formatPhoneMask(p.phone))}" data-mask="phone" inputmode="tel" autocomplete="tel"></div>
         <div class="field"><label for="edEmail">Email</label><input id="edEmail" value="${esc(p.email)}"></div>
         <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy" data-mask="dob" inputmode="numeric"></div>
-        <div class="field full"><label>Address</label>${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
+        <div class="field full">${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
       </div>
       <div class="notice">Demographic changes are audit-tracked. The patient number cannot be changed.</div>`, function () {
       const phone = formatPhoneMask($("#edPhone").value), email = $("#edEmail").value;
@@ -7504,7 +7726,8 @@
       const parts = readAddressFields(document);
       const address = formatAddressText(parts);
       const changes = [];
-      if (phone !== p.phone) { p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
+      applyNameEdits(p, changes);
+      if (phone !== p.phone) { p.demoHistory = p.demoHistory || []; p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
       if (email !== p.email) { p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
       if (address !== formatAddressText(addressPartsOf(p))) { changes.push({ field: "address", before: formatAddressText(addressPartsOf(p)) || "—", after: address || "—" }); }
       if (dob !== p.dob) { changes.push({ field: "date of birth", before: fmtDob(p.dob), after: fmtDob(dob) }); }
@@ -7517,6 +7740,22 @@
     });
   }
 
+  function applyNameEdits(p, changes) {
+    if (!p || !$("#edFirst")) return;
+    const first = ($("#edFirst").value || "").trim();
+    const last = ($("#edLast").value || "").trim();
+    const preferred = ($("#edPreferred") && $("#edPreferred").value || "").trim();
+    const legal = (first + " " + last).trim();
+    const display = preferred || legal || p.name;
+    if (first !== (p.firstName || "")) changes.push({ field: "first name", before: p.firstName || "—", after: first || "—" });
+    if (last !== (p.lastName || "")) changes.push({ field: "last name", before: p.lastName || "—", after: last || "—" });
+    if (preferred !== (p.preferredName || "")) changes.push({ field: "preferred name", before: p.preferredName || "—", after: preferred || "—" });
+    if (display !== p.name) changes.push({ field: "name", before: p.name || "—", after: display || "—" });
+    p.firstName = first;
+    p.lastName = last;
+    p.preferredName = preferred;
+    if (display) p.name = display;
+  }
   function applyDemographicEdits(p) {
     if (!p || !$("#edPhone")) return false;
     const phone = formatPhoneMask($("#edPhone").value), email = $("#edEmail").value;
@@ -7524,8 +7763,9 @@
     const parts = readAddressFields(document);
     const address = formatAddressText(parts);
     const changes = [];
-    if (phone !== p.phone) { p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
-    if (email !== p.email) { p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
+    applyNameEdits(p, changes);
+    if (phone !== p.phone) { p.demoHistory = p.demoHistory || []; p.demoHistory.push("Phone " + p.phone + " → " + phone + " · " + nowET()); changes.push({ field: "phone", before: p.phone, after: phone }); }
+    if (email !== p.email) { p.demoHistory = p.demoHistory || []; p.demoHistory.push("Email " + p.email + " → " + email + " · " + nowET()); changes.push({ field: "email", before: p.email, after: email }); }
     if (address !== formatAddressText(addressPartsOf(p))) { changes.push({ field: "address", before: formatAddressText(addressPartsOf(p)) || "—", after: address || "—" }); }
     if (dob !== p.dob) { changes.push({ field: "date of birth", before: fmtDob(p.dob), after: fmtDob(dob) }); }
     if (changes.length) {
@@ -7558,11 +7798,13 @@
     showModal("Demographics · " + p.name, `
       <div class="formgrid">
         <div class="field"><label>Patient number</label><input value="${esc(displayId(p.id))}" disabled></div>
-        <div class="field"><label>Name</label><input value="${esc(p.name)}" disabled></div>
+        <div class="field"><label for="edFirst">First name</label><input id="edFirst" value="${esc(p.firstName || "")}"></div>
+        <div class="field"><label for="edLast">Last name</label><input id="edLast" value="${esc(p.lastName || "")}"></div>
+        <div class="field"><label for="edPreferred">Preferred name</label><input id="edPreferred" value="${esc(p.preferredName || "")}" placeholder="Optional"></div>
         <div class="field"><label for="edPhone">Phone</label><input id="edPhone" value="${esc(formatPhoneMask(p.phone))}" data-mask="phone" inputmode="tel" autocomplete="tel"></div>
         <div class="field"><label for="edEmail">Email</label><input id="edEmail" value="${esc(p.email)}"></div>
         <div class="field"><label for="edDob">Date of birth</label><input id="edDob" value="${esc(fmtDob(p.dob))}" placeholder="mm/dd/yyyy" data-mask="dob" inputmode="numeric"></div>
-        <div class="field full"><label>Address</label>${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
+        <div class="field full">${addressFieldsHtml(addressPartsOf(p), "edAddr")}</div>
       </div>
       <p class="row-sub">Demographics are ${confirmed ? "confirmed" : "not confirmed"}. You can edit the fields and confirm them here.</p>
       ${confirmed ? "" : '<div style="margin-top:10px"><button type="button" class="btn primary" data-confirm-demo-modal="' + esc(p.id) + '">Confirm demographics</button></div>'}
@@ -7932,13 +8174,16 @@
   }
   function renderTypes() {
     const rows = typesList().map((tp, i) => {
-      const attached = (tp.reasonIds || []).map((id) => { const r = reasonsList().find((x) => x.id === id); return r ? r.name : id; }).join(", ");
+      const ids = tp.reasonIds || [];
       const dep = tp.deposit != null ? String(tp.deposit) : "";
+      const attached = '<div class="reason-attach-list">' + reasonsList().map(function (r) {
+        return '<label class="reason-attach"><input type="checkbox" data-type-reason="' + i + '" value="' + esc(r.id) + '"' + (ids.indexOf(r.id) >= 0 ? " checked" : "") + "> " + esc(r.name) + "</label>";
+      }).join("") + "</div>";
       return "<tr><td><input data-type-field=\"name\" data-i=\"" + i + "\" value=\"" + esc(tp.name) + "\"></td>" +
         "<td><input data-type-field=\"minutes\" data-i=\"" + i + "\" type=\"number\" min=\"1\" value=\"" + esc(tp.minutes) + "\"></td>" +
         "<td><input data-type-field=\"deposit\" data-i=\"" + i + "\" type=\"number\" min=\"0\" step=\"1\" placeholder=\"—\" value=\"" + esc(dep) + "\"></td>" +
         "<td><input data-type-field=\"confirmName\" data-i=\"" + i + "\" value=\"" + esc(tp.confirmName || tp.name) + "\"></td>" +
-        "<td class=\"row-sub\">" + esc(attached) + "</td></tr>";
+        "<td>" + attached + "</td></tr>";
     }).join("");
     const reasonRows = reasonsList().map((r, i) => {
       const override = r.minutes != null ? String(r.minutes) : "";
@@ -7966,6 +8211,14 @@
       if (f === "minutes" || f === "deposit") store.appointmentTypes[i][f] = el.value === "" ? (f === "deposit" ? null : 0) : Number(el.value);
       else store.appointmentTypes[i][f] = el.value;
     });
+    const byType = {};
+    $$("[data-type-reason]").forEach(function (el) {
+      const i = Number(el.getAttribute("data-type-reason"));
+      if (!store.appointmentTypes[i]) return;
+      if (!byType[i]) byType[i] = [];
+      if (el.checked) byType[i].push(el.value);
+    });
+    Object.keys(byType).forEach(function (i) { store.appointmentTypes[i].reasonIds = byType[i]; });
     addAudit({ action: "Updated appointment types", recordType: "Configuration", recordId: "appointment-types",
       recordPath: { page: "types" }, changes: [{ field: "types", before: "prior in-memory values", after: "updated in this session" }] });
     toast("Types saved");
@@ -7992,6 +8245,14 @@
       if (f === "minutes" || f === "deposit") store.appointmentTypes[i][f] = el.value === "" ? (f === "deposit" ? null : 0) : Number(el.value);
       else store.appointmentTypes[i][f] = el.value;
     });
+    const byType = {};
+    $$("[data-type-reason]").forEach(function (el) {
+      const i = Number(el.getAttribute("data-type-reason"));
+      if (!store.appointmentTypes[i]) return;
+      if (!byType[i]) byType[i] = [];
+      if (el.checked) byType[i].push(el.value);
+    });
+    Object.keys(byType).forEach(function (i) { store.appointmentTypes[i].reasonIds = byType[i]; });
     $$("[data-reason-field]").forEach((el) => {
       const i = Number(el.getAttribute("data-i"));
       const f = el.getAttribute("data-reason-field");
@@ -8407,7 +8668,8 @@
     const openPreview = state.expandedEmn === n.id
       ? '<div class="emn-preview"><p>' + esc(n.text || "No narrative yet.") + '</p>' + print + "</div>"
       : "";
-    return '<div class="emn-actions">' + info + noteStatusChip(n) + view + edit + sign + preview + print + openPreview + "</div>";
+    const more = '<div class="emn-more"><button type="button" class="btn tiny" data-emn-more="' + esc(n.id) + '" aria-expanded="false" aria-haspopup="true" aria-label="More note actions">⋯</button><div class="emn-more-menu">' + info + preview + print + "</div></div>";
+    return '<div class="emn-actions">' + noteStatusChip(n) + view + edit + sign + more + openPreview + "</div>";
   }
   function pastEmnDropdown(p, exceptApptId) {
     const list = pastNotesOf(p, exceptApptId);
@@ -8498,11 +8760,21 @@
         items.push({ p: p, n: n });
       });
     });
-    items.sort(function (a, b) {
+    const from = (state.notesFrom || "").trim();
+    const to = (state.notesTo || "").trim();
+    const filtered = items.filter(function (it) {
+      const d = it.n.date || "";
+      if (from && d && d < from) return false;
+      if (to && d && d > to) return false;
+      return true;
+    });
+    filtered.sort(function (a, b) {
       return String(b.n.date || "").localeCompare(String(a.n.date || "")) || String((b.n.id || "")).localeCompare(String(a.n.id || ""));
     });
     const newBtn = canStartNote() ? '<button type="button" class="btn tiny primary" data-new-dash-note="1">＋ New note</button>' : "";
-    const rows = items.map(function (it) {
+    const filters = '<div class="myday-note-filters"><label class="field"><span class="row-sub">From</span><input type="date" id="notesFrom" value="' + esc(from) + '" placeholder="Any date"></label>' +
+      '<label class="field"><span class="row-sub">To</span><input type="date" id="notesTo" value="' + esc(to) + '" placeholder="Any date"></label></div>';
+    const rows = filtered.map(function (it) {
       const n = it.n, p = it.p;
       const lateMark = isNoteLate(n) ? ' <span class="wl-late">Late</span>' : "";
       return '<div class="emn-row myday-note-row">' +
@@ -8510,7 +8782,7 @@
         '<div class="row-sub">' + esc(fmtDate(n.date)) + (n.time ? " · " + esc(fmtTime(n.time)) : "") + " · " + esc(n.provider || "") + "</div></div>" +
         emnActionsHtml(p, n) + "</div>";
     }).join("") || '<div class="empty">No notes in this list.</div>';
-    return '<div class="card"><div class="cardhead"><h2>' + (pendingOnly ? "Pending EMNs" : (scope === "mine" ? "My notes" : "Notes")) + "</h2>" + newBtn + "</div><div class=\"cardbody\">" + rows + "</div></div>";
+    return '<div class="card"><div class="cardhead"><h2>' + (pendingOnly ? "Pending EMNs" : (scope === "mine" ? "My notes" : "Notes")) + "</h2>" + filters + newBtn + "</div><div class=\"cardbody\">" + rows + "</div></div>";
   }
   function renderToday() {
     const day = myDayDate();
@@ -8556,6 +8828,15 @@
         "</div></div>";
     }
     renderChrome('<a href="' + hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }) + '">My Day</a>', head, main);
+    const fromEl = $("#notesFrom");
+    const toEl = $("#notesTo");
+    const applyNotesDates = function () {
+      state.notesFrom = (fromEl && fromEl.value) || "";
+      state.notesTo = (toEl && toEl.value) || "";
+      render();
+    };
+    if (fromEl) fromEl.addEventListener("change", applyNotesDates);
+    if (toEl) toEl.addEventListener("change", applyNotesDates);
   }
 
   function renderEmr() { renderToday(); }
@@ -8707,6 +8988,30 @@
     render();
   }
   function onClick(e) {
+    const moreBtn = e.target.closest("[data-flow-more], [data-emn-more]");
+    if (moreBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const wrap = moreBtn.closest(".flow-more, .emn-more");
+      const open = wrap && wrap.classList.contains("is-open");
+      $$(".flow-more.is-open, .emn-more.is-open").forEach(function (el) {
+        el.classList.remove("is-open");
+        const b = el.querySelector("[data-flow-more], [data-emn-more]");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+      if (wrap && !open) {
+        wrap.classList.add("is-open");
+        moreBtn.setAttribute("aria-expanded", "true");
+      }
+      return;
+    }
+    if (!e.target.closest(".flow-more, .emn-more")) {
+      $$(".flow-more.is-open, .emn-more.is-open").forEach(function (el) {
+        el.classList.remove("is-open");
+        const b = el.querySelector("[data-flow-more], [data-emn-more]");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+    }
     if (e.target.closest("[data-undo]")) { e.preventDefault(); applyUndo(); return; }
     const qLot = e.target.closest("[data-quarantine-lot]");
     if (qLot) {

@@ -327,8 +327,8 @@ BRIZZA.AVAILABILITY_ROLES = ["MD / Clinic Owner", "Clinic Manager"];
 BRIZZA.availabilityTemplates = [
   { id: "AVT-1001", provider: "Dr. Valentina A. Rossi, MD", color: "#FFFCF6", startDate: "2026-11-02", endDate: null, everyNWeeks: 1, days: [1, 2, 3, 4, 5],
     blocks: [
-      { locationId: "LOC-MANHATTAN", start: "10:00", end: "11:00" },
-      { locationId: "LOC-LONGISLAND", start: "14:00", end: "18:00" }
+      { locationId: "LOC-MANHATTAN", start: "10:00", end: "13:00" },
+      { locationId: "LOC-MANHATTAN", start: "14:00", end: "18:00" }
     ] },
   { id: "AVT-1002", provider: "Alessia Costa, NP", color: "#FFFCF6", startDate: "2026-11-02", endDate: null, everyNWeeks: 1, days: [1, 2, 3, 4, 5],
     blocks: [
@@ -852,6 +852,7 @@ BRIZZA.seed = function () {
     const parts = String(pt.name || "").trim().split(/\s+/);
     pt.firstName = pt.firstName || parts[0] || "";
     pt.lastName = pt.lastName || parts.slice(1).join(" ");
+    if (pt.preferredName == null) pt.preferredName = "";
     const ex = extras[pt.id] || {};
     if (!pt.addressParts) pt.addressParts = Object.assign({ address1: "", address2: "", city: "", state: "", zip: "", country: "United States" }, ex.addressParts || {});
     if (pt.address == null) pt.address = [pt.addressParts.address1, pt.addressParts.address2, [pt.addressParts.city, pt.addressParts.state, pt.addressParts.zip].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(), pt.addressParts.country].filter(Boolean).join(", ");

@@ -918,7 +918,7 @@ BRIZZA.DEMO_STEPS = [
 BRIZZA.STATUS_PERMISSIONS = {
   "MD / Clinic Owner": ["*"],
   "Clinic Manager": ["*"],
-  "Clinical Coordinator": ["Scheduled", "Confirmed", "Checked in", "Ready for checkout", "Checked out", "No-show", "Canceled"],
+  "Clinical Coordinator": ["Scheduled", "Confirmed", "Checked in", "Ready for clinical", "Ready for checkout", "Checked out", "No-show", "Canceled"],
   "RN / NP Injector": ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"],
   "Aesthetician": ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"],
   "Medical Assistant": ["Checked in", "Ready for clinical", "With clinical", "Ready for provider"],

@@ -567,8 +567,10 @@
     notesFrom: "", notesTo: ""
   };
   reconcileSampleSchedule();
+  seedBusyClinicTraffic();
   state.date = defaultClinicDate();
   if (isClinicClosedDay(todayET()) && !state.myDayDate) state.myDayDate = defaultClinicDate();
+  if (isClinicClosedDay(todayET()) && !state.roomingDate) state.roomingDate = defaultClinicDate();
 
   const patient = (id) => store.patients.find((p) => p.id === id);
   const appt = (id) => store.appointments.find((a) => a.id === id);
@@ -693,7 +695,7 @@
     } else if (p0 === "audit") {
       route = { page: "audit", auditId: parts[1] };
     } else if (p0 === "rooming" || p0 === "patient-flow" || p0 === "flow") {
-      const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || todayET());
+      const date = (parts[1] && /^\d{4}-\d{2}-\d{2}$/.test(parts[1])) ? parts[1] : (state.roomingDate || defaultClinicDate());
       route = { page: "rooming", date: date };
     } else if (p0 === "inventory") {
       route = { page: "admin", adminTab: "inventory", invTab: normalizeInvTab(parts[1] || state.invTab || "summary"), redirect: true };
@@ -746,7 +748,7 @@
     }
     else if (route.page === "demo") path = "/demo";
     else if (route.page === "audit") path = "/audit/" + route.auditId;
-    else if (route.page === "rooming") path = "/patient-flow/" + (route.date || state.roomingDate || todayET());
+    else if (route.page === "rooming") path = "/patient-flow/" + (route.date || state.roomingDate || defaultClinicDate());
     else if (route.page === "inventory") path = "/admin/inventory/" + (route.invTab || state.invTab || "summary");
     else if (route.page === "emr") {
       const tab = route.myDayTab || state.myDayTab || "patients";
@@ -2991,7 +2993,7 @@
         <div class="row-sub">${esc(a.provider)} · ${esc(a.id)}${a.durationLabel || durationLabelFor(a.type, a.reasons) ? " · " + esc(a.durationLabel || durationLabelFor(a.type, a.reasons)) : ""}${vlink} · Invoice: ${invoiceBadge(a)}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${badge(a.status)}
+        ${statusChipHtml(a, { variant: "tint" })}
         <a class="btn small" href="${hashFor({ page: "schedule", date: a.date, appointmentId: a.id })}">Open</a>
       </div>
     </div>`;
@@ -3593,25 +3595,92 @@
       (noBand ? "" : '<div class="jewel-band">' + band + "</div>") +
       '<div class="jewel-body">' + (innerHtml || "") + "</div></div>";
   }
-  function statusSelect(a, idSuffix) {
-    const id = "visit-status-" + a.id + (idSuffix ? "-" + idSuffix : "");
-    const variant = (idSuffix && (idSuffix === "flow" || String(idSuffix).indexOf("room") === 0)) ? "solid" : "tint";
+  function statusMenuItemsHtml(a) {
+    return visitStatuses().map(function (s) {
+      const allow = canSetVisitStatus(s);
+      const cur = a.status === s;
+      return '<button type="button" class="status-menu-item' + (cur ? " is-current" : "") + (allow ? "" : " is-disabled") + '" role="option" aria-selected="' + (cur ? "true" : "false") + '"' +
+        (allow ? ' data-status-pick="' + esc(a.id) + '" data-status-value="' + esc(s) + '"' : " disabled") +
+        (allow ? "" : ' title="Not available for this role"') + ">" +
+        statusIconSvg(statusMeta(s).icon) + "<span>" + esc(s) + "</span></button>";
+    }).join("");
+  }
+  function closeStatusMenu() {
+    const menu = document.getElementById("statusChipMenu");
+    if (menu) { menu.hidden = true; menu.innerHTML = ""; }
+    document.querySelectorAll("[data-status-menu][aria-expanded='true']").forEach(function (b) {
+      b.setAttribute("aria-expanded", "false");
+    });
+  }
+  function positionStatusMenu(btn, menu) {
+    const r = btn.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 240)) + "px";
+    menu.style.top = (r.bottom + 4) + "px";
+    menu.hidden = false;
+    const box = menu.getBoundingClientRect();
+    if (box.bottom > window.innerHeight - 8) {
+      menu.style.top = Math.max(8, r.top - box.height - 4) + "px";
+    }
+    if (box.right > window.innerWidth - 8) {
+      menu.style.left = Math.max(8, window.innerWidth - box.width - 8) + "px";
+    }
+  }
+  function openStatusMenu(btn) {
+    const id = btn.getAttribute("data-status-menu");
+    const a = appt(id);
+    if (!a || isMarketingRole()) return;
+    closeStatusMenu();
+    let menu = document.getElementById("statusChipMenu");
+    if (!menu) {
+      menu = document.createElement("div");
+      menu.id = "statusChipMenu";
+      menu.className = "status-chip-menu";
+      menu.setAttribute("role", "listbox");
+      menu.setAttribute("aria-label", "Visit status");
+      document.body.appendChild(menu);
+    }
+    menu.innerHTML = statusMenuItemsHtml(a);
+    btn.setAttribute("aria-expanded", "true");
+    positionStatusMenu(btn, menu);
+    menu.onmousedown = function (e) { e.stopPropagation(); };
+    menu.onclick = function (e) {
+      const pick = e.target.closest("[data-status-pick]");
+      if (!pick) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setVisitStatus(pick.getAttribute("data-status-pick"), pick.getAttribute("data-status-value"));
+    };
+  }
+  function syncOpenAppointmentStatusChip(appointmentId) {
+    const a = appt(appointmentId);
+    const modal = document.getElementById("modal");
+    if (!a || !modal || !modal.classList.contains("open")) return;
+    const host = modal.querySelector(".appt-card-head-status, [data-status-chip='" + appointmentId + "']");
+    if (!host) return;
+    const wrap = host.closest(".appt-card-head-status") || host.parentElement;
+    if (!wrap) return;
+    const chip = wrap.querySelector("[data-status-chip], .status-chip-wrap");
+    const html = statusChipHtml(a, { variant: "solid" });
+    if (chip && chip.parentElement) chip.outerHTML = html;
+    else if (wrap.classList && wrap.classList.contains("appt-card-head-status")) {
+      const label = wrap.querySelector("label");
+      wrap.innerHTML = (label ? label.outerHTML : "") + html;
+    }
+  }
+  function statusChipHtml(a, opts) {
+    opts = opts || {};
+    const variant = opts.variant || "tint";
     const pillKind = variant === "solid" ? "is-solid" : "is-tint";
     const m = statusMeta(a.status);
-    const wrap = function (control) {
-      return '<span class="status-pill ' + pillKind + (a.status === "Canceled" ? " is-canceled" : "") + '" style="' + statusStyleVars(a.status) + '">' +
-        statusIconSvg(m.icon) + control + "</span>";
-    };
-    if (idSuffix === "wl" && isClinicalVisitStatus(a.status)) {
-      return statusPill(a.status, "tint");
-    }
-    const opts = visitStatuses().map(function (s) {
-      const allow = canSetVisitStatus(s) || a.status === s;
-      return "<option" + (a.status === s ? " selected" : "") + (allow ? "" : " disabled") + ">" + esc(s) + "</option>";
-    }).join("");
-    return '<label class="sr-only" for="' + id + '">Visit status</label>' + wrap(
-      '<select id="' + id + '" class="status-dd status-select-plain" data-visit-status="' + esc(a.id) + '">' + opts + "</select>"
-    );
+    if (isMarketingRole() || opts.readonly) return statusPill(a.status, variant);
+    return '<span class="status-chip-wrap" data-status-chip="' + esc(a.id) + '">' +
+      '<button type="button" class="status-pill ' + pillKind + (a.status === "Canceled" ? " is-canceled" : "") + ' status-chip-btn" style="' + statusStyleVars(a.status) + '" data-status-menu="' + esc(a.id) + '" aria-haspopup="listbox" aria-expanded="false" aria-label="Change visit status, currently ' + esc(a.status) + '">' +
+      statusIconSvg(m.icon) + "<span>" + esc(a.status) + "</span></button></span>";
+  }
+  function statusSelect(a, idSuffix) {
+    const variant = (idSuffix && (idSuffix === "flow" || String(idSuffix).indexOf("room") === 0)) ? "solid" : "tint";
+    return statusChipHtml(a, { variant: variant });
   }
   function paperworkBadge(a) {
     if (a.status !== "Checked in") return "";
@@ -3621,6 +3690,17 @@
   function bindStatusStops() {
     $$(".status-dd, [data-toggle-paperwork], .wl-note").forEach((el) => {
       el.addEventListener("click", function (e) { e.stopPropagation(); });
+      el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+    });
+    $$("[data-status-menu]").forEach(function (el) {
+      if (el.getAttribute("data-bound-status") === "1") return;
+      el.setAttribute("data-bound-status", "1");
+      el.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (el.getAttribute("aria-expanded") === "true") closeStatusMenu();
+        else openStatusMenu(el);
+      });
       el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
     });
   }
@@ -3697,7 +3777,10 @@
     } else {
       toast("Status: " + next);
     }
+    closeStatusMenu();
     if (!opts.silent) render();
+    syncOpenAppointmentStatusChip(appointmentId);
+    bindStatusStops();
   }
   function setAppointmentSuite(appointmentId, suiteId, withStatus) {
     const a = appt(appointmentId);
@@ -4040,6 +4123,295 @@
     if (isClinicClosedDay(a.date)) return true;
     return appointmentTouchesLunch(a.date, a.time, appointmentEndTime(a), a.provider);
   }
+  function toMinutesOf(t) {
+    const p = String(t || "00:00").split(":");
+    return Number(p[0]) * 60 + Number(p[1] || 0);
+  }
+  function fromMinutesOf(n) {
+    const h = Math.floor(n / 60), m = n % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+  function sampleSlotBlocked(date, start, mins, provider, exceptId) {
+    const s0 = toMinutesOf(start);
+    const s1 = s0 + (mins || 30);
+    if (s0 < toMinutesOf("10:00") || s1 > toMinutesOf("18:00")) return true;
+    if (s0 < toMinutesOf("14:00") && s1 > toMinutesOf("13:00")) return true; // provider lunch
+    if (isClinicClosedDay(date)) return true;
+    return (store.appointments || []).some(function (a) {
+      if (!a || a.id === exceptId || a.date !== date) return false;
+      if (a.status === "Canceled" || a.status === "Rescheduled") return false;
+      if (a.provider !== provider) return false;
+      const b0 = toMinutesOf(a.time);
+      const b1 = b0 + (a.durationMinutes || 30);
+      return s0 < b1 && s1 > b0;
+    });
+  }
+  function seedBusyClinicTraffic() {
+    if ((store.patients || []).some(function (p) { return p.id === "BZ0101"; })) return;
+    store.patients = store.patients || [];
+    store.appointments = store.appointments || [];
+    const rossi = "Dr. Valentina A. Rossi, MD";
+    const costa = "Alessia Costa, NP";
+    const hayes = "Stella Hayes, LE";
+    const loc = BRIZZA.DEFAULT_LOCATION || "LOC-MANHATTAN";
+    const guests = [
+      { id: "BZ0101", name: "Luna Park", dob: "1991-06-14", sex: "Female", phone: "(212) 555-0201" },
+      { id: "BZ0102", name: "Theo Maple", dob: "1984-02-03", sex: "Male", phone: "(212) 555-0202" },
+      { id: "BZ0103", name: "Iris Bellamy", dob: "1996-11-22", sex: "Female", phone: "(917) 555-0203" },
+      { id: "BZ0104", name: "Jasper Quinn", dob: "1979-08-19", sex: "Male", phone: "(646) 555-0204" },
+      { id: "BZ0105", name: "Wren Hollow", dob: "1993-01-27", sex: "Female", phone: "(212) 555-0205" },
+      { id: "BZ0106", name: "Milo Barrett", dob: "1988-05-09", sex: "Male", phone: "(917) 555-0206" },
+      { id: "BZ0107", name: "Poppy Ellison", dob: "1999-03-30", sex: "Female", phone: "(646) 555-0207" },
+      { id: "BZ0108", name: "Felix Grant", dob: "1972-12-08", sex: "Male", phone: "(212) 555-0208" },
+      { id: "BZ0109", name: "Nina Shore", dob: "1986-07-16", sex: "Female", phone: "(917) 555-0209" },
+      { id: "BZ0110", name: "Oscar Pine", dob: "1990-04-02", sex: "Male", phone: "(212) 555-0210" },
+      { id: "BZ0111", name: "Ruby Lang", dob: "1983-09-25", sex: "Female", phone: "(646) 555-0211" },
+      { id: "BZ0112", name: "Hugo Wells", dob: "1977-10-11", sex: "Male", phone: "(212) 555-0212" },
+      { id: "BZ0113", name: "Ivy Carlyle", dob: "1995-08-06", sex: "Female", phone: "(917) 555-0213" },
+      { id: "BZ0114", name: "Bennett Frost", dob: "1981-01-18", sex: "Male", phone: "(212) 555-0214" },
+      { id: "BZ0115", name: "Cora Blake", dob: "1992-06-29", sex: "Female", phone: "(646) 555-0215" },
+      { id: "BZ0116", name: "Simon Vale", dob: "1974-03-21", sex: "Male", phone: "(917) 555-0216" },
+      { id: "BZ0117", name: "Adele Finch", dob: "1987-11-04", sex: "Female", phone: "(212) 555-0217" },
+      { id: "BZ0118", name: "Julian Moss", dob: "1998-02-14", sex: "Male", phone: "(646) 555-0218" },
+      { id: "BZ0119", name: "Pearl Addison", dob: "1980-05-23", sex: "Female", phone: "(212) 555-0219" },
+      { id: "BZ0120", name: "Gideon Shaw", dob: "1969-09-07", sex: "Male", phone: "(917) 555-0220" },
+      { id: "BZ0121", name: "Marlowe Pitt", dob: "1994-12-19", sex: "Female", phone: "(212) 555-0221" },
+      { id: "BZ0122", name: "Quinn Avery", dob: "1985-07-01", sex: "Male", phone: "(646) 555-0222" },
+      { id: "BZ0123", name: "Tessa Wren", dob: "1997-04-28", sex: "Female", phone: "(212) 555-0223" },
+      { id: "BZ0124", name: "Arlo Kamp", dob: "1991-10-15", sex: "Male", phone: "(917) 555-0224" },
+      { id: "BZ0125", name: "Bridget Sol", dob: "1978-08-13", sex: "Female", phone: "(212) 555-0225" },
+      { id: "BZ0126", name: "Ellis Hart", dob: "1989-02-26", sex: "Male", phone: "(646) 555-0226" },
+      { id: "BZ0127", name: "Sable Oriole", dob: "1993-06-05", sex: "Female", phone: "(212) 555-0227" }
+    ];
+    guests.forEach(function (g, i) {
+      const slug = g.name.toLowerCase().replace(/\s+/g, ".") + "@example.com";
+      store.patients.push({
+        id: g.id, name: g.name, dob: g.dob, sex: g.sex, phone: g.phone, email: slug, status: "Active",
+        allergies: ["No known allergies"], meds: [], conditions: [], notes: [],
+        consents: { clinical: "Current · signed Nov 12, 2026", marketing: "Not authorized", photo: "Authorized · signed Nov 12, 2026" },
+        photos: [], documents: ["Intake and medical history · Nov 12, 2026"], treatments: [], followups: [], demoHistory: [],
+        registration: { idUploaded: { status: "Uploaded", date: "2026-11-12" }, formsCompleted: { status: "Completed", date: "2026-11-12" }, demographicsConfirmed: { status: "Confirmed", date: "2026-11-12" } }
+      });
+    });
+    const today = todayET();
+    const flowDay = defaultClinicDate();
+    const prevOpen = (function () {
+      let d = addDays(today, -1);
+      for (let i = 0; i < 14; i += 1) {
+        if (!isClinicClosedDay(d)) return d;
+        d = addDays(d, -1);
+      }
+      return addDays(flowDay, -5);
+    })();
+    const later = [];
+    let d = nextOpenClinicDay(addDays(flowDay, 1));
+    for (let i = 0; i < 3; i += 1) { later.push(d); d = nextOpenClinicDay(addDays(d, 1)); }
+    let seq = 6301;
+    function addAppt(spec) {
+      if (isClinicClosedDay(spec.date)) return null;
+      const mins = spec.mins || 30;
+      if (sampleSlotBlocked(spec.date, spec.time, mins, spec.provider)) return null;
+      const id = "A-" + String(seq++);
+      const rec = {
+        id: id, time: spec.time, patientId: spec.patientId, type: spec.type,
+        reasons: spec.reasons || [], provider: spec.provider, durationLabel: mins + " min", durationMinutes: mins,
+        status: spec.status, consultation: "", treatment: "", date: spec.date, locationId: loc,
+        suiteId: spec.suiteId || null, history: spec.history || [spec.status],
+        statusSince: nowMs() - ((spec.waitMin || 5) * 60000), prepNotes: spec.note || ""
+      };
+      store.appointments.push(rec);
+      if (["Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout", "Checked out"].indexOf(spec.status) >= 0 && spec.date === flowDay) {
+        store.rooming = store.rooming || [];
+        store.rooming.push({
+          id: "RM-" + rec.id, appointmentId: rec.id, patientId: rec.patientId, date: rec.date,
+          status: rec.status, statusSince: rec.statusSince, suiteId: rec.suiteId, suiteSince: rec.suiteId ? rec.statusSince : null
+        });
+      }
+      return rec;
+    }
+    // Monday clinic day (or next open day): mid-morning traffic around the 11:25 demo clock.
+    addAppt({ patientId: "BZ0101", date: flowDay, time: "10:00", type: "Consultation", reasons: ["Existing Patient"], mins: 15, provider: rossi, status: "Checked out", waitMin: 8, history: ["Scheduled → Confirmed", "Confirmed → Checked in", "Checked in → Checked out"] });
+    addAppt({ patientId: "BZ0102", date: flowDay, time: "10:00", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: costa, status: "Checked out", waitMin: 6, history: ["Scheduled → Confirmed", "Confirmed → Checked out"] });
+    addAppt({ patientId: "BZ0103", date: flowDay, time: "10:00", type: "Facial", reasons: ["Facial"], mins: 60, provider: hayes, status: "Ready for checkout", waitMin: 6, history: ["Scheduled → Confirmed", "Confirmed → With provider", "With provider → Ready for checkout"] });
+    addAppt({ patientId: "BZ0104", date: flowDay, time: "10:30", type: "Neurotoxin", reasons: ["Botox"], mins: 30, provider: rossi, status: "Ready for checkout", waitMin: 4, history: ["Scheduled → Confirmed", "Confirmed → With provider", "With provider → Ready for checkout"] });
+    addAppt({ patientId: "BZ0105", date: flowDay, time: "10:15", type: "Filler", reasons: ["Juvederm"], mins: 30, provider: costa, status: "Ready for provider", waitMin: 8, history: ["Scheduled → Confirmed", "Confirmed → Checked in", "Checked in → Ready for provider"] });
+    addAppt({ patientId: "BZ0106", date: flowDay, time: "10:45", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: costa, status: "With clinical", waitMin: 11, history: ["Scheduled → Confirmed", "Confirmed → Checked in", "Checked in → With clinical"] });
+    addAppt({ patientId: "BZ0107", date: flowDay, time: "11:00", type: "Filler", reasons: ["Volbella"], mins: 30, provider: rossi, status: "With provider", suiteId: "SUITE-3", waitMin: 12, history: ["Scheduled → Confirmed", "Confirmed → With provider"] });
+    addAppt({ patientId: "BZ0108", date: flowDay, time: "11:00", type: "Neurotoxin", reasons: ["Botox"], mins: 30, provider: costa, status: "With provider", suiteId: "SUITE-2", waitMin: 14, history: ["Scheduled → Confirmed", "Confirmed → With provider"] });
+    addAppt({ patientId: "BZ0109", date: flowDay, time: "11:00", type: "Wax", reasons: ["Eyebrows"], mins: 30, provider: hayes, status: "With provider", suiteId: "SUITE-1", waitMin: 10, history: ["Scheduled → Confirmed", "Confirmed → With provider"] });
+    addAppt({ patientId: "BZ0110", date: flowDay, time: "11:30", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: rossi, status: "Ready for clinical", waitMin: 9, history: ["Scheduled → Confirmed", "Confirmed → Checked in", "Checked in → Ready for clinical"] });
+    addAppt({ patientId: "BZ0111", date: flowDay, time: "11:30", type: "Consultation", reasons: ["Existing Patient"], mins: 15, provider: costa, status: "Checked in", waitMin: 5, history: ["Scheduled → Confirmed", "Confirmed → Checked in"] });
+    addAppt({ patientId: "BZ0112", date: flowDay, time: "11:30", type: "Facial", reasons: ["Mini Facial"], mins: 30, provider: hayes, status: "Ready for clinical", waitMin: 7, history: ["Scheduled → Confirmed", "Confirmed → Checked in", "Checked in → Ready for clinical"] });
+    addAppt({ patientId: "BZ0113", date: flowDay, time: "12:00", type: "Consultation", reasons: ["New Patient"], mins: 15, provider: rossi, status: "Checked in", waitMin: 3, history: ["Scheduled → Confirmed", "Confirmed → Checked in"], note: "Arrived a little early." });
+    addAppt({ patientId: "BZ0114", date: flowDay, time: "12:00", type: "Follow-up", reasons: ["Toxin touch-up"], mins: 15, provider: costa, status: "Confirmed", waitMin: 0, history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0115", date: flowDay, time: "12:00", type: "Wax", reasons: ["Lips"], mins: 30, provider: hayes, status: "Confirmed", waitMin: 0, history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0116", date: flowDay, time: "14:00", type: "Neurotoxin", reasons: ["Jeuveau"], mins: 30, provider: rossi, status: "Confirmed", history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0117", date: flowDay, time: "14:00", type: "Filler", reasons: ["Juvederm"], mins: 30, provider: costa, status: "Confirmed", history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0118", date: flowDay, time: "14:00", type: "Facial", reasons: ["Hydrafacial"], mins: 75, provider: hayes, status: "Confirmed", history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0119", date: flowDay, time: "15:00", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: rossi, status: "Scheduled", history: ["Scheduled"] });
+    addAppt({ patientId: "BZ0120", date: flowDay, time: "15:30", type: "Consultation", reasons: ["Existing Patient"], mins: 15, provider: costa, status: "Scheduled", history: ["Scheduled"] });
+    addAppt({ patientId: "BZ0121", date: flowDay, time: "15:30", type: "Microneedling", reasons: ["Microneedling"], mins: 75, provider: hayes, status: "Confirmed", history: ["Scheduled → Confirmed"] });
+    addAppt({ patientId: "BZ0122", date: flowDay, time: "16:00", type: "Consultation", reasons: ["New Patient"], mins: 15, provider: rossi, status: "Scheduled", history: ["Scheduled"] });
+    addAppt({ patientId: "BZ0123", date: flowDay, time: "16:30", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: costa, status: "Scheduled", history: ["Scheduled"] });
+    addAppt({ patientId: "BZ0124", date: flowDay, time: "16:30", type: "Wax", reasons: ["Face"], mins: 30, provider: hayes, status: "Scheduled", history: ["Scheduled"] });
+    // One gold wait badge (>= 15m) still in a plausible range.
+    addAppt({ patientId: "BZ0125", date: flowDay, time: "10:15", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: rossi, status: "With clinical", waitMin: 18, history: ["Scheduled → Confirmed", "Confirmed → With clinical"] });
+
+    // Previous open day: completed visits.
+    addAppt({ patientId: "BZ0126", date: prevOpen, time: "10:00", type: "Neurotoxin", reasons: ["Botox"], mins: 30, provider: rossi, status: "Checked out", history: ["Scheduled → Confirmed", "Confirmed → Checked out"] });
+    addAppt({ patientId: "BZ0127", date: prevOpen, time: "11:00", type: "Facial", reasons: ["Facial"], mins: 60, provider: hayes, status: "Checked out", history: ["Scheduled → Confirmed", "Confirmed → Checked out"] });
+    addAppt({ patientId: "BZ0101", date: prevOpen, time: "14:00", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: costa, status: "Checked out", history: ["Scheduled → Confirmed", "Confirmed → Checked out"] });
+
+    // Following open days: booked, not yet in flow.
+    const laterPlans = [
+      { day: 0, time: "10:00", type: "Consultation", reasons: ["New Patient"], mins: 15, provider: rossi, patientId: "BZ0102", status: "Confirmed" },
+      { day: 0, time: "10:30", type: "Filler", reasons: ["Juvederm"], mins: 30, provider: costa, patientId: "BZ0103", status: "Confirmed" },
+      { day: 0, time: "11:00", type: "Wax", reasons: ["Eyebrows"], mins: 30, provider: hayes, patientId: "BZ0104", status: "Scheduled" },
+      { day: 0, time: "14:00", type: "Neurotoxin", reasons: ["Botox"], mins: 30, provider: rossi, patientId: "BZ0105", status: "Confirmed" },
+      { day: 0, time: "15:00", type: "Facial", reasons: ["Facial"], mins: 60, provider: hayes, patientId: "BZ0106", status: "Scheduled" },
+      { day: 1, time: "10:00", type: "Follow-up", reasons: ["Follow-up"], mins: 15, provider: costa, patientId: "BZ0107", status: "Confirmed" },
+      { day: 1, time: "11:00", type: "Chemical Peel", reasons: ["Chemical Peel"], mins: 60, provider: hayes, patientId: "BZ0108", status: "Confirmed" },
+      { day: 1, time: "14:30", type: "Filler", reasons: ["Volbella"], mins: 30, provider: rossi, patientId: "BZ0109", status: "Scheduled" },
+      { day: 1, time: "16:00", type: "Consultation", reasons: ["Existing Patient"], mins: 15, provider: costa, patientId: "BZ0110", status: "Scheduled" },
+      { day: 2, time: "10:30", type: "Neurotoxin", reasons: ["Jeuveau"], mins: 30, provider: costa, patientId: "BZ0111", status: "Confirmed" },
+      { day: 2, time: "11:00", type: "Microneedling", reasons: ["Microneedling"], mins: 75, provider: hayes, patientId: "BZ0112", status: "Confirmed" },
+      { day: 2, time: "14:00", type: "Consultation", reasons: ["New Patient"], mins: 15, provider: rossi, patientId: "BZ0113", status: "Scheduled" },
+      { day: 2, time: "15:30", type: "Wax", reasons: ["Lips"], mins: 30, provider: hayes, patientId: "BZ0114", status: "Scheduled" }
+    ];
+    laterPlans.forEach(function (pl) {
+      const date = later[pl.day];
+      if (!date) return;
+      addAppt({ patientId: pl.patientId, date: date, time: pl.time, type: pl.type, reasons: pl.reasons, mins: pl.mins, provider: pl.provider, status: pl.status, history: pl.status === "Confirmed" ? ["Scheduled → Confirmed"] : ["Scheduled"] });
+    });
+    (function ensureFlowCoverage() {
+      const clock = (BRIZZA.DEMO_CLOCK && BRIZZA.DEMO_CLOCK.time) || "11:25";
+      function hm(t) {
+        const p = String(t || "00:00").split(":");
+        return Number(p[0]) * 60 + Number(p[1] || 0);
+      }
+      const nowMin = hm(clock);
+      const morning = ["10:00","10:15","10:30","10:45","11:00","11:15","11:30","11:45","12:00","12:15","12:30"];
+      const providers = [rossi, costa, hayes];
+      let pi = 0;
+      function demoteFutureInroom() {
+        (store.appointments || []).forEach(function (a) {
+          if (!a || a.date !== flowDay) return;
+          const start = hm(a.time);
+          if (a.status === "No-show" && start > nowMin + 5) {
+            a.status = "Confirmed";
+            a.suiteId = null;
+            a.suiteSince = null;
+            return;
+          }
+          if (a.status === "Checked in" && start > nowMin + 45) {
+            a.status = "Confirmed";
+            a.suiteId = null;
+            return;
+          }
+          const board = ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"];
+          if (board.indexOf(a.status) >= 0 && start > nowMin + 20) {
+            a.status = "Confirmed";
+            a.suiteId = null;
+            a.suiteSince = null;
+          }
+        });
+      }
+      function fillNeed() {
+        const need = [
+          { status: "Checked in", waitMin: 5, latest: nowMin + 45 },
+          { status: "Ready for clinical", waitMin: 7, latest: nowMin + 20 },
+          { status: "With clinical", waitMin: 11, latest: nowMin + 5 },
+          { status: "Ready for provider", waitMin: 8, latest: nowMin },
+          { status: "With provider", waitMin: 12, latest: nowMin + 5 },
+          { status: "Ready for checkout", waitMin: 6, latest: nowMin },
+          { status: "Checked out", waitMin: 8, latest: nowMin }
+        ];
+        need.forEach(function (n) {
+          const has = (store.appointments || []).some(function (a) {
+            return a.date === flowDay && a.status === n.status && hm(a.time) <= n.latest;
+          });
+          if (has) return;
+          const cand = (store.appointments || []).find(function (a) {
+            return a.date === flowDay && hm(a.time) <= n.latest && hm(a.time) >= 10 * 60
+              && (a.status === "Scheduled" || a.status === "Confirmed");
+          });
+          if (cand) {
+            cand.status = n.status;
+            cand.statusSince = Date.now() - n.waitMin * 60000;
+            cand.history = (cand.history || []).concat(["Scheduled → " + n.status]);
+            return;
+          }
+          for (let i = 0; i < morning.length; i += 1) {
+            if (hm(morning[i]) > n.latest) continue;
+            for (let p = 0; p < providers.length; p += 1) {
+              const guest = guests[pi % guests.length];
+              const rec = addAppt({
+                patientId: guest.id, date: flowDay, time: morning[i], type: "Follow-up",
+                reasons: ["Follow-up"], mins: 15, provider: providers[p], status: n.status,
+                waitMin: n.waitMin, history: ["Scheduled → " + n.status]
+              });
+              if (rec) { pi += 1; return; }
+            }
+          }
+        });
+      }
+      function uniqueSuites() {
+        const inSuite = ["With clinical", "With provider", "Ready for provider"];
+        const claimed = {};
+        function applySuite(a, sid) {
+          a.suiteId = sid;
+          a.suiteSince = sid ? (a.statusSince || Date.now()) : null;
+          const rec = (store.rooming || []).find(function (r) { return r.appointmentId === a.id && r.date === a.date; });
+          if (rec) { rec.suiteId = sid; rec.suiteSince = a.suiteSince; rec.status = a.status; rec.statusSince = a.statusSince; }
+        }
+        function providerLabel(a) { return [a.provider, a.providerName, a.providerId].filter(Boolean).join(" "); }
+        function preferredSuite(a) {
+          const name = providerLabel(a);
+          if (/Hayes/.test(name)) return "SUITE-1";
+          if (/Costa/.test(name)) return "SUITE-2";
+          if (/Rossi/.test(name)) return "SUITE-3";
+          return null;
+        }
+        (store.appointments || []).forEach(function (a) {
+          if (a.date === flowDay && a.suiteId && inSuite.indexOf(a.status) < 0) applySuite(a, null);
+        });
+        (store.appointments || []).filter(function (a) {
+          return a.date === flowDay && inSuite.indexOf(a.status) >= 0;
+        }).forEach(function (a) {
+          const pref = preferredSuite(a);
+          if (pref && !claimed[pref]) { applySuite(a, pref); claimed[pref] = a; }
+          else applySuite(a, null);
+        });
+        ["SUITE-1", "SUITE-2", "SUITE-3"].forEach(function (sid) {
+          if (claimed[sid]) return;
+          const cand = (store.appointments || []).find(function (a) {
+            return a.date === flowDay && !a.suiteId && inSuite.indexOf(a.status) >= 0 && hm(a.time) <= nowMin + 5;
+          });
+          if (cand) {
+            applySuite(cand, sid);
+            claimed[sid] = cand;
+            return;
+          }
+          const typ = sid === "SUITE-1" ? "Facial" : "Follow-up";
+          const prov = sid === "SUITE-1" ? hayes : (sid === "SUITE-2" ? costa : rossi);
+          for (let i = 0; i < morning.length; i += 1) {
+            if (hm(morning[i]) > nowMin + 5) continue;
+            const guest = guests[pi % guests.length];
+            const rec = addAppt({
+              patientId: guest.id, date: flowDay, time: morning[i], type: typ, reasons: [typ],
+              mins: 30, provider: prov, status: "With provider", suiteId: sid, waitMin: 12,
+              history: ["Scheduled → With provider"]
+            });
+            if (rec) { pi += 1; claimed[sid] = rec; return; }
+          }
+        });
+      }
+      demoteFutureInroom();
+      fillNeed();
+      uniqueSuites();
+      fillNeed();
+    })();
+  }
   function reconcileSampleSchedule() {
     (store.appointments || []).forEach(function (a) {
       if (!appointmentNeedsRehome(a)) return;
@@ -4052,12 +4424,13 @@
       retargetLinkedDates(a, before, slot.date);
     });
     const today = todayET();
+    const flowDay = isClinicClosedDay(today) ? nextOpenClinicDay(today) : today;
     const inflight = ["Scheduled", "Confirmed", "Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"];
     const room = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"];
     (store.appointments || []).forEach(function (a) {
       if (!a || a.status === "Canceled" || a.status === "No-show" || a.status === "Rescheduled") return;
       if (a.date < today && inflight.indexOf(a.status) >= 0) a.status = "Checked out";
-      if (a.date > today && room.indexOf(a.status) >= 0) a.status = "Confirmed";
+      if (a.date > flowDay && room.indexOf(a.status) >= 0) a.status = "Confirmed";
     });
   }
   function staffRecord(name) {
@@ -4644,6 +5017,11 @@
       const parts = raw.split("|").filter(Boolean);
       const a = appt(id);
       const next = (a && parts.indexOf(a.status) >= 0) ? a.status : (parts[0] || raw);
+      if (a && next === a.status) return;
+      if (next && !canSetVisitStatus(next)) {
+        toast("That status is not available for this role");
+        return;
+      }
       setVisitStatus(id, next);
     });
     zone("[data-drop-role]", function (id, el) {
@@ -5204,7 +5582,7 @@
   }
 
   function renderRooming() {
-    const date = state.roomingDate || todayET();
+    const date = state.roomingDate || defaultClinicDate();
     state.roomingDate = date;
     (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status)).forEach(ensureRooming);
     const records = (store.appointments || []).filter((a) => a.date === date && isBoardStatus(a.status) && a.status !== "Rescheduled")
@@ -5214,8 +5592,8 @@
       <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
       <strong>${esc(fmtLong(date))}</strong>
       <a class="btn small" href="${hashFor({ page: "rooming", date: addDays(date, 1) })}" aria-label="Next day">›</a>
-      <a class="btn small" id="room-today" href="${hashFor({ page: "rooming", date: todayET() })}">Today</a>
-    </div>`;
+      <a class="btn small" id="room-today" href="${hashFor({ page: "rooming", date: defaultClinicDate() })}">Clinic day</a>
+    </div>` + clinicClosedBanner(date);
     const cardHtml = (a, place) => {
       const p = patient(a.patientId);
       const nxt = nextRoomingStatus(a.status);
@@ -5485,7 +5863,7 @@
     const inner =
       '<span class="t">' + (p ? patientLink(p) : esc(a.patientId)) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a></span>" +
       '<span class="cal-event-mid"><a href="' + href + '">' + esc(cardTypeLabel(a)) + "</a>" + linkBadge + "</span>" +
-      '<span class="row-sub">' + esc(a.provider) + " " + statusPill(a.status, "tint") + noRoom + payCue + "</span>" +
+      '<span class="row-sub">' + esc(a.provider) + " " + statusChipHtml(a, { variant: "tint" }) + noRoom + payCue + "</span>" +
       '<span class="appt-pop" role="tooltip">' + esc(tip) + "</span>";
     return jewelWrap(a, inner, "cal-event" + (mate ? " is-linked" : ""), attrs);
   }
@@ -5635,12 +6013,18 @@
       };
       const visAppts = dayAppts.filter(vis);
       const expanded = state.expandedCalDay === d;
-      const chips = inMonth && !closed && visAppts.length && !expanded
-        ? ('<div class="month-lite">' + visAppts.slice(0, 3).map(function (a) {
-            const p = patient(a.patientId);
-            const fam = typeFamilyFor(a.type) || {};
-            return '<div class="month-chip" style="--type-band:' + (fam.band || "#C3C7CB") + '">' + esc((p && p.name) || a.patientId) + "</div>";
-          }).join("") + (visAppts.length > 3 ? '<div class="row-sub">+' + (visAppts.length - 3) + " more</div>" : "") + "</div>")
+      const monthApptChip = function (a, full) {
+        const p = patient(a.patientId);
+        const fam = typeFamilyFor(a.type) || {};
+        return '<div class="month-chip' + (full ? " month-chip-full" : "") + '" style="--type-band:' + (fam.band || "#C3C7CB") + '" data-open-appt="' + esc(a.id) + '">' +
+          (full ? '<span class="month-chip-time">' + esc(fmtTime(a.time)) + "</span> " : "") +
+          '<span class="month-chip-name">' + esc((p && p.name) || a.patientId) + "</span> " +
+          statusChipHtml(a, { variant: "tint" }) + "</div>";
+      };
+      const chips = inMonth && !closed && visAppts.length
+        ? ('<div class="month-lite">' + (expanded ? visAppts : visAppts.slice(0, 3)).map(function (a) {
+            return monthApptChip(a, !!expanded);
+          }).join("") + (!expanded && visAppts.length > 3 ? '<div class="row-sub">+' + (visAppts.length - 3) + " more</div>" : "") + "</div>")
         : "";
       const slots = (inMonth && !closed && expanded)
         ? ('<div class="month-slots">' + (BRIZZA.BOOKING_TIMES || []).map(function (t) {
@@ -7996,13 +8380,9 @@
           "</div>" +
           '<div class="appt-card-head-status">' +
             (p ? alertsBanner(p, { readonly: true }) : "") +
-            '<label class="sr-only" for="actionStatus">Visit status</label>' +
-            '<select id="actionStatus" class="status-dd status-dd-colored" style="' + statusColorStyle + '">' +
-              visitStatuses().map(function (s) {
-                const allow = canSetVisitStatus(s) || a.status === s;
-                return "<option" + (a.status === s ? " selected" : "") + (allow ? "" : " disabled") + ">" + esc(s) + "</option>";
-              }).join("") +
-            "</select></div></header>" +
+            '<span class="sr-only">Visit status</span>' +
+            statusChipHtml(a, { variant: "solid" }) +
+          "</div></header>" +
         '<div class="appt-mini-tabs">' +
           '<button type="button" class="btn tiny' + (state.apptPane === "consents" ? "" : " primary") + '" data-appt-pane="details">Details</button>' +
           '<button type="button" class="btn tiny' + (state.apptPane === "consents" ? " primary" : "") + '" data-appt-pane="consents">Consents</button>' +
@@ -8073,7 +8453,7 @@
     if (!a) return;
     if (isApptLocked(a)) { closeModal(); return; }
     const reasons = selectedBookReasons();
-    const next = $("#actionStatus") ? $("#actionStatus").value : a.status;
+    const next = a.status;
     if (NEEDS_REASON.has(next) && !reasons.length && next !== "Canceled" && next !== "No-show") {
       const w = $("#statusWarn");
       if (w) w.innerHTML = '<div class="notice">Select at least one approved reason before ' + esc(next) + ".</div>";
@@ -9560,7 +9940,7 @@
       ? ('<details class="forms-exp"' + (state.expandedForms === a.id ? " open" : "") + '><summary>Forms and ID</summary>' + formsChecklistHtml(p) + "</details>")
       : "";
     const inner =
-      '<div class="flow-head"><a class="patient-name room-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a> " + statusPill(a.status, "tint") + "</div>" +
+      '<div class="flow-head"><a class="patient-name room-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a> " + statusChipHtml(a, { variant: "tint" }) + "</div>" +
       '<div class="emr-snap">' + esc(fmtDate(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type || "") +
         (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(providerAvailLabel(a.provider) || a.provider) +
         (a.suiteId ? " · " + esc(suiteName(a.suiteId)) : "") +
@@ -9844,6 +10224,22 @@
     render();
   }
   function onClick(e) {
+    const statusPick = e.target.closest("[data-status-pick]");
+    if (statusPick) {
+      e.preventDefault();
+      e.stopPropagation();
+      setVisitStatus(statusPick.getAttribute("data-status-pick"), statusPick.getAttribute("data-status-value"));
+      return;
+    }
+    const statusBtn = e.target.closest("[data-status-menu]");
+    if (statusBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (statusBtn.getAttribute("aria-expanded") === "true") closeStatusMenu();
+      else openStatusMenu(statusBtn);
+      return;
+    }
+    if (!e.target.closest("#statusChipMenu, .status-chip-wrap")) closeStatusMenu();
     const moreBtn = e.target.closest("[data-flow-more], [data-emn-more]");
     if (moreBtn) {
       e.preventDefault();
@@ -9913,7 +10309,7 @@
       openNoteView(pid, nid);
       return;
     }
-    if (e.target.closest(".status-dd, [data-visit-status], [data-toggle-paperwork], .audit-icon")) {
+    if (e.target.closest(".status-dd, [data-visit-status], .status-chip-wrap, [data-status-menu], #statusChipMenu, [data-toggle-paperwork], .audit-icon")) {
       if (e.target.closest("[data-toggle-paperwork]") && e.target.closest("[data-toggle-paperwork]").contains(e.target)) {
         /* handled below */
       } else {
@@ -10544,7 +10940,7 @@
       return;
     }
     const emptySlot = e.target.closest("[data-drop-slot]");
-    if (emptySlot && !e.target.closest(".cal-event, .cal-block, .block-card, select, button, a, input, .status-dd, .audit-icon, [data-open-appt], [data-open-block], [data-day-plus]")) {
+    if (emptySlot && !e.target.closest(".cal-event, .cal-block, .block-card, select, button, a, input, .status-dd, .status-chip-wrap, #statusChipMenu, .audit-icon, [data-open-appt], [data-open-block], [data-day-plus]")) {
       e.preventDefault();
       const parts = emptySlot.getAttribute("data-drop-slot").split("|");
       openBook(state.selected, { date: parts[0], time: parts[1], provider: parts[2] || slotProvider() });
@@ -10584,7 +10980,7 @@
     const t = e.target.closest("[data-open],[data-demo],[data-reschedule],[data-record-pay],[data-finalize],[data-expand-reg],[data-room-advance],[data-open-slot]");
     if (!t) {
       const card = e.target.closest("[data-open-appt]");
-      if (card && !e.target.closest("select,input,.status-dd,.audit-icon") && (e.target.closest("button[data-open-appt]") || !e.target.closest("button,a"))) {
+      if (card && !e.target.closest("select,input,.status-dd,.status-chip-wrap,#statusChipMenu,.audit-icon") && (e.target.closest("button[data-open-appt]") || !e.target.closest("button,a"))) {
         e.preventDefault();
         openAppointmentModal(card.getAttribute("data-open-appt"));
       }
@@ -10858,7 +11254,13 @@
         if (e.target.dataset.prevPrice == null) e.target.dataset.prevPrice = cur == null ? "" : String(cur);
       }
     });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      const menu = document.getElementById("statusChipMenu");
+      if (menu && !menu.hidden) { closeStatusMenu(); return; }
+      closeModal();
+    });
+    document.addEventListener("scroll", function () { closeStatusMenu(); }, true);
     $("#modalClose").addEventListener("click", function () { closeModal({ cancelPending: true }); });
     $("#modalCancel").addEventListener("click", function () { closeModal({ cancelPending: true }); });
     applyRoute();

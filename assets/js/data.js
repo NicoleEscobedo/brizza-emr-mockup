@@ -24,42 +24,8 @@ BRIZZA.LOCATIONS = [
   { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Open question", hoursOpenQuestion: true, tz: "America/New_York" }
 ];
 BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
-/* Built-in ZIP lookup for address auto-fill (NYC / Long Island / NJ plus a handful more). Prototype only. */
-BRIZZA.ZIP_LOOKUP = {
-  "10001": { city: "New York", state: "NY" },
-  "10003": { city: "New York", state: "NY" },
-  "10010": { city: "New York", state: "NY" },
-  "10011": { city: "New York", state: "NY" },
-  "10013": { city: "New York", state: "NY" },
-  "10014": { city: "New York", state: "NY" },
-  "10016": { city: "New York", state: "NY" },
-  "10019": { city: "New York", state: "NY" },
-  "10022": { city: "New York", state: "NY" },
-  "10023": { city: "New York", state: "NY" },
-  "10024": { city: "New York", state: "NY" },
-  "10025": { city: "New York", state: "NY" },
-  "10036": { city: "New York", state: "NY" },
-  "11201": { city: "Brooklyn", state: "NY" },
-  "11215": { city: "Brooklyn", state: "NY" },
-  "11101": { city: "Long Island City", state: "NY" },
-  "11050": { city: "Port Washington", state: "NY" },
-  "11530": { city: "Garden City", state: "NY" },
-  "11561": { city: "Long Beach", state: "NY" },
-  "11702": { city: "Babylon", state: "NY" },
-  "11743": { city: "Huntington", state: "NY" },
-  "11746": { city: "Huntington Station", state: "NY" },
-  "11901": { city: "Riverhead", state: "NY" },
-  "07030": { city: "Hoboken", state: "NJ" },
-  "07002": { city: "Bayonne", state: "NJ" },
-  "07102": { city: "Newark", state: "NJ" },
-  "07302": { city: "Jersey City", state: "NJ" },
-  "07601": { city: "Hackensack", state: "NJ" },
-  "07748": { city: "Middletown", state: "NJ" },
-  "06457": { city: "Middletown", state: "CT" },
-  "06830": { city: "Greenwich", state: "CT" },
-  "06511": { city: "New Haven", state: "CT" },
-  "02108": { city: "Boston", state: "MA" }
-};
+/* ZIP → city/state lives in assets/js/us-zips.js (bundled GeoNames table, loaded after this file). */
+
 BRIZZA.COUNTRIES = ["United States", "Canada", "United Kingdom", "Mexico"];
 BRIZZA.US_STATES = [
   ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],

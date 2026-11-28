@@ -273,40 +273,33 @@
     return '<select id="' + prefix + 'State" data-addr="state" autocomplete="address-level1">' + opts.join("") + "</select>";
   }
   function zipLookupTable() {
-    return BRIZZA.ZIP_LOOKUP || {
-      "10013": { city: "New York", state: "NY" },
-      "10012": { city: "New York", state: "NY" },
-      "10014": { city: "New York", state: "NY" },
-      "10011": { city: "New York", state: "NY" },
-      "10003": { city: "New York", state: "NY" },
-      "11201": { city: "Brooklyn", state: "NY" },
-      "11937": { city: "East Hampton", state: "NY" },
-      "11963": { city: "Sag Harbor", state: "NY" },
-      "07030": { city: "Hoboken", state: "NJ" }
-    };
+    return BRIZZA.ZIP_LOOKUP || {};
   }
   function applyZipLookup(el) {
     if (!el) return;
     const zip = digitsOnly(el.value, 5);
     const scope = el.closest(".addr-grid") || el.closest(".formgrid") || el.closest("form") || el.closest("#modalBody") || el.parentElement || document;
     const hint = scope.querySelector(".zip-hint");
+    const city = scope.querySelector('[data-addr="city"]');
+    const st = scope.querySelector('[data-addr="state"]');
     if (zip.length !== 5) {
       if (hint) { hint.hidden = true; hint.textContent = ""; }
+      if (el.removeAttribute) el.removeAttribute("aria-invalid");
       return;
     }
     const hit = zipLookupTable()[zip];
     if (!hit) {
       if (hint) {
         hint.hidden = false;
-        hint.textContent = "No city or state found for this ZIP in the sample lookup.";
+        hint.textContent = "This ZIP isn’t in the directory. Enter the city and state. A city is never filled in automatically for an unknown ZIP.";
       }
+      if (el.removeAttribute) el.removeAttribute("aria-invalid");
       return;
     }
-    const city = scope.querySelector('[data-addr="city"]');
-    const state = scope.querySelector('[data-addr="state"]');
     if (city && city.value !== hit.city) city.value = hit.city;
-    if (state && state.value !== hit.state) state.value = hit.state;
+    if (st && st.value !== hit.state) st.value = hit.state;
     if (hint) { hint.hidden = true; hint.textContent = ""; }
+    if (el.removeAttribute) el.removeAttribute("aria-invalid");
   }
   function bindZipLookups() {
     $$("[data-zip-lookup]").forEach(function (el) {
@@ -1020,11 +1013,10 @@
       }).join("");
       return '<div class="hist-item"><div class="when">' + esc(e.when) + " · " + esc(e.who) + " · " + esc(e.role) + '</div><div class="row-title">' + esc(e.action) + "</div>" + (ch || '<div class="row-sub">No field changes recorded</div>') + "</div>";
     }).join("") : '<div class="empty">No history recorded for this item yet.</div>';
-    const foot = $("#modalSave");
     const back = $("#modal");
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = '<div class="hist-list">' + rows + "</div>";
-    if (foot) { foot.textContent = "Close"; foot.disabled = false; foot.onclick = function () { closeModal(); }; }
+    syncModalFooter(null, "Close");
     back.classList.add("open", "hist-mode");
     back.classList.remove("pos-mode");
   }
@@ -1426,7 +1418,9 @@
     const note = a.prepNotes || "";
     const editing = state.editingPrep === a.id;
     const tip = editing
-      ? '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="2" placeholder="Appointment notes">' + esc(note) + "</textarea>"
+      ? ('<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="2" placeholder="Appointment notes">' + esc(note) + "</textarea>" +
+        '<div class="myday-note-actions"><button type="button" class="btn tiny primary" data-save-prep="' + esc(a.id) + '">Save note</button> ' +
+        '<button type="button" class="btn tiny" data-cancel-prep="' + esc(a.id) + '">Cancel</button></div>')
       : '<div class="wl-note-one"><span class="wl-note-text">' + (note ? esc(note) : '<span class="muted">No note</span>') + '</span> <button type="button" class="btn-icon" data-edit-prep="' + esc(a.id) + '" title="Edit appointment note" aria-label="Edit appointment note">✎</button></div>';
     const late = opts.late ? '<span class="wl-late">Late</span>' : "";
     const due = visitUnpaid(a);
@@ -1586,7 +1580,8 @@
             '<label class="sr-only" for="posSearch">Search ' + ((state.posCatalogTab || "services") === "products" ? "products" : "services") + "</label>" +
             '<input id="posSearch" type="search" placeholder="Search ' + ((state.posCatalogTab || "services") === "products" ? "products" : "services") + '" value="' + esc(q) + '" autocomplete="off">' +
             '<input id="posQty" class="qty" type="hidden" value="1" aria-hidden="true">' +
-            ((isCoordinatorRole() || state.actingRole === "Clinic Manager" || isOwnerRole()) ? '<button type="button" class="btn tiny" data-add-note-charges="' + esc(inv.id) + '">Add charges from note</button>' : "") +
+            pendingNoteChargesHtml(inv) +
+            ((isCoordinatorRole() || state.actingRole === "Clinic Manager" || isOwnerRole()) && !pendingNoteChargesForPatient(inv.patientId, inv).length ? '<button type="button" class="btn tiny" data-add-note-charges="' + esc(inv.id) + '">Add charges from note</button>' : "") +
             posPatientQuotesHtml(inv) +
             '<div id="posCatalogResults" class="pos-catalog-list">' + posCatalogListHtml(inv, q) + "</div>") +
         "</div>" +
@@ -2457,6 +2452,7 @@
       return '<div class="note-card"><div><div class="row-title">' + esc(fmtDate(n.date)) + " · " + esc(n.type || "Note") + '</div><div class="row-sub">' + esc(n.provider || "") + "</div></div>" +
         badge(st) +
         '<div class="actions">' +
+        '<button class="btn small" type="button" data-emn-info="' + n.id + '" data-pid="' + p.id + '">Details</button>' +
         (canEdit ? '<button class="btn small" type="button" data-edit-note="' + n.id + '" data-pid="' + p.id + '">Edit</button>' : "") +
         '<button class="btn small" type="button" data-open="note-view" data-pid="' + p.id + '" data-nid="' + n.id + '">View</button></div></div>';
     }).join("") || '<div class="empty">No clinical notes for this patient.</div>';
@@ -3546,10 +3542,19 @@
     ["Scheduled", "Confirmed", "No-show", "Canceled"].forEach(function (s) {
       if (list.indexOf(s) < 0) list.push(s);
     });
+    const cur = state.scheduleStatusFilter || "";
     const items = list.map(function (s) {
-      return '<span class="legend-item">' + statusPill(s, variant || "tint") + "</span>";
+      const on = cur === s;
+      return '<button type="button" class="legend-item status-filter-chip' + (on ? " is-active" : "") + '" data-status-filter="' + esc(s) + '" aria-pressed="' + (on ? "true" : "false") + '" title="Filter schedule to ' + esc(s) + '">' +
+        statusPill(s, variant || "tint") + "</button>";
     }).join("");
-    return '<div class="legend status-legend" aria-label="Visit status">' + items + "</div>";
+    const clear = cur ? '<button type="button" class="btn tiny type-filter-clear" data-status-filter="">Clear</button>' : "";
+    return '<div class="legend status-legend" aria-label="Visit status filters">' + items + clear + "</div>";
+  }
+  function appointmentMatchesStatusFilter(a) {
+    const cur = state.scheduleStatusFilter;
+    if (!cur) return true;
+    return !!(a && a.status === cur);
   }
   function locationHoursLabel(loc) {
     const l = typeof loc === "string" ? (BRIZZA.LOCATIONS || []).find(function (x) { return x.id === loc; }) : loc;
@@ -5935,7 +5940,7 @@
     const providers = selectedProviderNames();
     const q = (state.scheduleSearch || "").trim().toLowerCase();
     const vis = function (a) {
-      if (!appointmentMatchesTypeFilter(a)) return false;
+      if (!appointmentMatchesTypeFilter(a) || !appointmentMatchesStatusFilter(a)) return false;
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
     const head = '<div class="cal-day-head"><div class="cal-hd">' + esc(fmtLong(date)) + ' <span class="count">' + esc(String(new Set(list.map(function (a) { return a.patientId; })).size)) + "</span> " + dayPlusButton(date, true) + "</div>" + availLinesHtml(date, locationId) + "</div>";
@@ -5965,7 +5970,7 @@
     });
     const q = (state.scheduleSearch || "").trim().toLowerCase();
     const vis = function (a) {
-      if (!appointmentMatchesTypeFilter(a)) return false;
+      if (!appointmentMatchesTypeFilter(a) || !appointmentMatchesStatusFilter(a)) return false;
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
     const heads = '<div class="cal-time"></div>' + days.map(function (d) {
@@ -6008,7 +6013,7 @@
       const dayBlks = blocks.filter(function (b) { return b.date === d; });
       const q = (state.scheduleSearch || "").trim().toLowerCase();
       const vis = function (a) {
-        if (!appointmentMatchesTypeFilter(a)) return false;
+        if (!appointmentMatchesTypeFilter(a) || !appointmentMatchesStatusFilter(a)) return false;
         return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
       };
       const visAppts = dayAppts.filter(vis);
@@ -7561,6 +7566,32 @@
     }
     restoreReturnContext();
   }
+  function syncModalFooter(onSave, saveLabel) {
+    const save = $("#modalSave");
+    const cancel = $("#modalCancel");
+    saveLabel = saveLabel || "Save";
+    const dismissOnly = !onSave || /^close$/i.test(String(saveLabel).trim());
+    if (save) {
+      save.disabled = false;
+      save.title = "";
+      save.removeAttribute("title");
+      if (dismissOnly) {
+        save.hidden = true;
+        save.onclick = null;
+        save.textContent = "Save";
+        save.classList.remove("btn-lg");
+      } else {
+        save.hidden = false;
+        save.textContent = saveLabel;
+        save.onclick = onSave;
+        save.classList.toggle("btn-lg", saveLabel === "Save appointment" || saveLabel === "Save patient");
+      }
+    }
+    if (cancel) {
+      cancel.hidden = false;
+      cancel.textContent = (saveLabel === "Leave on balance") ? "Go back" : "Close";
+    }
+  }
   function showModal(title, body, onSave, saveLabel) {
     const skip = !!(state._skipModalPush);
     state._skipModalPush = false;
@@ -7568,16 +7599,7 @@
     clearNoteFootButtons();
     $("#modalTitle").textContent = title;
     $("#modalBody").innerHTML = body;
-    const save = $("#modalSave");
-    save.textContent = saveLabel || "Save";
-    save.disabled = false;
-    save.hidden = false;
-    save.title = "";
-    save.removeAttribute("title");
-    save.classList.toggle("btn-lg", saveLabel === "Save appointment" || saveLabel === "Save patient");
-    save.onclick = onSave;
-    const cancel = $("#modalCancel");
-    if (cancel) cancel.textContent = (saveLabel === "Leave on balance") ? "Go back" : "Close";
+    syncModalFooter(onSave, saveLabel);
     $("#modal").classList.add("open");
     const first = $("#modalBody").querySelector("input,select,textarea,button");
     if (first) first.focus();
@@ -8930,17 +8952,27 @@
   function addChargesFromNote(invId) {
     const inv = invoice(invId);
     if (!inv || inv.finalized) return;
-    const p = patient(inv.patientId);
-    const notes = ((p && p.notes) || []).slice().reverse();
-    const charges = [];
-    notes.forEach(function (n) { (n.charges || []).forEach(function (c) { charges.push(c); }); });
-    if (!charges.length) { toast("No charges on this patient's notes"); return; }
+    if (!inv.patientId) { toast("Pick a patient first"); return; }
+    const pending = pendingNoteChargesForPatient(inv.patientId, inv);
+    if (!pending.length) { toast("No pending charges on this patient's notes"); return; }
     inv.lines = inv.lines || [];
-    charges.forEach(function (c) {
-      inv.lines.push({ kind: "service", name: c.name || "Note charge", qty: 1, unitPrice: c.amount != null ? c.amount : null, fromNote: true });
+    pending.forEach(function (row) {
+      const line = row.line;
+      const cat = catalogByName(line.name);
+      inv.lines.push({
+        kind: (cat && cat.kind) || "product",
+        name: line.name || "Note charge",
+        catalogId: line.catalogId || (cat && cat.id) || "",
+        unit: line.unit || (cat && cat.unit) || "",
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        amount: line.amount != null ? line.amount : "TBD",
+        fromNote: true,
+        noteId: row.noteId
+      });
     });
     refreshInvoiceBalance(inv);
-    toast("Added " + charges.length + " charge" + (charges.length === 1 ? "" : "s") + " from notes");
+    toast("Added " + pending.length + " charge" + (pending.length === 1 ? "" : "s") + " from notes");
     render();
   }
 
@@ -9713,6 +9745,116 @@
     }
     render();
   }
+  function catalogByName(name) {
+    return (BRIZZA.CATALOG || []).find(function (c) { return c.name === name; }) || null;
+  }
+  function noteChargeLine(c) {
+    c = c || {};
+    const cat = catalogByName(c.name);
+    let qty = (c.qty != null && c.qty !== "") ? Number(c.qty) : null;
+    let unitPrice = (c.unitPrice != null && c.unitPrice !== "") ? Number(c.unitPrice) : null;
+    if ((unitPrice == null || isNaN(unitPrice)) && c.amount != null && c.amount !== "") {
+      const amt = Number(c.amount);
+      if (!isNaN(amt)) unitPrice = (qty && qty > 0) ? (amt / qty) : amt;
+    }
+    if ((unitPrice == null || isNaN(unitPrice)) && cat && cat.price != null) unitPrice = Number(cat.price);
+    if (qty == null || isNaN(qty)) qty = 1;
+    const line = (qty != null && unitPrice != null && !isNaN(qty) && !isNaN(unitPrice)) ? Math.round(qty * unitPrice * 100) / 100 : null;
+    return {
+      name: c.name || "",
+      qty: qty,
+      unitPrice: (unitPrice != null && !isNaN(unitPrice)) ? unitPrice : null,
+      amount: line,
+      unit: c.unit || (cat && cat.unit) || "",
+      catalogId: c.catalogId || (cat && cat.id) || ""
+    };
+  }
+  function emnChargeRowHtml(c, i) {
+    const line = noteChargeLine(c || {});
+    const cats = BRIZZA.CATALOG || [];
+    const opts = cats.map(function (cat) {
+      return '<option value="' + esc(cat.name) + '"' + (line.name === cat.name ? " selected" : "") + ">" + esc(cat.name) + (cat.price != null ? " · " + money(cat.price) : "") + (cat.unit ? " / " + esc(cat.unit) : "") + "</option>";
+    }).join("");
+    const extra = (line.name && !cats.some(function (cat) { return cat.name === line.name; }))
+      ? '<option selected value="' + esc(line.name) + '">' + esc(line.name) + "</option>" : "";
+    return '<div class="tpl-opt-row emn-charge-row">' +
+      '<select data-emn-charge-name="' + i + '" aria-label="Charge">' +
+        '<option value="">Select a charge</option>' + opts + extra + "</select>" +
+      '<label class="emn-charge-qty">Qty <input type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" data-emn-charge-qty="' + i + '" value="' + esc(line.qty != null ? String(line.qty) : "") + '" aria-label="Quantity"' + (line.unit ? ' title="' + esc(line.unit) + '"' : "") + ">" +
+        (line.unit ? '<span class="row-sub">' + esc(line.unit) + "</span>" : "") + "</label>" +
+      '<label class="emn-charge-price">Price <input type="number" min="0" step="0.01" placeholder="Unit price" data-emn-charge-price="' + i + '" value="' + esc(line.unitPrice != null ? String(line.unitPrice) : "") + '" aria-label="Unit price"></label>' +
+      '<span class="emn-charge-total" data-emn-charge-total="' + i + '">' + (line.amount != null ? money(line.amount) : "—") + "</span>" +
+    "</div>";
+  }
+  function refreshEmnChargeTotals() {
+    $$("[data-emn-charge-name]").forEach(function (sel) {
+      const i = sel.getAttribute("data-emn-charge-name");
+      const qtyEl = document.querySelector('[data-emn-charge-qty="' + i + '"]');
+      const priceEl = document.querySelector('[data-emn-charge-price="' + i + '"]');
+      const totalEl = document.querySelector('[data-emn-charge-total="' + i + '"]');
+      const qtyLab = qtyEl && qtyEl.closest(".emn-charge-qty");
+      const cat = catalogByName(sel.value);
+      if (qtyLab) {
+        const sub = qtyLab.querySelector(".row-sub");
+        if (cat && cat.unit) {
+          if (sub) sub.textContent = cat.unit;
+          else {
+            const s = document.createElement("span");
+            s.className = "row-sub";
+            s.textContent = cat.unit;
+            qtyLab.appendChild(s);
+          }
+        } else if (sub) sub.textContent = "";
+      }
+      const qty = qtyEl && qtyEl.value !== "" ? Number(qtyEl.value) : null;
+      const price = priceEl && priceEl.value !== "" ? Number(priceEl.value) : null;
+      if (totalEl) totalEl.textContent = (qty != null && price != null && !isNaN(qty) && !isNaN(price)) ? money(Math.round(qty * price * 100) / 100) : "—";
+    });
+  }
+  function collectEmnCharges() {
+    return Array.prototype.map.call(document.querySelectorAll("[data-emn-charge-name]"), function (sel) {
+      const i = sel.getAttribute("data-emn-charge-name");
+      const name = sel.value;
+      if (!name) return null;
+      const qtyEl = document.querySelector('[data-emn-charge-qty="' + i + '"]');
+      const priceEl = document.querySelector('[data-emn-charge-price="' + i + '"]');
+      const qty = qtyEl && qtyEl.value !== "" ? Number(qtyEl.value) : 1;
+      const unitPrice = priceEl && priceEl.value !== "" ? Number(priceEl.value) : null;
+      return noteChargeLine({ name: name, qty: isNaN(qty) ? 1 : qty, unitPrice: (unitPrice != null && !isNaN(unitPrice)) ? unitPrice : null });
+    }).filter(Boolean);
+  }
+  function pendingNoteChargesForPatient(pid, inv) {
+    const p = patient(pid);
+    const existing = {};
+    ((inv && inv.lines) || []).forEach(function (l) {
+      if (l && l.fromNote && l.name) existing[(l.noteId || "") + "|" + l.name] = true;
+    });
+    const rows = [];
+    ((p && p.notes) || []).forEach(function (n) {
+      (n.charges || []).forEach(function (c) {
+        if (!c || !c.name) return;
+        const line = noteChargeLine(c);
+        const key = (n.id || "") + "|" + line.name;
+        if (existing[key]) return;
+        rows.push({ noteId: n.id, noteTitle: n.title || n.type || "Note", line: line });
+      });
+    });
+    return rows;
+  }
+  function pendingNoteChargesHtml(inv) {
+    if (!inv || inv.finalized || !(isCoordinatorRole() || state.actingRole === "Clinic Manager" || isOwnerRole())) return "";
+    const rows = pendingNoteChargesForPatient(inv.patientId, inv);
+    if (!rows.length) return "";
+    const list = rows.map(function (r) {
+      const tot = r.line.amount != null ? money(r.line.amount) : "TBD";
+      const q = r.line.qty != null ? String(r.line.qty) : "—";
+      const unit = r.line.unit ? " " + r.line.unit : "";
+      return '<div class="pos-note-charge-row"><span>' + esc(r.line.name) + " · qty " + esc(q) + esc(unit) + " · " + tot +
+        ' <span class="row-sub">from ' + esc(r.noteTitle) + "</span></span></div>";
+    }).join("");
+    return '<div class="pos-pending-note-charges"><div class="row-sub">Pending charges from notes</div>' + list +
+      '<button type="button" class="btn tiny" data-add-note-charges="' + esc(inv.id) + '">Add charges from note</button></div>';
+  }
   function openEmnInfo(pid, nid) {
     const p = patient(pid);
     const n = p && (p.notes || []).find(function (x) { return x.id === nid; });
@@ -9729,16 +9871,8 @@
     const catalogOpts = (BRIZZA.CATALOG || []).map(function (c) {
       return '<option value="' + esc(c.name) + '" data-price="' + (c.price != null ? esc(String(c.price)) : "") + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) : "") + "</option>";
     }).join("");
-    const chargeRows = ((n.charges && n.charges.length) ? n.charges : [{ name: "", amount: null }]).map(function (c, i) {
-      return '<div class="tpl-opt-row emn-charge-row">' +
-        '<select data-emn-charge-name="' + i + '"><option value="">Select a charge</option>' +
-        (BRIZZA.CATALOG || []).map(function (cat) {
-          return '<option value="' + esc(cat.name) + '"' + (c.name === cat.name ? " selected" : "") + ">" + esc(cat.name) + (cat.price != null ? " · " + money(cat.price) : "") + "</option>";
-        }).join("") +
-        (c.name && !(BRIZZA.CATALOG || []).some(function (cat) { return cat.name === c.name; }) ? '<option selected value="' + esc(c.name) + '">' + esc(c.name) + "</option>" : "") +
-        "</select>" +
-        '<input type="number" min="0" step="0.01" placeholder="Amount" data-emn-charge-amt="' + i + '" value="' + esc(c.amount != null ? String(c.amount) : "") + '">' +
-      "</div>";
+    const chargeRows = ((n.charges && n.charges.length) ? n.charges : [{ name: "", qty: 1, unitPrice: null }]).map(function (c, i) {
+      return emnChargeRowHtml(c, i);
     }).join("");
     showModal("Note details",
       '<div class="formgrid">' +
@@ -9764,15 +9898,7 @@
         n.secondaryProvider = $("#emnSecondary").value;
         n.assistant = $("#emnAssistant").value;
         n.nextAppointmentDate = ($("#emnNextAppt") && $("#emnNextAppt").value) || "";
-        n.charges = Array.prototype.map.call(document.querySelectorAll("[data-emn-charge-name]"), function (sel) {
-          const i = sel.getAttribute("data-emn-charge-name");
-          const amtEl = document.querySelector('[data-emn-charge-amt="' + i + '"]');
-          const name = sel.value;
-          if (!name) return null;
-          const raw = amtEl ? amtEl.value : "";
-          const amt = raw ? Number(raw) : null;
-          return { name: name, amount: (amt === amt ? amt : null) };
-        }).filter(Boolean);
+        n.charges = collectEmnCharges();
         toast("Note details saved");
         closeModal();
         render();
@@ -9950,7 +10076,9 @@
       ((isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") ? '<div class="emr-snap">' + checkinCellHtml(a) + "</div>" : "") +
       '<div class="emr-snap myday-appt-note"><strong>Appointment notes</strong> ' +
         (state.editingPrep === a.id
-          ? '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="3" placeholder="Appointment notes">' + esc(a.prepNotes || "") + "</textarea>"
+          ? ('<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="3" placeholder="Appointment notes">' + esc(a.prepNotes || "") + "</textarea>" +
+             '<div class="myday-note-actions"><button type="button" class="btn tiny primary" data-save-prep="' + esc(a.id) + '">Save note</button> ' +
+             '<button type="button" class="btn tiny" data-cancel-prep="' + esc(a.id) + '">Cancel</button></div>')
           : (apptNote + ' <button type="button" class="btn-icon" data-edit-prep="' + esc(a.id) + '" title="Edit appointment note" aria-label="Edit appointment note">✎</button>')) +
         "</div>" +
       emnBlock + forms +
@@ -9980,6 +10108,7 @@
     });
     const from = (state.notesFrom || "").trim();
     const to = (state.notesTo || "").trim();
+    const statusFilter = state.notesStatusFilter || "all";
     const filtered = items.filter(function (it) {
       const d = it.n.date || "";
       if (from && d && d < from) return false;
@@ -9991,7 +10120,6 @@
       return String(b.n.date || "").localeCompare(String(a.n.date || "")) || String((b.n.id || "")).localeCompare(String(a.n.id || ""));
     });
     const newBtn = canStartNote() ? '<button type="button" class="btn tiny primary" data-new-dash-note="1">＋ New note</button>' : "";
-    const statusFilter = state.notesStatusFilter || "all";
     const statusOpts = [["all", "All statuses"], ["Draft", "Draft"], ["Ready for review", "Ready for review"], ["Finalized", "Finalized"], ["Amended", "Amended"]];
     const filters = '<div class="myday-note-filters">' +
       (canSeeMyDayClinicNotes() && !pendingOnly
@@ -10201,6 +10329,19 @@
     if (state.page === "schedule" && state.scheduleView === "calendar") bindCalendarDrag();
   }
 
+  function savePrepNotes(id, value) {
+    const ap = appt(id);
+    if (!ap) return false;
+    const next = value == null ? (ap.prepNotes || "") : value;
+    const before = ap.prepNotes || "";
+    if (next === before) return false;
+    ap.prepNotes = next;
+    addAudit({ action: "Updated appointment notes", recordType: "Appointment", recordId: ap.id,
+      recordPath: { page: "emr", myDayTab: "patients", myDayDate: ap.date, appointmentId: ap.id },
+      changes: [{ field: "appointment notes", before: before || "—", after: next || "—" }] });
+    toast("Appointment notes saved");
+    return true;
+  }
   function saveChartHistory(pid, markReviewed) {
     const p = patient(pid);
     if (!p || !canEditChartHistory()) { toast("Only the medical assistant updates history on the chart"); return; }
@@ -10284,6 +10425,23 @@
       render();
       const ta = document.getElementById("prep-" + state.editingPrep);
       if (ta) ta.focus();
+      return;
+    }
+    const savePrep = e.target.closest("[data-save-prep]");
+    if (savePrep) {
+      e.preventDefault();
+      const id = savePrep.getAttribute("data-save-prep");
+      const ta = document.getElementById("prep-" + id) || document.querySelector('[data-prep-notes="' + id + '"]');
+      savePrepNotes(id, ta ? ta.value : null);
+      state.editingPrep = null;
+      render();
+      return;
+    }
+    const cancelPrep = e.target.closest("[data-cancel-prep]");
+    if (cancelPrep) {
+      e.preventDefault();
+      state.editingPrep = null;
+      render();
       return;
     }
     if (handleTplBuilderClick(e)) return;
@@ -10572,8 +10730,7 @@
         }).join("");
         const row = document.createElement("div");
         row.className = "tpl-opt-row emn-charge-row";
-        row.innerHTML = '<select data-emn-charge-name="' + i + '"><option value="">Select a charge</option>' + opts + "</select>" +
-          '<input type="number" min="0" step="0.01" placeholder="Amount" data-emn-charge-amt="' + i + '">';
+        row.innerHTML = emnChargeRowHtml({ name: "", qty: 1, unitPrice: null }, i);
         host.appendChild(row);
       }
       return;
@@ -10914,6 +11071,14 @@
       render();
       return;
     }
+    const statusFilt = e.target.closest("[data-status-filter]");
+    if (statusFilt) {
+      e.preventDefault();
+      const next = statusFilt.getAttribute("data-status-filter") || "";
+      state.scheduleStatusFilter = (state.scheduleStatusFilter && state.scheduleStatusFilter === next) ? "" : next;
+      render();
+      return;
+    }
     const dayPlus = e.target.closest("[data-day-plus]");
     if (dayPlus) {
       e.preventDefault();
@@ -11027,9 +11192,13 @@
     const chName = e.target && e.target.closest && e.target.closest("[data-emn-charge-name]");
     if (chName) {
       const i = chName.getAttribute("data-emn-charge-name");
-      const amt = document.querySelector('[data-emn-charge-amt="' + i + '"]');
-      const cat = (BRIZZA.CATALOG || []).find(function (c) { return c.name === chName.value; });
-      if (amt && cat && cat.price != null && !amt.value) amt.value = cat.price;
+      const priceEl = document.querySelector('[data-emn-charge-price="' + i + '"]');
+      const cat = catalogByName(chName.value);
+      if (priceEl && cat && cat.price != null) priceEl.value = cat.price;
+      refreshEmnChargeTotals();
+    }
+    if (e.target && (e.target.hasAttribute("data-emn-charge-qty") || e.target.hasAttribute("data-emn-charge-price"))) {
+      refreshEmnChargeTotals();
     }
     if (handleTplBuilderChange(e)) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute("data-task-owner")) {
@@ -11214,6 +11383,7 @@
       if (handleTplBuilderChange(e)) return;
       if (e.target && e.target.getAttribute && e.target.getAttribute("data-mask")) applyInputMask(e.target);
       if (e.target && e.target.getAttribute && e.target.getAttribute("data-zip-lookup")) applyZipLookup(e.target);
+      if (e.target && (e.target.hasAttribute("data-emn-charge-qty") || e.target.hasAttribute("data-emn-charge-price"))) refreshEmnChargeTotals();
       if (e.target.id === "patient-search" || e.target.id === "sched-search" || e.target.id === "notes-search" || e.target.id === "patient-find" || e.target.id === "lot-trace" || e.target.dataset.cost) onChange(e);
       if (e.target.dataset && (e.target.dataset.lineQty != null || e.target.dataset.linePrice != null)) {
         const inv = invoice(state.invoiceId);
@@ -11234,16 +11404,9 @@
     document.addEventListener("focusout", function (e) {
       if (e.target && e.target.getAttribute && e.target.getAttribute("data-zip-lookup")) applyZipLookup(e.target);
       if (e.target && e.target.dataset && e.target.dataset.prepNotes) {
-        const a = appt(e.target.dataset.prepNotes);
-        if (!a) return;
-        const next = e.target.value;
-        const before = a.prepNotes || "";
-        if (next === before) return;
-        a.prepNotes = next;
-        addAudit({ action: "Updated appointment notes", recordType: "Appointment", recordId: a.id,
-          recordPath: { page: "schedule", date: a.date, appointmentId: a.id, view: "worklist" },
-          changes: [{ field: "appointment notes", before: before || "—", after: next || "—" }] });
-        toast("Appointment notes saved");
+        const rel = e.relatedTarget;
+        if (rel && rel.closest && rel.closest("[data-cancel-prep]")) return;
+        savePrepNotes(e.target.dataset.prepNotes, e.target.value);
       }
     });
     document.addEventListener("focusin", function (e) {

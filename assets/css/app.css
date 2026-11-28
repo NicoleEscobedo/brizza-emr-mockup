@@ -1349,3 +1349,20 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
 .room-flow-wrap .room-board{overflow-x:auto;overflow-y:hidden;min-width:0;width:100%;padding-bottom:8px;-webkit-overflow-scrolling:touch}
 .cal-mcell{overflow:visible}
 .cal-grid-month{padding-bottom:8px}
+
+/* Round 19 v28: lining figures, note charges, status filters, one Close */
+html, body, h1, h2, h3, .brand-name, .patient-name, #modalTitle, .pid, .display-id {
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+.emn-charge-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin:0 0 8px}
+.emn-charge-row select{flex:1 1 14em;min-width:12em}
+.emn-charge-qty,.emn-charge-price{display:flex;flex-direction:column;gap:2px;font-size:11px;font-weight:650;margin:0}
+.emn-charge-qty input,.emn-charge-price input{width:7em;padding:6px 8px}
+.emn-charge-total{min-width:5.5em;font-variant-numeric:tabular-nums;font-weight:700;padding-bottom:6px}
+.pos-pending-note-charges{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.pos-note-charge-row{font-size:12px;margin:4px 0}
+.myday-note-actions{display:flex;gap:8px;margin-top:6px}
+.status-legend .status-filter-chip{border:0;background:transparent;padding:0;cursor:pointer;border-radius:999px}
+.status-legend .status-filter-chip.is-active{outline:2px solid var(--ink);outline-offset:2px}
+.modal-back.hist-mode #modalSave[hidden],#modalSave[hidden]{display:none !important}

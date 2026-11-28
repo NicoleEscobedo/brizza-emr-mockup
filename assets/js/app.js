@@ -3167,7 +3167,11 @@
         "</div>" +
         '<div><h3 class="section-title">Patient status</h3>' +
         '<label class="sr-only" for="pstatus">Patient status</label>' +
-        '<select id="pstatus" data-set-status="' + p.id + '">' + BRIZZA.patientStatuses.map((s) => "<option" + (p.status === s ? " selected" : "") + ">" + s + "</option>").join("") + "</select>" +
+        '<select id="pstatus" data-set-status="' + p.id + '">' + BRIZZA.patientStatuses.map(function (s) {
+          const locked = s === "Discharged/Closed" && !canSetDischargedClosed();
+          return "<option" + (p.status === s ? " selected" : "") + (locked ? " disabled" : "") + ">" + s + "</option>";
+        }).join("") + "</select>" +
+        (canSetDischargedClosed() ? "" : '<p class="row-sub">Only the Owner or Clinic Manager can set Discharged/Closed.</p>') +
         '<div class="notice">One centralized chart. Patient number is immutable and never reused.</div>' +
         '<button class="btn primary confirm-demo" type="button" data-confirm-demo="' + p.id + '">Confirm Demographics</button>' +
         lastReviewedHtml(p) +
@@ -3541,24 +3545,30 @@
     const color = statusColor(status);
     return '<span class="status-dot" style="background:' + color + '" title="' + esc(status) + '" aria-label="' + esc(status) + '"></span>';
   }
+  function statusFilterList() {
+    const cur = state.scheduleStatusFilter;
+    if (!cur) return [];
+    if (Array.isArray(cur)) return cur.slice();
+    return [cur];
+  }
   function statusLegend(variant) {
     const list = (BRIZZA.VISIT_STATUSES || []).slice();
     ["Scheduled", "Confirmed", "No-show", "Canceled"].forEach(function (s) {
       if (list.indexOf(s) < 0) list.push(s);
     });
-    const cur = state.scheduleStatusFilter || "";
+    const selected = statusFilterList();
     const items = list.map(function (s) {
-      const on = cur === s;
-      return '<button type="button" class="legend-item status-filter-chip' + (on ? " is-active" : "") + '" data-status-filter="' + esc(s) + '" aria-pressed="' + (on ? "true" : "false") + '" title="Filter schedule to ' + esc(s) + '">' +
+      const on = selected.indexOf(s) >= 0;
+      return '<button type="button" class="legend-item status-filter-chip' + (on ? " is-active" : "") + '" data-status-filter="' + esc(s) + '" aria-pressed="' + (on ? "true" : "false") + '" title="' + (on ? "Remove " : "Add ") + esc(s) + ' from the status filter">' +
         statusPill(s, variant || "tint") + "</button>";
     }).join("");
-    const clear = cur ? '<button type="button" class="btn tiny type-filter-clear" data-status-filter="">Clear</button>' : "";
+    const clear = selected.length ? '<button type="button" class="btn tiny type-filter-clear" data-status-filter="">Clear</button>' : "";
     return '<div class="legend status-legend" aria-label="Visit status filters">' + items + clear + "</div>";
   }
   function appointmentMatchesStatusFilter(a) {
-    const cur = state.scheduleStatusFilter;
-    if (!cur) return true;
-    return !!(a && a.status === cur);
+    const selected = statusFilterList();
+    if (!selected.length) return true;
+    return !!(a && selected.indexOf(a.status) >= 0);
   }
   function locationHoursLabel(loc) {
     const l = typeof loc === "string" ? (BRIZZA.LOCATIONS || []).find(function (x) { return x.id === loc; }) : loc;
@@ -3846,6 +3856,10 @@
     return role === "MD / Clinic Owner";
   }
   function canWaiveFees(role) {
+    role = role || state.actingRole;
+    return isOwnerRole(role) || role === "Clinic Manager";
+  }
+  function canSetDischargedClosed(role) {
     role = role || state.actingRole;
     return isOwnerRole(role) || role === "Clinic Manager";
   }
@@ -11407,7 +11421,15 @@
     if (statusFilt) {
       e.preventDefault();
       const next = statusFilt.getAttribute("data-status-filter") || "";
-      state.scheduleStatusFilter = (state.scheduleStatusFilter && state.scheduleStatusFilter === next) ? "" : next;
+      if (!next) {
+        state.scheduleStatusFilter = [];
+      } else {
+        const cur = statusFilterList();
+        const i = cur.indexOf(next);
+        if (i >= 0) cur.splice(i, 1);
+        else cur.push(next);
+        state.scheduleStatusFilter = cur;
+      }
       render();
       return;
     }
@@ -11655,8 +11677,14 @@
     } else if (e.target.dataset.setStatus) {
       const p = patient(e.target.dataset.setStatus);
       if (p) {
+        const next = e.target.value;
+        if (next === "Discharged/Closed" && !canSetDischargedClosed()) {
+          e.target.value = p.status;
+          toast("Only the Owner or Clinic Manager can set Discharged/Closed");
+          return;
+        }
         const before = p.status;
-        p.status = e.target.value;
+        p.status = next;
         addAudit({ action: "Updated patient status", recordType: "Patient", recordId: p.id,
           recordPath: { page: "patients", selected: p.id, tab: "demographics" },
           changes: [{ field: "status", before: before, after: p.status }] });

@@ -622,6 +622,28 @@ BRIZZA.buildSeedAudit = function (data) {
       });
     }
   });
+  events.push({
+    id: nid(),
+    when: "2026-11-10 11:40 ET",
+    who: "Lily Morgan",
+    role: "Clinic Manager",
+    action: "Updated patient status",
+    recordType: "Patient",
+    recordId: "BZ0001",
+    recordPath: { page: "patients", selected: "BZ0001", tab: "demographics" },
+    changes: [{ field: "status", before: "Active", after: "Discharged/Closed" }]
+  });
+  events.push({
+    id: nid(),
+    when: "2026-11-10 15:05 ET",
+    who: "Lily Morgan",
+    role: "Clinic Manager",
+    action: "Updated patient status",
+    recordType: "Patient",
+    recordId: "BZ0001",
+    recordPath: { page: "patients", selected: "BZ0001", tab: "demographics" },
+    changes: [{ field: "status", before: "Discharged/Closed", after: "Active" }]
+  });
   return events;
 };
 

@@ -1158,3 +1158,133 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
 .myday-note-filters input[type=date]{min-width:10.5em}
 .book-req-legend{margin:0 0 10px}
 .book-req-legend .req{font-weight:700}
+
+/* Round 18: required-field highlight */
+.field.is-missing input,
+.field.is-missing select,
+.field.is-missing textarea{
+  border-color:#8A1F2B;
+  box-shadow:0 0 0 1px #8A1F2B;
+  background:#FDF4F2;
+}
+.field.is-missing > label{color:#8A1F2B}
+.zip-hint{color:#6B1C1C;margin:4px 0 0}
+
+/* ===== Round 18 Push 1 ===== */
+/* Swappable clinic mark (item 32). Replace BRIZZA.LOGO.text later; keep this class. */
+.clinic-logo-mark{
+  font-family:var(--font-display);
+  font-variation-settings:var(--display-settings);
+  font-weight:500;
+  font-size:22px;
+  letter-spacing:.08em;
+  line-height:1.15;
+  text-transform:uppercase;
+  color:inherit;
+  white-space:pre-line;
+}
+.brand .clinic-logo-mark{font-size:22px;padding:2px 0 4px}
+.brand-tagline{display:block;color:var(--sidebar-muted);font-size:10px;letter-spacing:.14em;text-transform:uppercase;margin-top:4px;font-family:var(--font-text)}
+.pos-receipt .clinic-logo-mark,.print-logo.clinic-logo-mark{font-size:16px;letter-spacing:.1em;margin:0 0 8px}
+@media print{
+  .print-logo,.clinic-logo-mark{display:block}
+}
+
+/* Item 1: appointment card fields must not squeeze */
+.appt-mode #modal,.modal.appt-mode{max-width:min(1080px,calc(100vw - 24px));width:min(1080px,calc(100vw - 24px))}
+.appt-card-grid{grid-template-columns:minmax(200px,.85fr) minmax(320px,1.7fr) minmax(200px,.85fr);gap:18px 24px}
+.appt-pane .formgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 16px}
+.appt-pane .formgrid .field select,
+.appt-pane .formgrid .field input,
+.appt-pane .formgrid .field #reasonOptions,
+.appt-pane .formgrid .field #fReason{width:100%;min-width:0;max-width:100%}
+.appt-pane .formgrid .field.full{grid-column:1 / -1}
+@media (max-width:900px){
+  .appt-card-grid{grid-template-columns:1fr}
+}
+
+/* Item 2: one option per row; wider Field settings */
+.tpl-builder{grid-template-columns:minmax(180px,220px) minmax(0,1fr) minmax(320px,420px)}
+.tpl-settings-col{min-width:0}
+.tpl-opt-editor{display:flex;flex-direction:column;gap:6px}
+.tpl-opt-row{display:flex;align-items:center;gap:6px}
+.tpl-opt-row input{flex:1;min-width:0}
+.tpl-opt-row .btn-icon{flex:none}
+
+/* Item 7: slightly larger Draft chip */
+.note-status-chip{padding:3px 10px;font-size:11px}
+.note-status-chip[data-note-status="Draft"]{background:#EEE7DC;color:#352820}
+
+/* Item 10: Ready / Needs prep pop-up stays on screen */
+.prep-cell{position:relative}
+.prep-detail{min-width:280px;max-width:min(420px,calc(100vw - 24px));max-height:min(320px,50vh);overflow:auto;z-index:50}
+
+/* Item 17: calmer flow + suite cards, no type banner */
+.flow-card.jewel-card .jewel-band,
+.room-card.jewel-card .jewel-band{display:none}
+.flow-card.jewel-card,
+.room-card.jewel-card,
+.suite-card .jewel-card{background:var(--card-ivory,#FFFCF6);border:1px solid var(--line);border-left:4px solid var(--type-band,#C3C7CB);border-radius:var(--radius-sm);box-shadow:none}
+.flow-card .jewel-body,.room-card .jewel-body{padding:10px 12px}
+.type-tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--type-band,#C3C7CB) 28%,#FFFCF6);color:#352820;vertical-align:middle}
+.flow-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.flow-card .flow-notes{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.flow-card .emn-row{margin:4px 0}
+
+/* Item 12: month type filters */
+.type-family-chip{cursor:pointer}
+.type-family-chip.is-active{outline:2px solid var(--ink);outline-offset:1px}
+.type-filter-clear{margin-left:8px}
+
+/* Item 13: day + control */
+.day-plus{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:4px;border:1px solid var(--line);border-radius:4px;background:var(--paper);font-size:14px;line-height:1;cursor:pointer;vertical-align:middle}
+.day-plus:hover{background:#F4EFE6}
+.cal-mcell.is-expanded{background:color-mix(in srgb,var(--paper) 70%,#F4EFE6)}
+.month-slots{margin-top:6px;display:flex;flex-direction:column;gap:2px}
+.month-slot{display:block;width:100%;text-align:left;font-size:11px;padding:2px 4px;border:0;background:transparent;cursor:pointer}
+
+/* Item 18: photo thumbnails on Documents */
+.photo-grid{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
+.photo-thumb{width:96px;height:96px;border:1px solid var(--line);border-radius:6px;background:#F4EFE6;display:flex;align-items:flex-end;padding:6px;font-size:10px;color:#5A4A3A;overflow:hidden}
+
+/* Item 22: vertical receipt */
+.pos-invoice-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(240px,280px);gap:16px;align-items:start}
+.pos-receipt{border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px 14px;background:#FFFCF6}
+.pos-receipt h3{margin:0 0 8px;font-size:13px}
+.pos-receipt .receipt-meta,.pos-receipt .receipt-line{font-size:12px;margin:2px 0}
+.pos-receipt .receipt-total{margin-top:10px;font-weight:700}
+.pos-receipt.is-final{background:#F3F7F3}
+.pos-cat-tabs{display:flex;gap:6px;margin:0 0 8px}
+@media (max-width:980px){
+  .pos-invoice-grid{grid-template-columns:1fr}
+}
+
+/* Item 25 already: .field.is-missing */
+/* Item 27 check-in chip */
+.checkin-pill{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;border:1px solid var(--line);cursor:pointer}
+.checkin-pill.ready{background:#D5EBDD;color:#1B3D2A;border-color:#B7D4C4}
+.checkin-pill.needs{background:#F3E1C8;color:#5A3510;border-color:#E0C8A0}
+.checkin-detail{min-width:240px}
+
+/* Item 28: disabled status options */
+.status-dd option:disabled,.status-select-plain option:disabled{color:#9A9086}
+
+/* Item 30–31 consent placeholders */
+.consent-placeholder{font-size:11px;color:#5A4A3A;background:#F7F1E8;border:1px dashed var(--line);padding:8px 10px;border-radius:6px;margin:6px 0}
+.consent-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.consent-sig{font-size:12px}
+
+/* Item 4 myday note editor */
+.myday-appt-note .wl-note{width:100%;min-height:64px}
+
+/* Consent wording (verbatim forms; keep [SAMPLE] visible) */
+.consent-wording{max-height:min(55vh,520px);overflow:auto;border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:#FFFcf6;font-size:13px;line-height:1.45;margin:8px 0}
+.consent-wording h1,.consent-wording h2,.consent-wording h3{font-family:var(--font-display);font-weight:500;margin:12px 0 6px}
+.consent-wording h1{font-size:18px}
+.consent-wording h2{font-size:16px}
+.consent-wording h3{font-size:14px}
+.consent-wording table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+.consent-wording th,.consent-wording td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+.consent-wording blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--line);background:#F7F1E8}
+.consent-sample{display:inline;background:#F7E0B0;color:#352820;font-weight:700;padding:0 3px;border-radius:3px}
+.consent-open-q{display:block;margin:6px 0;padding:6px 8px;border:1px dashed #815600;background:#F8EED8;color:#5A3510;font-weight:650}

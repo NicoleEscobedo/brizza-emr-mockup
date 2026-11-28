@@ -237,9 +237,10 @@
     return '<div class="formgrid addr-grid">' +
       '<div class="field full"><label for="' + prefix + '1">Address 1</label><input id="' + prefix + '1" data-addr="address1" value="' + esc(parts.address1 || "") + '" autocomplete="address-line1"></div>' +
       '<div class="field full"><label for="' + prefix + '2">Address 2</label><input id="' + prefix + '2" data-addr="address2" value="' + esc(parts.address2 || "") + '" placeholder="Apartment, suite, optional" autocomplete="address-line2"></div>' +
-      '<div class="field"><label for="' + prefix + 'Zip">Zip</label><input id="' + prefix + 'Zip" data-addr="zip" data-zip-lookup="1" value="' + esc(parts.zip || "") + '" inputmode="numeric" maxlength="10" autocomplete="postal-code"></div>' +
+      '<div class="field"><label for="' + prefix + 'Zip">Zip</label><input id="' + prefix + 'Zip" data-addr="zip" data-zip-lookup="1" value="' + esc(parts.zip || "") + '" inputmode="numeric" maxlength="10" autocomplete="postal-code">' +
+        '<p class="row-sub zip-hint" hidden></p></div>' +
       '<div class="field"><label for="' + prefix + 'City">City</label><input id="' + prefix + 'City" data-addr="city" value="' + esc(parts.city || "") + '" autocomplete="address-level2"></div>' +
-      '<div class="field"><label for="' + prefix + 'State">State</label><input id="' + prefix + 'State" data-addr="state" value="' + esc(parts.state || "") + '" autocomplete="address-level1"></div>' +
+      '<div class="field"><label for="' + prefix + 'State">State</label>' + stateSelectHtml(prefix, parts.state) + "</div>" +
       '<div class="field"><label for="' + prefix + 'Country">Country</label><select id="' + prefix + 'Country" data-addr="country">' + countryOpts + "</select></div>" +
       "</div>";
   }
@@ -258,6 +259,19 @@
       country: get("country") || "United States"
     };
   }
+  function stateSelectHtml(prefix, selected) {
+    const cur = String(selected || "").trim();
+    const states = BRIZZA.US_STATES || [];
+    const opts = ['<option value="">Select</option>'].concat(states.map(function (pair) {
+      const ab = pair[0], name = pair[1];
+      const hit = cur === ab || cur.toLowerCase() === name.toLowerCase();
+      return '<option value="' + esc(ab) + '"' + (hit ? " selected" : "") + ">" + esc(name) + " (" + esc(ab) + ")</option>";
+    }));
+    if (cur && !states.some(function (p) { return p[0] === cur || p[1].toLowerCase() === cur.toLowerCase(); })) {
+      opts.push('<option value="' + esc(cur) + '" selected>' + esc(cur) + "</option>");
+    }
+    return '<select id="' + prefix + 'State" data-addr="state" autocomplete="address-level1">' + opts.join("") + "</select>";
+  }
   function zipLookupTable() {
     return BRIZZA.ZIP_LOOKUP || {
       "10013": { city: "New York", state: "NY" },
@@ -274,14 +288,25 @@
   function applyZipLookup(el) {
     if (!el) return;
     const zip = digitsOnly(el.value, 5);
-    if (zip.length !== 5) return;
-    const hit = zipLookupTable()[zip];
-    if (!hit) return;
     const scope = el.closest(".addr-grid") || el.closest(".formgrid") || el.closest("form") || el.closest("#modalBody") || el.parentElement || document;
+    const hint = scope.querySelector(".zip-hint");
+    if (zip.length !== 5) {
+      if (hint) { hint.hidden = true; hint.textContent = ""; }
+      return;
+    }
+    const hit = zipLookupTable()[zip];
+    if (!hit) {
+      if (hint) {
+        hint.hidden = false;
+        hint.textContent = "No city or state found for this ZIP in the sample lookup.";
+      }
+      return;
+    }
     const city = scope.querySelector('[data-addr="city"]');
     const state = scope.querySelector('[data-addr="state"]');
     if (city && city.value !== hit.city) city.value = hit.city;
     if (state && state.value !== hit.state) state.value = hit.state;
+    if (hint) { hint.hidden = true; hint.textContent = ""; }
   }
   function bindZipLookups() {
     $$("[data-zip-lookup]").forEach(function (el) {
@@ -536,12 +561,14 @@
     demo: { running: false, index: 0, timer: null }, contrast: null,
     scheduleView: "calendar", calMode: loadCalMode(), locationId: BRIZZA.DEFAULT_LOCATION,
     expandedAppt: null, expandedPrep: null, auditId: null,
-    actingRole: "Clinic Coordinator", adminTab: "home", showInactiveUsers: false, roomingDate: null, scheduleSearch: "", noteDraft: null, alertsOpen: null,
+    actingRole: "Clinical Coordinator", adminTab: "home", showInactiveUsers: false, roomingDate: null, scheduleSearch: "", noteDraft: null, alertsOpen: null,
     worklistFilters: loadWorklistFilters(),
     taskScope: "mine", taskDueToday: false, showCompletedTasks: false, tplEditId: null, tplDraft: null,
     notesFrom: "", notesTo: ""
   };
   reconcileSampleSchedule();
+  state.date = defaultClinicDate();
+  if (isClinicClosedDay(todayET()) && !state.myDayDate) state.myDayDate = defaultClinicDate();
 
   const patient = (id) => store.patients.find((p) => p.id === id);
   const appt = (id) => store.appointments.find((a) => a.id === id);
@@ -589,7 +616,7 @@
     "clinical-profile": "Clinical",
     appointments: "Visits",
     records: "Documents",
-    ledger: "Money"
+    ledger: "Ledger"
   };
   const HIDDEN_CHART_TABS = { photos: "clinical-profile", quotes: "ledger", "follow-up": "appointments", forms: "records", documents: "records" };
 
@@ -757,7 +784,7 @@
     if (r.myDayTab) state.myDayTab = r.myDayTab;
     if (r.myDayDate) state.myDayDate = r.myDayDate;
     else if (r.page === "emr" && r.todayLegacy === "tomorrow") state.myDayDate = nextBusinessDay(todayET());
-    else if (r.page === "emr" && !r.myDayDate && !state.myDayDate) state.myDayDate = todayET();
+    else if (r.page === "emr" && !r.myDayDate && !state.myDayDate) state.myDayDate = defaultClinicDate();
     if (r.todayLegacy) state.todayTab = "today";
     if (r.notesDash) state.notesDash = r.notesDash;
     if (r.notesScope) state.notesScope = r.notesScope;
@@ -1312,7 +1339,7 @@
     const visible = searched.filter((a) => wlMatches(a, filters) && a.status !== "Canceled");
     const canceledShown = searched.filter((a) => a.status === "Canceled" && wlMatches(a, filters));
     const rows = visible.concat(canceledShown);
-    const head = pageHead("Front desk", "Worklist", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours) + " · Do today’s work without leaving this page.",
+    const head = pageHead("Clinical Coordinator", "Worklist", esc(locationName(state.locationId)) + " · " + esc(BRIZZA.CLINIC.hours) + " · Do today’s work without leaving this page.",
       '<button type="button" class="btn" data-open="checkin-forms">Check-in forms</button>');
     const filtBtn = function (key, label, n) {
       const on = filters.indexOf(key) >= 0;
@@ -1347,7 +1374,7 @@
       const blks = dayBlocks(date).slice().sort((a, b) => String(a.start).localeCompare(String(b.start)));
       if (blks.length) {
         groups += '<div class="wl-admin-blocks"><h3 class="section-title">Admin blocks</h3>' +
-          blks.map(function (b) { return '<div class="block-card" style="margin:8px 0">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + " · " + esc(b.staff || "") + " · Admin · " + esc(b.reason) + "</div>"; }).join("") +
+          blks.map(function (b) { return '<div class="block-card" style="margin:8px 0" data-open-block="' + esc(b.id) + '">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + " · " + esc(b.staff || "") + " · Admin · " + esc(b.reason) + (b.notes ? " · " + esc(b.notes) : "") + "</div>"; }).join("") +
           "</div>";
       }
       if (!timed.length && !blks.length) groups = '<div class="empty">No appointments match the current filters.</div>' + groups;
@@ -1358,7 +1385,7 @@
         <div class="cardhead">
           <div class="datebar">
             <a class="btn small" id="sched-prev" href="${hashFor({ page: "worklist", date: addDays(date, -1) })}" aria-label="Previous day">‹</a>
-            <strong>${esc(fmtLong(date))}</strong> <span class="count">${esc(dayCountLabel(date))}</span>
+            <strong>${esc(fmtLong(date))}</strong> <span class="count">${esc(dayCountLabel(date))}</span> ${isClinicClosedDay(date) ? "" : dayPlusButton(date, true)}
             <a class="btn small" id="sched-next" href="${hashFor({ page: "worklist", date: addDays(date, 1) })}" aria-label="Next day">›</a>
             <a class="btn small" id="sched-today" href="${hashFor({ page: "worklist", date: todayET() })}">Today</a>
             <span class="demo-clock" title="Fixed demo time used for Late tags and the next pending row">${esc("Demo clock · " + demoClockLabel())}</span>
@@ -1377,7 +1404,7 @@
           ${groups}
           ${collectTasksHtml()}
           ${openClinicalNotesGroupHtml(date)}
-          ${openQ("Worklist task filters are a prototype of front-desk prep work. Official readiness criteria remain an open question (Open question 4).")}
+          ${openQ("Worklist task filters are a prototype of Clinical Coordinator prep work. Official readiness criteria remain an open question (Open question 4).")}
         </div>
       </div>
     </div>`;
@@ -1496,8 +1523,12 @@
     });
   }
   function posCatalogListHtml(inv, q) {
-    const items = catalogSearchResults(q);
-    if (!items.length) return '<p class="empty">No matching products or services.</p>';
+    const tab = state.posCatalogTab || "services";
+    const items = catalogSearchResults(q).filter(function (c) {
+      const product = c.kind === "product" || c.kind === "retail";
+      return tab === "products" ? product : !product;
+    });
+    if (!items.length) return '<p class="empty">No matching ' + (tab === "products" ? "products" : "services") + ".</p>";
     return items.map(function (c) {
       const price = c.price != null ? money(c.price) : "TBD";
       const unit = c.unit ? " / " + esc(c.unit) : "";
@@ -1546,11 +1577,14 @@
     return '<div class="pos-simple pos-invoice" data-pos-popup="' + esc(inv.id) + '">' +
       '<div class="pos-invoice-grid">' +
         '<div class="pos-catalog-pane">' +
-          "<h3>Products &amp; services</h3>" +
-          (inv.finalized ? '<p class="row-sub">Invoice is finalized.</p>' :
-            '<label class="sr-only" for="posSearch">Search products and services</label>' +
-            '<input id="posSearch" type="search" placeholder="Search products and services" value="' + esc(q) + '" autocomplete="off">' +
+          '<div class="pos-cat-tabs" role="tablist">' +
+            '<button type="button" class="btn tiny' + ((state.posCatalogTab || "services") === "services" ? " primary" : "") + '" data-pos-cat-tab="services">Services</button>' +
+            '<button type="button" class="btn tiny' + (state.posCatalogTab === "products" ? " primary" : "") + '" data-pos-cat-tab="products">Products</button></div>' +
+          (inv.finalized ? '<p class="row-sub">This receipt is locked.</p>' :
+            '<label class="sr-only" for="posSearch">Search ' + ((state.posCatalogTab || "services") === "products" ? "products" : "services") + "</label>" +
+            '<input id="posSearch" type="search" placeholder="Search ' + ((state.posCatalogTab || "services") === "products" ? "products" : "services") + '" value="' + esc(q) + '" autocomplete="off">' +
             '<input id="posQty" class="qty" type="hidden" value="1" aria-hidden="true">' +
+            ((isCoordinatorRole() || state.actingRole === "Clinic Manager" || isOwnerRole()) ? '<button type="button" class="btn tiny" data-add-note-charges="' + esc(inv.id) + '">Add charges from note</button>' : "") +
             '<div id="posCatalogResults" class="pos-catalog-list">' + posCatalogListHtml(inv, q) + "</div>") +
         "</div>" +
         '<div class="pos-cart-pane">' +
@@ -1566,22 +1600,49 @@
             '<div>Available credit <strong>' + money(credit) + "</strong> " +
             (credit > 0 && !inv.finalized ? '<button class="btn small" type="button" data-apply-credit="' + esc(inv.id) + '">Apply</button>' : "") + "</div>" +
             '<div class="grand">Balance ' + esc(balLabel) + "</div></div>" +
-          (inv.finalized ? "" :
-            '<div class="pos-pay">' +
+          (inv.finalized
+            ? ('<div class="actions" style="margin-top:10px">' +
+               '<button class="btn small" type="button" data-print-receipt="' + esc(inv.id) + '">Print receipt</button>' +
+               '<button class="btn small" type="button" data-email-receipt="' + esc(inv.id) + '">Email receipt</button></div>')
+            : ('<div class="pos-pay">' +
             '<label class="sr-only" for="pay-status">Payment status</label>' +
             '<select id="pay-status" aria-label="Payment status">' + paymentStatusOptions("Paid") + "</select>" +
             '<label class="sr-only" for="pay-amount">Payment amount</label>' +
             '<input id="pay-amount" class="qty" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Payment amount" value="' + amountVal + '">' +
             '<button class="btn small primary" type="button" data-record-pay="' + esc(inv.id) + '">Record payment</button></div>' +
             '<div class="actions" style="margin-top:10px">' +
+            '<button class="btn small primary" type="button" data-complete-sale="' + esc(inv.id) + '">Complete sale</button>' +
+            '<button class="btn small" type="button" data-finalize-receipt="' + esc(inv.id) + '">Finalize receipt</button>' +
             '<button class="btn small" type="button" data-print-receipt="' + esc(inv.id) + '">Print receipt</button>' +
-            
-            '<button class="btn small" type="button" data-add-remaining="' + esc(inv.id) + '">Add remaining to patient balance</button></div>') +
+            '<button class="btn small" type="button" data-add-remaining="' + esc(inv.id) + '">Add remaining to patient balance</button></div>')) +
         "</div>" +
+        posReceiptHtml(inv, p, t) +
       "</div>" +
       (opts.embedded ? "" : '<p class="row-sub"><a href="' + hashFor({ page: "pos", invoiceId: inv.id, posTab: "invoice" }) + '">Open full Point of Sale page</a></p>') +
       checkoutActionsHtml(appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0]) +
       "</div>";
+  }
+  function posReceiptHtml(inv, p, t) {
+    const contact = clinicContactLines();
+    const a = appt(state.posAppointmentId) || (inv.appointmentIds || []).map(appt)[0];
+    const locked = !!inv.finalized;
+    const rows = (inv.lines || []).map(function (l) {
+      const amt = lineAmount(l);
+      return '<div class="receipt-line">' + esc(l.name || "") +
+        (l.qty != null ? " × " + esc(String(l.qty)) : "") + " · " +
+        (l.waived ? "Waived" : (amt == null ? "TBD" : money(amt))) + "</div>";
+    }).join("") || '<div class="receipt-line muted">No items</div>';
+    return '<aside class="pos-receipt' + (locked ? " is-final" : "") + '">' +
+      clinicLogoMark("print-logo") +
+      '<div class="receipt-meta">' + esc(contact.address) + "</div>" +
+      '<div class="receipt-meta">' + esc(contact.phone) + "</div>" +
+      (a && a.provider ? '<div class="receipt-meta">Provider · ' + esc(a.provider) + "</div>" : "") +
+      (p ? '<div class="receipt-meta">Patient · ' + esc(p.name) + " · " + esc(displayId(p.id)) + "</div>" : "") +
+      "<h3>Receipt</h3>" + rows +
+      '<div class="receipt-total">Total ' + esc(t.label) + "</div>" +
+      '<div class="receipt-meta">Balance ' + esc(t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance)) + "</div>" +
+      (locked ? badge(inv.status === "Paid" ? "Paid · Completed" : (inv.status || "Completed")) : badge(inv.status || "Draft")) +
+    "</aside>";
   }
   function printInvoiceReceipt(invId) {
     const inv = invoice(invId);
@@ -1600,13 +1661,17 @@
       return "<div>" + esc(pay.method || pay.status || "Payment") + " · " + esc(pay.status || "") + " · " +
         esc(pay.amount != null ? money(pay.amount) : "") + (pay.recorded ? " · " + esc(pay.recorded) : "") + "</div>";
     }).join("");
+    const contact = clinicContactLines();
     const html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Receipt · " + esc(inv.id) + "</title>" +
       "<style>body{font-family:Georgia,'Times New Roman',serif;color:#352820;margin:24px;max-width:640px}" +
-      "h1{font-size:22px;margin:0 0 4px;font-weight:600}h2{font-size:16px;margin:16px 0 8px;font-weight:600}" +
+      "h1,.clinic-logo-mark{font-size:22px;margin:0 0 4px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}" +
+      "h2{font-size:16px;margin:16px 0 8px;font-weight:600}" +
       "p,div{font-size:13px;line-height:1.45}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}" +
       "th,td{text-align:left;padding:6px 0;border-bottom:1px solid #d8d0c8}th{font-weight:600}" +
       ".tot{font-weight:700;margin-top:8px}@media print{body{margin:12px}}</style></head><body>" +
-      "<h1>Brizza Aesthetics</h1><p>Receipt</p>" +
+      clinicLogoMark("print-logo") + "<p>Receipt</p>" +
+      "<p>" + esc(contact.address) + "<br>" + esc(contact.phone) + "</p>" +
+      (a && a.provider ? "<p>Provider: " + esc(a.provider) + "</p>" : "") +
       "<p>" + esc(inv.id) + (loc ? " · " + esc(loc) : "") + "</p>" +
       (p ? "<p>Patient: " + esc(p.name) + " · " + esc(displayId(p.id)) + "</p>" : "") +
       (a ? "<p>" + esc(fmtLong(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type) + "</p>" : "") +
@@ -2670,7 +2735,7 @@
     if (role === "Medical Assistant") {
       return ["emr", "rooming", "schedule", "patients", "queue"].indexOf(key) >= 0;
     }
-    if (role === "Clinic Coordinator") {
+    if (role === "Clinical Coordinator") {
       return ["emr", "schedule", "rooming", "patients", "queue", "pos", "quotes"].indexOf(key) >= 0;
     }
     if (role === "RN / NP Injector" || role === "Aesthetician") {
@@ -2686,7 +2751,7 @@
   }
   function roleNavHtml(nav) {
     const role = state.actingRole;
-    const today = nav(hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }), "emr", "My Day", "✚");
+    const today = nav(hashFor({ page: "emr", myDayTab: "patients", myDayDate: defaultClinicDate() }), "emr", "My Day", "✚");
     const sched = nav(hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }), "schedule", "Schedule", "▦");
     const flow = nav(hashFor({ page: "rooming" }), "rooming", "Patient flow", "▣");
     const pats = nav(hashFor({ page: "patients", selected: state.selected, tab: isMarketingRole() ? "demographics" : (state.tab || "snapshot") }), "patients", "Patients", "♙");
@@ -2700,7 +2765,7 @@
     let main = "";
     if (isMarketingRole()) main = sched + pats;
     else if (role === "Medical Assistant") main = today + flow + sched + pats + tasks;
-    else if (role === "Clinic Coordinator") main = today + sched + flow + pats + tasks + pos + quotes;
+    else if (role === "Clinical Coordinator") main = today + sched + flow + pats + tasks + pos + quotes;
     else if (role === "RN / NP Injector" || role === "Aesthetician") main = today + sched + pats + tasks;
     else if (role === "MD / Clinic Owner") {
       main = today + sched + flow + pats + tasks + pos + quotes;
@@ -2734,7 +2799,7 @@
       <a class="skip" href="#main">Skip to content</a>
       <div class="shell">
         <aside class="side">
-          <div class="brand"><span class="brand-name"><span class="brand-b">B</span>rizza</span><small>Aesthetics</small></div>
+          <div class="brand">${clinicLogoMark("brand-logo")}<small class="brand-tagline">Aesthetic medicine</small></div>
           ${roleNavHtml(nav)}
         </aside>
         <main class="main" id="main">
@@ -3008,10 +3073,12 @@
         <div class="notice">Clinical photography consent is separate from marketing photo authorization.</div></div></div>`;
     } else if (state.tab === "records" || state.tab === "documents" || state.tab === "forms") {
       body = '<h3 class="section-title">Documents & forms</h3>' +
-        '<p class="row-sub">Receipts are saved when a payment is recorded. Form titles are placeholders only, to be written by compliance — this tab does not contain legal text.</p>' +
+        '<p class="row-sub">Receipts are saved when a payment is recorded.</p>' +
         documentsHtml(p) +
+        photosSectionHtml(p) +
         '<h3 class="section-title" style="margin-top:18px">Forms and consents</h3>' +
-        (patientFormsHtml(p) || '<div class="empty">No forms</div>');
+        (patientFormsHtml(p) || '<div class="empty">No forms</div>') +
+        '<p class="row-sub">Start consents from an appointment, My Day, or this chart. Marketing photography authorization is voluntary and is never required to book or treat.</p>';
     } else if (state.tab === "ledger") {
       const invs = store.invoices.filter((i) => i.patientId === p.id);
       const pays = (p.ledgerPayments || []).slice().reverse();
@@ -3045,12 +3112,16 @@
   }
 
   function photosSectionHtml(p) {
-    return '<div class="profile-block"><h3 class="section-title">Photos</h3>' +
-      ((p.photos || []).length ? p.photos.map(function (x) { return '<div class="row"><span>' + esc(x) + "</span></div>"; }).join("") : '<div class="empty">No clinical photos</div>') +
-      '<div class="row"><span>Photo consent</span>' + badge((p.consents && p.consents.photo) || "Not on file") + "</div>" +
-      '<div class="row"><span>Clinical consent</span>' + badge((p.consents && p.consents.clinical) || "—") + "</div>" +
-      '<div class="row"><span>Marketing photo authorization</span>' + badge((p.consents && p.consents.marketing) || "—") + "</div>" +
-      '<p class="row-sub">Clinical photography consent is separate from marketing photo authorization.</p></div>';
+    const thumbs = (p.photos || []).length
+      ? '<div class="photo-grid">' + (p.photos || []).map(function (x) {
+          const label = typeof x === "string" ? x : (x.title || x.id || "Photo");
+          return '<div class="photo-thumb" title="' + esc(label) + '">' + esc(label) + "</div>";
+        }).join("") + "</div>"
+      : '<div class="empty">No clinical photos</div>';
+    return '<div class="profile-block"><h3 class="section-title">Photos</h3>' + thumbs +
+      '<div class="row"><span>Clinical photography consent</span>' + badge((p.consents && p.consents.photo) || "Not on file") + "</div>" +
+      '<div class="row"><span>Marketing photo authorization</span>' + badge((p.consents && p.consents.marketing) || "Not authorized") + "</div>" +
+      '<p class="row-sub">Clinical photography consent is separate from marketing photo authorization. Marketing authorization is voluntary and is never required to book or treat.</p></div>';
   }
   function followupSectionHtml(p) {
     return '<div class="profile-block"><div class="labelrow"><h3 class="section-title">Follow-up history</h3>' +
@@ -3203,7 +3274,7 @@
     </div>`;
   }
   function calendarBlock(b) {
-    return '<div class="cal-block"><span class="t">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + "</span>Admin · " + esc(b.reason) + " · " + esc(b.staff) + "</div>";
+    return '<div class="cal-block block-card" data-open-block="' + esc(b.id) + '"><span class="t">' + esc(fmtTime(b.start)) + "–" + esc(fmtTime(b.end)) + "</span>Admin · " + esc(b.reason) + " · " + esc(b.staff) + "</div>";
   }
   function nextRoomingStatus(status) {
     const list = BRIZZA.ROOMING_BOARD_STATUSES || BRIZZA.ROOMING_STATUSES || [];
@@ -3216,6 +3287,22 @@
   }
   function visitStatuses() { return BRIZZA.VISIT_STATUSES || BRIZZA.appointmentStatuses || []; }
   function frontDeskStatuses() { return ["Scheduled", "Confirmed", "Checked in", "Checked out", "No-show", "Canceled"]; }
+  function allowedStatusesFor(role) {
+    role = role || state.actingRole;
+    const map = BRIZZA.STATUS_PERMISSIONS || {};
+    const list = map[role];
+    if (!list) return visitStatuses();
+    if (list.indexOf("*") >= 0) return visitStatuses();
+    return list.slice();
+  }
+  function canSetVisitStatus(status, role) {
+    const allow = allowedStatusesFor(role);
+    return allow.indexOf(status) >= 0;
+  }
+  function isCoordinatorRole(role) {
+    role = role || state.actingRole;
+    return role === "Clinical Coordinator";
+  }
   function isClinicalVisitStatus(s) {
     return ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"].indexOf(s) >= 0;
   }
@@ -3340,17 +3427,34 @@
   }
   function clinicClosedBanner(date) {
     const hol = holidayName(date);
-    if (hol) return '<div class="cal-closed">Clinic closed · ' + esc(hol) + " (major US holiday).</div>";
-    if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    const next = isClinicClosedDay(date) ? nextOpenClinicDay(addDays(date, 1)) : "";
+    const jump = next && next !== date ? ' <a class="btn tiny" href="' + hashFor({ page: "schedule", date: next, view: "calendar", calMode: "week" }) + '">Open ' + esc(fmtDate(next)) + "</a>" : "";
+    if (hol) return '<div class="cal-closed">Clinic closed · ' + esc(hol) + " (major US holiday)." + jump + "</div>";
+    if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.' + jump + "</div>";
     return "";
   }
-  function jewelWrap(a, innerHtml, extraClass, attrs) {
+  function clinicLogoMark(extraClass) {
+    const logo = BRIZZA.LOGO || { text: "BRIZZA AESTHETICS", cssClass: "clinic-logo-mark" };
+    const cls = [logo.cssClass || "clinic-logo-mark", extraClass || ""].filter(Boolean).join(" ");
+    return '<div class="' + esc(cls) + '">' + esc(logo.text || "BRIZZA AESTHETICS") + "</div>";
+  }
+  function clinicContactLines() {
+    const c = BRIZZA.CLINIC || {};
+    return {
+      name: (BRIZZA.LOGO && BRIZZA.LOGO.text) || c.name || "BRIZZA AESTHETICS",
+      address: c.address || c.location || "Address placeholder",
+      phone: c.phone || "Phone placeholder"
+    };
+  }
+  function jewelWrap(a, innerHtml, extraClass, attrs, opts) {
+    opts = opts || {};
     const fam = typeFamilyFor(a && a.type);
     const canceled = a && a.status === "Canceled";
-    const cls = ["jewel-card", canceled ? "is-canceled" : "", extraClass || ""].filter(Boolean).join(" ");
+    const noBand = opts.noBand || /(flow-card|room-card)/.test(extraClass || "");
+    const cls = ["jewel-card", canceled ? "is-canceled" : "", noBand ? "no-band" : "", extraClass || ""].filter(Boolean).join(" ");
     const band = esc((fam && (fam.short || fam.name)) || "Visit");
     return '<div class="' + cls + '" data-type="' + esc((a && a.type) || "") + '" data-status="' + esc((a && a.status) || "") + '" data-family="' + esc((fam && fam.id) || "") + '" style="' + cardTypeStyle(a) + '"' + (attrs ? " " + attrs : "") + ">" +
-      '<div class="jewel-band">' + band + "</div>" +
+      (noBand ? "" : '<div class="jewel-band">' + band + "</div>") +
       '<div class="jewel-body">' + (innerHtml || "") + "</div></div>";
   }
   function statusSelect(a, idSuffix) {
@@ -3365,8 +3469,9 @@
     if (idSuffix === "wl" && isClinicalVisitStatus(a.status)) {
       return statusPill(a.status, "tint");
     }
-    const opts = (idSuffix === "wl" ? frontDeskStatuses() : visitStatuses()).map(function (s) {
-      return "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>";
+    const opts = visitStatuses().map(function (s) {
+      const allow = canSetVisitStatus(s) || a.status === s;
+      return "<option" + (a.status === s ? " selected" : "") + (allow ? "" : " disabled") + ">" + esc(s) + "</option>";
     }).join("");
     return '<label class="sr-only" for="' + id + '">Visit status</label>' + wrap(
       '<select id="' + id + '" class="status-dd status-select-plain" data-visit-status="' + esc(a.id) + '">' + opts + "</select>"
@@ -3409,6 +3514,7 @@
       return;
     }
     if (visitStatuses().indexOf(next) < 0 && next !== "Rescheduled") return;
+    if (next !== "Rescheduled" && !canSetVisitStatus(next)) { toast("That status is not available for this role"); return; }
     const before = a.status;
     a.status = next;
     a.statusSince = nowMs();
@@ -3853,6 +3959,13 @@
   function isCancelFeeLine(l) {
     return l && (l.kind === "fee" || l.feeAutoApplied) && /cancel|no-show/i.test(l.name || "");
   }
+  function hoursUntilAppointment(a) {
+    if (!a || !a.date) return 0;
+    const start = new Date(a.date + "T" + ((a.time || "10:00") + ":00"));
+    const clock = BRIZZA.DEMO_CLOCK || {};
+    const now = new Date((clock.date || todayET()) + "T" + ((clock.time || "12:00") + ":00"));
+    return (start.getTime() - now.getTime()) / 3600000;
+  }
   function autoApplyCancelFee(a) {
     if (!a) return;
     const inv = ensureInvoiceForAppt(a, { quiet: true });
@@ -3861,16 +3974,23 @@
     const existing = inv.lines.find(isCancelFeeLine);
     if (existing) return;
     const fee = Number(BRIZZA.CANCEL_FEE || 50);
+    const noshow = a.status === "No-show";
+    const late = !noshow && hoursUntilAppointment(a) < 24;
+    if (!noshow && !late) {
+      (a.history = a.history || []).push("Canceled outside the 24-hour cutoff · no late-cancel fee · " + nowET());
+      return;
+    }
+    const feeName = noshow ? "No-show fee" : "Late cancellation fee";
     inv.lines.push({
       kind: "fee",
-      name: "Cancellation / no-show fee",
+      name: feeName,
       qty: 1,
       unitPrice: fee,
       feeAutoApplied: true,
       waived: false
     });
     inv.status = inv.status === "Paid" ? "Partially Paid" : (inv.status || "Draft");
-    (a.history = a.history || []).push("Cancellation / no-show fee auto-applied (" + money(fee) + ") · " + nowET());
+    (a.history = a.history || []).push(feeName + " auto-applied (" + money(fee) + ", 24-hour cutoff) · " + nowET());
     addAudit({
       action: "Auto-applied cancellation / no-show fee",
       recordType: "Invoice",
@@ -3925,6 +4045,10 @@
   function isClinicClosedDay(date) {
     return isWeekend(date) || !!holidayName(date);
   }
+  function defaultClinicDate() {
+    const t = todayET();
+    return isClinicClosedDay(t) ? nextOpenClinicDay(t) : t;
+  }
   function prevOpenDay(date) {
     let d = date;
     let guard = 0;
@@ -3934,7 +4058,7 @@
   function confirmDueDate(apptDate) { return prevOpenDay(addDays(apptDate, -2)); }
   function reminderDueDate(apptDate) { return prevOpenDay(addDays(apptDate, -1)); }
   function frontDeskOwnerName() {
-    const s = (BRIZZA.STAFF || []).find(function (x) { return x.role === "Clinic Coordinator"; });
+    const s = (BRIZZA.STAFF || []).find(function (x) { return x.role === "Clinical Coordinator"; });
     return s ? s.name : "Serena Collins";
   }
   function markVisitTasksDone(appointmentId, kind) {
@@ -4105,13 +4229,24 @@
     return "--type-band:" + (fam.band || "#C3C7CB") + ";--type-band-fg:" + (fam.bandFg || "#352820") + ";" + statusStyleVars((a && a.status) || "") + ";--status-bar:" + m.color + ";--type-fill:" + (BRIZZA.CARD_CREAM || "#FFFCF6");
   }
   function typeLegend() {
+    const cur = state.scheduleTypeFilter || "";
     return '<div class="legend" aria-label="Appointment type colors">' +
       (BRIZZA.TYPE_FAMILIES || []).map(function (f) {
-        return '<span class="type-chip type-family-chip" data-family="' + esc(f.id) + '" style="--type-band:' + esc(f.band || "#C3C7CB") + '">' + esc(f.name) + "</span>";
+        return '<button type="button" class="type-chip type-family-chip' + (cur === f.id ? " is-active" : "") + '" data-type-filter="' + esc(f.id) + '" style="--type-band:' + esc(f.band || "#C3C7CB") + '">' + esc(f.name) + "</button>";
       }).join("") +
+      (cur ? '<button type="button" class="btn tiny type-filter-clear" data-type-filter="">Clear</button>' : "") +
       '<span class="legend-item"><span class="swatch clinic"></span>Office hours (Mon–Fri 10:00 a.m.–6:00 p.m. ET)</span>' +
       '<span class="legend-item"><span class="swatch avail"></span>Available</span>' +
       '<span class="legend-item"><span class="swatch unavail"></span>Outside office hours</span></div>';
+  }
+  function appointmentMatchesTypeFilter(a) {
+    const cur = state.scheduleTypeFilter;
+    if (!cur) return true;
+    const fam = typeFamilyFor(a && a.type);
+    return !!(fam && fam.id === cur);
+  }
+  function dayPlusButton(date, expanded) {
+    return '<button type="button" class="day-plus" data-day-plus="' + esc(date) + '" aria-label="' + (expanded ? "Add appointment on " : "Expand slots for ") + esc(fmtDate(date)) + '">＋</button>';
   }
   function addSlotButton(date, time, provider) {
     const key = provider ? (date + "|" + time + "|" + provider) : (date + "|" + time);
@@ -4504,7 +4639,13 @@
     const r = $("#noteReadyBtn");
     if (r) r.remove();
     const save = $("#modalSave");
-    if (save) save.hidden = false;
+    if (save) {
+      save.hidden = false;
+      if (!noteComposerIsOpen()) {
+        save.title = "";
+        save.removeAttribute("title");
+      }
+    }
   }
   function ensureNoteFootButtons() {
     const foot = document.querySelector("#modal .modal-foot");
@@ -4568,7 +4709,12 @@
     });
     return values;
   }
+  function noteComposerIsOpen() {
+    const modal = $("#modal");
+    return !!(state.noteDraft && modal && modal.classList.contains("open") && $("#noteTpl"));
+  }
   function updateNoteSignState() {
+    if (!noteComposerIsOpen()) return;
     const draft = state.noteDraft;
     const save = $("#modalSave");
     const draftBtn = $("#noteSaveDraft");
@@ -4948,20 +5094,39 @@
       const adv = nxt && place !== "suite" ? '<button class="btn tiny" type="button" data-room-advance="' + esc(a.id) + '">Advance</button>' : "";
       const chartBtn = p ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">Open chart</a>' : "";
       const noteBtn = (canStartNote() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
+      const visitNotes = p ? visitNotesOf(a) : [];
+      const viewNotes = (p && visitNotes.length)
+        ? visitNotes.map(function (n) {
+            return '<button class="btn tiny" type="button" data-open="note-view" data-pid="' + esc(p.id) + '" data-nid="' + esc(n.id) + '">View ' + esc(n.type || "note") + "</button>";
+          }).join("")
+        : "";
+      const editNotes = (p && visitNotes.length)
+        ? visitNotes.map(function (n) {
+            return canEditNote(n) ? '<button class="btn tiny" type="button" data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Edit notes</button>' : "";
+          }).join("")
+        : "";
       const inSuite = a.suiteId ? ((BRIZZA.SUITES.find(function (s) { return s.id === a.suiteId; }) || {}).name || a.suiteId) : "";
       const nameHtml = p
         ? '<a class="room-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>"
         : esc(a.patientId);
       const wait = place === 'suite' ? '' : ('<span class="' + timerClass(a.statusSince) + '" data-room-mins="' + esc(String(a.statusSince || nowMs())) + '">' + minutesLabel(a.statusSince) + "</span>");
-      const menuItems = (chartBtn + noteBtn + adv);
+      const menuItems = (chartBtn + noteBtn + viewNotes + editNotes);
       const more = (place === "suite" || !menuItems)
         ? ""
         : ('<div class="flow-more"><button class="btn tiny flow-more-btn" type="button" data-flow-more="' + esc(a.id) + '" aria-expanded="false" aria-haspopup="true" aria-label="Card actions">⋯</button><div class="flow-more-menu">' + menuItems + "</div></div>");
+      const typeLine = esc(fmtTime(a.time)) + " · " + esc(a.type || "") + (reasonText(a) ? " · " + esc(reasonText(a)) : "") +
+        ' <span class="type-tag">' + esc((typeFamilyFor(a.type) && (typeFamilyFor(a.type).short || typeFamilyFor(a.type).name)) || a.type || "Visit") + "</span> · " + apptLink;
+      const notesBlock = (p && visitNotes.length)
+        ? ('<div class="flow-notes">' + visitNotes.map(function (n) {
+            return '<div class="emn-row"><div>' + esc(n.type || "Note") + " · " + esc(n.provider || "") + "</div>" + emnActionsHtml(p, n) + "</div>";
+          }).join("") + "</div>")
+        : "";
       const inner =
         '<div class="flow-head">' + nameHtml + last + wait + "</div>" +
-        '<div class="row-sub">' + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + apptLink + "</div>" +
+        '<div class="row-sub">' + typeLine + "</div>" +
         '<div class="row-sub">' + esc(providerShortName(a.provider)) + (inSuite && place !== "suite" ? " · " + esc(inSuite) : "") + "</div>" +
-        (place === "suite" ? (menuItems ? '<div class="flow-actions">' + menuItems + "</div>" : "") : ('<div class="flow-toolbar">' + sel + more + suiteSel + "</div>"));
+        notesBlock +
+        (place === "suite" ? ((menuItems || adv) ? '<div class="flow-actions">' + adv + menuItems + "</div>" : "") : ('<div class="flow-toolbar">' + sel + adv + more + suiteSel + "</div>"));
       return jewelWrap(a, inner, "room-card flow-card", 'data-rooming="' + esc(a.id) + '" tabindex="0"');
     };
     const buckets = BRIZZA.ROOMING_FLOW_BUCKETS || (BRIZZA.ROOMING_BOARD_STATUSES || []).map(function (s) { return { label: s, statuses: [s] }; });
@@ -4993,27 +5158,28 @@
     bindStatusStops();
   }
 
-  function openAddBlock() {
+  function openAddBlock(existingId) {
+    const existing = existingId ? (store.blocks || []).find(function (b) { return b.id === existingId; }) : null;
     const staff = BRIZZA.PROVIDERS.concat(BRIZZA.ROLES);
     const times = BRIZZA.CLINIC_TIMES || [];
     const starts = times.filter((t) => t !== "18:00");
     const ends = times.filter((t) => t !== "10:00");
-    showModal("Add Admin block", `
-      <div class="formgrid">
-        <div class="field"><label for="blkStaff">Provider / staff</label>
-          <select id="blkStaff">${staff.map((s) => "<option>" + esc(s) + "</option>").join("")}</select></div>
-        <div class="field"><label for="blkReason">Reason</label>
-          <select id="blkReason">${BRIZZA.BLOCK_REASONS.map((s) => "<option>" + esc(s) + "</option>").join("")}</select></div>
-        <div class="field"><label for="blkDate">Date</label>
-          <input id="blkDate" type="date" value="${esc(state.date)}" required></div>
-        <div class="field"><label for="blkStart">Start</label>
-          <select id="blkStart">${timeOptions("12:00", starts)}</select></div>
-        <div class="field"><label for="blkEnd">End</label>
-          <select id="blkEnd">${timeOptions("13:00", ends)}</select></div>
-      </div>
-      <div id="blkWarn"></div>
-      ${openQ("Whether an Admin block prevents booking, and who may create or override blocked availability, is not defined in the V1 documents. These reasons are not an approved catalog (Open question 15).")}
-    `, function () { saveBlock(); }, "Add block");
+    const staffNow = existing ? existing.staff : "";
+    const reasonNow = existing ? existing.reason : "";
+    const staffOpts = staff.map(function (s) { return "<option" + (s === staffNow ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("");
+    const reasonOpts = BRIZZA.BLOCK_REASONS.map(function (s) { return "<option" + (s === reasonNow ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("");
+    showModal(existing ? "Edit Admin block" : "Add Admin block",
+      '<input type="hidden" id="blkId" value="' + esc(existing ? existing.id : "") + '">' +
+      '<div class="formgrid">' +
+        '<div class="field"><label for="blkStaff">Provider / staff</label><select id="blkStaff">' + staffOpts + "</select></div>" +
+        '<div class="field"><label for="blkReason">Reason</label><select id="blkReason">' + reasonOpts + "</select></div>" +
+        '<div class="field"><label for="blkDate">Date</label><input id="blkDate" type="date" value="' + esc((existing && existing.date) || state.date) + '" required></div>' +
+        '<div class="field"><label for="blkStart">Start</label><select id="blkStart">' + timeOptions((existing && existing.start) || "12:00", starts) + "</select></div>" +
+        '<div class="field"><label for="blkEnd">End</label><select id="blkEnd">' + timeOptions((existing && existing.end) || "13:00", ends) + "</select></div>" +
+        '<div class="field full"><label for="blkNotes">Note</label><textarea id="blkNotes" rows="3" placeholder="Optional note">' + esc((existing && (existing.notes || existing.note)) || "") + "</textarea></div>" +
+      '</div><div id="blkWarn"></div>' +
+      openQ("Whether an Admin block prevents booking, and who may create or override blocked availability, is not defined in the V1 documents. These reasons are not an approved catalog (Open question 15)."),
+      function () { saveBlock(); }, existing ? "Save block" : "Add block");
   }
   function saveBlock() {
     const date = $("#blkDate").value;
@@ -5024,21 +5190,30 @@
     if (isClinicClosedDay(date)) { warn.innerHTML = '<div class="notice">Blocks must fall on an open clinic day (Monday–Friday, not a major US holiday).</div>'; return; }
     if (start >= end) { warn.innerHTML = '<div class="notice">End must be after start, within 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
     if (start < "10:00" || end > "18:00") { warn.innerHTML = '<div class="notice">Start and end must stay within Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
-    const rec = {
-      id: nextId("BLK-", store.blocks),
-      type: "Admin",
-      reason: $("#blkReason").value,
-      staff: $("#blkStaff").value,
-      date: date,
-      start: start,
-      end: end,
-      locationId: state.locationId || BRIZZA.DEFAULT_LOCATION
-    };
-    store.blocks.push(rec);
+    const existingId = ($("#blkId") && $("#blkId").value) || "";
+    const notes = ($("#blkNotes") && $("#blkNotes").value.trim()) || "";
+    let rec = existingId ? (store.blocks || []).find(function (b) { return b.id === existingId; }) : null;
+    const before = rec ? { date: rec.date, start: rec.start, end: rec.end, reason: rec.reason, staff: rec.staff, notes: rec.notes || "" } : null;
+    if (!rec) {
+      rec = {
+        id: nextId("BLK-", store.blocks),
+        type: "Admin",
+        locationId: state.locationId || BRIZZA.DEFAULT_LOCATION
+      };
+      store.blocks = store.blocks || [];
+      store.blocks.push(rec);
+    }
+    rec.reason = $("#blkReason").value;
+    rec.staff = $("#blkStaff").value;
+    rec.date = date;
+    rec.start = start;
+    rec.end = end;
+    rec.notes = notes;
+    rec.locationId = rec.locationId || state.locationId || BRIZZA.DEFAULT_LOCATION;
     addAudit({
       who: actingName(),
       role: state.actingRole,
-      action: "Added Admin block",
+      action: before ? "Edited Admin block" : "Added Admin block",
       recordType: "Block",
       recordId: rec.id,
       recordPath: { page: "schedule", date: date, view: state.scheduleView, calMode: state.calMode },
@@ -5049,7 +5224,7 @@
       ]
     });
     closeModal();
-    toast("Admin block added");
+    toast(before ? "Admin block saved" : "Admin block added");
     state.date = date;
     const next = hashFor({ page: "schedule", date: date, view: "calendar", calMode: state.calMode });
     if (location.hash !== next) go({ page: "schedule", date: date, view: "calendar", calMode: state.calMode });
@@ -5246,9 +5421,10 @@
     const providers = selectedProviderNames();
     const q = (state.scheduleSearch || "").trim().toLowerCase();
     const vis = function (a) {
+      if (!appointmentMatchesTypeFilter(a)) return false;
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
-    const head = '<div class="cal-day-head"><div class="cal-hd">' + esc(fmtLong(date)) + ' <span class="count">' + esc(String(new Set(list.map(function (a) { return a.patientId; })).size)) + '</span></div>' + availLinesHtml(date, locationId) + "</div>";
+    const head = '<div class="cal-day-head"><div class="cal-hd">' + esc(fmtLong(date)) + ' <span class="count">' + esc(String(new Set(list.map(function (a) { return a.patientId; })).size)) + "</span> " + dayPlusButton(date, true) + "</div>" + availLinesHtml(date, locationId) + "</div>";
     const colHead = '<div class="cal-day-cols" style="--prov-cols:' + providers.length + '"><div class="cal-time"></div>' +
       providers.map(function (pv) { return '<div class="cal-hd cal-prov-hd">' + esc(providerAvailLabel(pv)) + "</div>"; }).join("") + "</div>";
     const rows = hours.map(function (tm) {
@@ -5275,6 +5451,7 @@
     });
     const q = (state.scheduleSearch || "").trim().toLowerCase();
     const vis = function (a) {
+      if (!appointmentMatchesTypeFilter(a)) return false;
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
     const heads = '<div class="cal-time"></div>' + days.map(function (d) {
@@ -5282,7 +5459,7 @@
       return '<div class="cal-hd' + (hol ? " is-holiday" : "") + '"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' +
         esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) +
         '</a> <span class="count">' + esc(dayCountLabel(d)) + "</span>" +
-        (hol ? '<div class="row-sub">' + esc(hol) + " · closed</div>" : "") + "</div>";
+        (hol ? '<div class="row-sub">' + esc(hol) + " · closed</div>" : dayPlusButton(d, true)) + "</div>";
     }).join("");
     const rows = hours.map(function (h) {
       const cells = days.map(function (d) {
@@ -5317,20 +5494,27 @@
       const dayBlks = blocks.filter(function (b) { return b.date === d; });
       const q = (state.scheduleSearch || "").trim().toLowerCase();
       const vis = function (a) {
+        if (!appointmentMatchesTypeFilter(a)) return false;
         return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
       };
       const visAppts = dayAppts.filter(vis);
-      const chips = inMonth && !closed && visAppts.length
+      const expanded = state.expandedCalDay === d;
+      const chips = inMonth && !closed && visAppts.length && !expanded
         ? ('<div class="month-lite">' + visAppts.slice(0, 3).map(function (a) {
             const p = patient(a.patientId);
             const fam = typeFamilyFor(a.type) || {};
             return '<div class="month-chip" style="--type-band:' + (fam.band || "#C3C7CB") + '">' + esc((p && p.name) || a.patientId) + "</div>";
           }).join("") + (visAppts.length > 3 ? '<div class="row-sub">+' + (visAppts.length - 3) + " more</div>" : "") + "</div>")
         : "";
+      const slots = (inMonth && !closed && expanded)
+        ? ('<div class="month-slots">' + (BRIZZA.BOOKING_TIMES || []).map(function (t) {
+            return '<button type="button" class="month-slot" data-open-slot="' + esc(d + "|" + t) + '">' + esc(fmtTime(t)) + "</button>";
+          }).join("") + "</div>")
+        : "";
       const count = dayCountLabel(d);
-      const dayLink = '<a class="d" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + Number(d.slice(8)) + "</a>" + (count && !closed ? ' <span class="count">' + esc(count) + "</span>" : "");
+      const dayLink = '<a class="d" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + Number(d.slice(8)) + "</a>" + (count && !closed ? ' <span class="count">' + esc(count) + "</span>" : "") + (inMonth && !closed ? dayPlusButton(d, expanded) : "");
       const closedLabel = closed && inMonth ? '<div class="row-sub">' + esc(hol || "Closed") + "</div>" : "";
-      html += '<div class="cal-mcell' + (closed ? " closed" : "") + '">' + (inMonth ? dayLink : "") + closedLabel + chips + "</div>";
+      html += '<div class="cal-mcell' + (closed ? " closed" : "") + (expanded ? " is-expanded" : "") + '">' + (inMonth ? dayLink : "") + closedLabel + chips + slots + "</div>";
       d = addDays(d, 1);
     }
     return '<div class="cal-grid-month">' + html + "</div>";
@@ -5708,7 +5892,7 @@
   function accessLevelForRole(role) {
     if (role === "MD / Clinic Owner") return "Full access";
     if (role === "Clinic Manager") return "Manager";
-    if (role === "Clinic Coordinator") return "Front desk";
+    if (role === "Clinical Coordinator") return "Clinical Coordinator";
     if (role === "RN / NP Injector") return "Clinical · Injectables";
     if (role === "Aesthetician") return "Clinical · Aesthetics";
     if (role === "Marketing Specialist") return "Marketing";
@@ -5829,7 +6013,7 @@
   }
   function openTeamUserModal(id) {
     const existing = id && teamUsers().find(function (u) { return u.id === id; });
-    const u = existing || { name: "", role: "Clinic Coordinator", status: "Active" };
+    const u = existing || { name: "", role: "Clinical Coordinator", status: "Active" };
     const roleOpts = (BRIZZA.ROLES || []).map(function (r) {
       return "<option" + (u.role === r ? " selected" : "") + ">" + esc(r) + "</option>";
     }).join("");
@@ -5849,7 +6033,7 @@
       function () {
         const name = ($("#teamName") && $("#teamName").value.trim()) || "";
         if (!name) { toast("Enter a name"); return; }
-        const role = ($("#teamRole") && $("#teamRole").value) || "Clinic Coordinator";
+        const role = ($("#teamRole") && $("#teamRole").value) || "Clinical Coordinator";
         const status = ($("#teamStatus") && $("#teamStatus").value) || "Active";
         const rec = existing || { id: nextId("USR-", teamUsers()) };
         const email = ($("#teamEmail") && $("#teamEmail").value.trim()) || "";
@@ -6115,6 +6299,26 @@
   }
   function stringifyOptions(list) { return (list || []).join("\n"); }
   function parseOptions(s) { return String(s || "").split(/\n|;/).map(function (x) { return x.trim(); }).filter(Boolean); }
+  function tplOptionsEditorHtml(si, fi, list, prop) {
+    const rows = (list || []).map(function (opt, i) {
+      return '<div class="tpl-opt-row">' +
+        '<input type="text" value="' + esc(opt) + '" data-tpl-opt-val="' + si + "," + fi + "," + i + '" data-prop="' + esc(prop) + '" aria-label="Option ' + (i + 1) + '">' +
+        '<button type="button" class="btn-icon" data-tpl-opt-move="' + si + "," + fi + "," + i + ',-1" data-prop="' + esc(prop) + '" title="Move up">↑</button>' +
+        '<button type="button" class="btn-icon" data-tpl-opt-move="' + si + "," + fi + "," + i + ',1" data-prop="' + esc(prop) + '" title="Move down">↓</button>' +
+        '<button type="button" class="btn-icon" data-tpl-opt-del="' + si + "," + fi + "," + i + '" data-prop="' + esc(prop) + '" title="Remove">×</button>' +
+      "</div>";
+    }).join("") || '<div class="row-sub">No options yet</div>';
+    return '<div class="tpl-opt-editor"><div class="row-sub">Options (one per row)</div>' + rows +
+      '<button type="button" class="btn tiny" data-tpl-opt-add="' + si + "," + fi + '" data-prop="' + esc(prop) + '">＋ Add option</button></div>';
+  }
+  function tplFieldOptions(si, fi, prop) {
+    const draft = ensureTplDraft();
+    const field = draft && draft.sections && draft.sections[si] && draft.sections[si].fields && draft.sections[si].fields[fi];
+    if (!field) return [];
+    field[prop] = field[prop] || [];
+    return field[prop];
+  }
+
   function templateFieldsHtml(tpl, draft, opts) {
     opts = opts || {};
     draft = draft || {};
@@ -6355,8 +6559,8 @@
           [["", "Default"], ["short", "Short"], ["medium", "Medium"], ["tall", "Tall"]].map(function (h) {
             return "<option value=\"" + h[0] + "\"" + ((f.height || "") === h[0] ? " selected" : "") + ">" + h[1] + "</option>";
           }).join("") + "</select></label>") : "";
-        const optionsBlock = typMeta.hasOptions ? ('<label>Options <span class="row-sub">(one per line)</span><textarea data-tpl-f="' + si + "," + fi + '" data-prop="options" rows="3">' + esc(stringifyOptions(f.options)) + "</textarea></label>") : "";
-        const colsBlock = typMeta.hasColumns ? ('<label>Columns <span class="row-sub">(one per line)</span><textarea data-tpl-f="' + si + "," + fi + '" data-prop="columns" rows="3">' + esc(stringifyOptions(f.columns)) + "</textarea></label>") : "";
+        const optionsBlock = typMeta.hasOptions ? tplOptionsEditorHtml(si, fi, f.options, "options") : "";
+        const colsBlock = typMeta.hasColumns ? tplOptionsEditorHtml(si, fi, f.columns, "columns") : "";
         const unitBlock = (f.type === "number" || f.type === "units-sum" || f.type === "facemap") ? ('<label>Unit <input data-tpl-f="' + si + "," + fi + '" data-prop="unit" value="' + esc(f.unit || "") + '"></label>') : "";
         const staticBlock = f.type === "static" ? ('<label>Text <textarea data-tpl-f="' + si + "," + fi + '" data-prop="staticText" rows="2">' + esc(f.staticText || "") + "</textarea></label>") : "";
         const pullOpts = pullInSources().map(function (s) {
@@ -6453,6 +6657,38 @@
     arr[j] = tmp;
   }
   function handleTplBuilderClick(e) {
+    const optBtn = e.target.closest("[data-tpl-opt-add], [data-tpl-opt-del], [data-tpl-opt-move]");
+    if (optBtn) {
+      e.preventDefault();
+      const prop = optBtn.getAttribute("data-prop") || "options";
+      if (optBtn.hasAttribute("data-tpl-opt-add")) {
+        const p = optBtn.getAttribute("data-tpl-opt-add").split(",");
+        const list = tplFieldOptions(Number(p[0]), Number(p[1]), prop);
+        list.push("");
+        markTplDirty();
+        render();
+        return true;
+      }
+      if (optBtn.hasAttribute("data-tpl-opt-del")) {
+        const p = optBtn.getAttribute("data-tpl-opt-del").split(",");
+        const list = tplFieldOptions(Number(p[0]), Number(p[1]), prop);
+        list.splice(Number(p[2]), 1);
+        markTplDirty();
+        render();
+        return true;
+      }
+      if (optBtn.hasAttribute("data-tpl-opt-move")) {
+        const p = optBtn.getAttribute("data-tpl-opt-move").split(",");
+        const list = tplFieldOptions(Number(p[0]), Number(p[1]), prop);
+        const i = Number(p[2]), dir = Number(p[3]), j = i + dir;
+        if (j >= 0 && j < list.length) {
+          const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
+          markTplDirty();
+          render();
+        }
+        return true;
+      }
+    }
     const t = e.target.closest("[data-tpl-select], [data-tpl-new], [data-tpl-save], [data-tpl-export], [data-tpl-import], [data-tpl-add-section], [data-tpl-del-section], [data-tpl-move-section], [data-tpl-add-field], [data-tpl-del-field], [data-tpl-move-field], [data-tpl-dup-field], [data-tpl-pick-field], [data-tpl-more], [data-tpl-history], [data-tpl-suggest], [data-tbl-add-row], [data-tbl-del-row]");
     if (!t) return false;
     e.preventDefault();
@@ -6588,6 +6824,15 @@
     return false;
   }
   function handleTplBuilderChange(e) {
+    const optVal = e.target.closest && e.target.closest("[data-tpl-opt-val]");
+    if (optVal) {
+      const p = optVal.getAttribute("data-tpl-opt-val").split(",");
+      const prop = optVal.getAttribute("data-prop") || "options";
+      const list = tplFieldOptions(Number(p[0]), Number(p[1]), prop);
+      list[Number(p[2])] = optVal.value;
+      markTplDirty();
+      return true;
+    }
     const el = e.target;
     if (!el || !el.getAttribute) return false;
     if (el.id === "tplImportFile" && el.files && el.files[0]) {
@@ -6806,6 +7051,9 @@
     const save = $("#modalSave");
     save.textContent = saveLabel || "Save";
     save.disabled = false;
+    save.hidden = false;
+    save.title = "";
+    save.removeAttribute("title");
     save.classList.toggle("btn-lg", saveLabel === "Save appointment" || saveLabel === "Save patient");
     save.onclick = onSave;
     const cancel = $("#modalCancel");
@@ -6900,7 +7148,73 @@
     updateBookDuration();
     updateBookSaveState();
   }
+  function isStandaloneNewPatientModal() {
+    return !!( $("#npFirst") && !$("#fType") && !$("#bookApptGrid") );
+  }
+  function newPatientMissingRequired() {
+    const missing = [];
+    if (!$("#npFirst") || !$("#npFirst").value.trim()) missing.push("First name");
+    if (!$("#npLast") || !$("#npLast").value.trim()) missing.push("Last name");
+    if (!parseDob($("#npDob") ? $("#npDob").value : "")) missing.push("Date of birth");
+    if (!$("#npPhone") || !$("#npPhone").value.trim()) missing.push("Phone");
+    return missing;
+  }
+  function fieldIdForMissing(label) {
+    const map = {
+      "First name": "npFirst",
+      "Last name": "npLast",
+      "Date of birth": "npDob",
+      "Date of birth (mm/dd/yyyy)": "npDob",
+      "Phone": "npPhone",
+      "Patient": "fPatientSearch",
+      "Appointment type": "fType",
+      "Provider": "fProvider",
+      "Primary provider": "fProvider",
+      "Date": "fDate",
+      "Start time": "fTime",
+      "End time": "fEnd",
+      "Location": "fLocation",
+      "Reason": "fReason",
+      "Appointment reason": "fReason",
+      "Admin override reason": "fOverride",
+      "Outside-hours reason": "fOutsideReason",
+      "Reason for booking outside office hours": "fOutsideReason",
+      "Outside-availability reason": "fAvailReason",
+      "Reason for booking outside provider availability": "fAvailReason",
+      "Lunch-hours reason": "fLunchReason",
+      "Reason for booking during lunch": "fLunchReason"
+    };
+    if (map[label]) return map[label];
+    if (/clinic closed/i.test(label) || /^Date \(/.test(label)) return "fDate";
+    return "";
+  }
+  function highlightMissingRequired(missing) {
+    const labels = missing || [];
+    const ids = {};
+    labels.forEach(function (lab) {
+      const id = fieldIdForMissing(lab);
+      if (id) ids[id] = true;
+    });
+    $$("#modal .field").forEach(function (field) {
+      const ctl = field.querySelector("input, select, textarea");
+      const on = !!(ctl && ctl.id && ids[ctl.id]);
+      field.classList.toggle("is-missing", on);
+      if (ctl) ctl.setAttribute("aria-invalid", on ? "true" : "false");
+    });
+    const warn = $("#npWarn") || $("#bookWarn");
+    if (warn) {
+      warn.innerHTML = labels.length ? ('<div class="notice" role="alert">Required fields missing: ' + labels.map(esc).join(", ") + ".</div>") : "";
+    }
+  }
+  function setModalSaveEnabled(save, missing, verb) {
+    if (!save) return;
+    const miss = missing || [];
+    save.disabled = miss.length > 0;
+    save.title = miss.length ? ((verb || "Save") + " stays disabled until required fields are filled: " + miss.join(", ")) : "";
+    highlightMissingRequired(miss);
+  }
   function bookMissingRequired() {
+    if (isStandaloneNewPatientModal()) return newPatientMissingRequired();
     const newStep = $("#bookNewStep") && !$("#bookNewStep").hidden;
     if (newStep) return ["New patient"];
     const pid = ($("#fPatient") && $("#fPatient").value) || "";
@@ -6950,8 +7264,16 @@
   function updateBookSaveState() {
     const save = $("#modalSave");
     if (!save || !$("#modal").classList.contains("book-mode")) return;
+    if (isStandaloneNewPatientModal()) {
+      setModalSaveEnabled(save, newPatientMissingRequired(), "Save");
+      return;
+    }
     const onNew = $("#bookNewStep") && !$("#bookNewStep").hidden;
-    save.disabled = onNew || bookMissingRequired().length > 0;
+    if (onNew) {
+      setModalSaveEnabled(save, ["New patient"], "Save");
+      return;
+    }
+    setModalSaveEnabled(save, bookMissingRequired(), "Save");
   }
   function providerOptionsHtml(selected) {
     const names = BRIZZA.PROVIDERS || [];
@@ -7092,7 +7414,43 @@
     updateBookSaveState();
   }
 
+  function suggestedProvidersFor(type, reasons) {
+    const blob = ((type || "") + " " + ((reasons || []).join(" "))).toLowerCase();
+    const names = BRIZZA.PROVIDERS || [];
+    const byRole = function (role) {
+      return (BRIZZA.STAFF || []).filter(function (s) { return s.isProvider && s.role === role; }).map(function (s) { return s.name; });
+    };
+    if (/filler|inject|botox|toxin|juvederm|volbella|dissolve|lip|neuro|jeuveau/.test(blob)) return byRole("RN / NP Injector");
+    if (/facial|skin|wax|peel|microneedl|hydra|laser|brow|aesth/.test(blob)) return byRole("Aesthetician");
+    return names.slice();
+  }
+  function nextOpenProviderSlot(cands, date, mins) {
+    const day = date || ($("#fDate") && $("#fDate").value) || defaultClinicDate();
+    const times = BRIZZA.BOOKING_TIMES || [];
+    for (let i = 0; i < cands.length; i += 1) {
+      for (let t = 0; t < times.length; t += 1) {
+        if (slotIsBookable(day, times[t], mins || 30, cands[i], null, { requireAvail: true, locationId: state.locationId })) {
+          return { provider: cands[i], time: times[t], date: day };
+        }
+      }
+    }
+    return { provider: cands[0] || "", time: "", date: day };
+  }
+  function suggestBookProvider() {
+    const typeEl = $("#fType");
+    const provEl = $("#fProvider");
+    if (!typeEl || !provEl) return;
+    const type = typeEl.value;
+    const reasons = selectedBookReasons();
+    const cands = suggestedProvidersFor(type, reasons);
+    if (!cands.length) return;
+    if (cands.indexOf(provEl.value) >= 0) return;
+    const slot = nextOpenProviderSlot(cands, $("#fDate") && $("#fDate").value, bookSelectedMinutes && bookSelectedMinutes());
+    if (slot.provider) provEl.value = slot.provider;
+    if (slot.time && $("#fTime") && !$("#fTime").value) $("#fTime").value = slot.time;
+  }
   function updateBookDuration() {
+    suggestBookProvider();
     if (!$("#fType")) return;
     const type = $("#fType").value;
     const reasons = selectedBookReasons();
@@ -7504,7 +7862,10 @@
             (p ? alertsBanner(p, { readonly: true }) : "") +
             '<label class="sr-only" for="actionStatus">Visit status</label>' +
             '<select id="actionStatus" class="status-dd status-dd-colored" style="' + statusColorStyle + '">' +
-              visitStatuses().map(function (s) { return "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") +
+              visitStatuses().map(function (s) {
+                const allow = canSetVisitStatus(s) || a.status === s;
+                return "<option" + (a.status === s ? " selected" : "") + (allow ? "" : " disabled") + ">" + esc(s) + "</option>";
+              }).join("") +
             "</select></div></header>" +
         '<div class="appt-mini-tabs">' +
           '<button type="button" class="btn tiny' + (state.apptPane === "consents" ? "" : " primary") + '" data-appt-pane="details">Details</button>' +
@@ -7527,7 +7888,7 @@
               '<div class="field"><label for="apptProvider">Provider</label><select id="apptProvider"' + dis + ">" + provOpts + "</select></div>" +
               '<div class="field"><label for="apptSuite">Suite</label><select id="apptSuite"' + dis + ">" + suiteOpts + "</select></div>" +
               '<div class="field"><label for="apptType">Type</label><select id="apptType"' + dis + ">" + typeOpts + "</select></div>" +
-              '<div class="field"><label for="fReason">Reason</label><div id="reasonOptions">' + reasonDropdownHtml(a.type, a.reasons || [], a.consultingFor || "") + "</div></div>" +
+              '<div class="field full"><label for="fReason">Reason</label><div id="reasonOptions">' + reasonDropdownHtml(a.type, a.reasons || [], a.consultingFor || "") + "</div></div>" +
               '<div class="field full"><label for="apptNotes">Notes</label><textarea id="apptNotes" rows="4"' + dis + ">" + esc(a.prepNotes || "") + "</textarea></div>" +
             "</div>" +
             (locked ? "" :
@@ -7705,6 +8066,13 @@
       else go({ page: "patients", selected: id, tab: "demographics" });
     }, "Save patient");
     $("#modal").classList.add("book-mode");
+    const body = $("#modalBody");
+    if (body) {
+      body.addEventListener("input", updateBookSaveState);
+      body.addEventListener("change", updateBookSaveState);
+    }
+    if (typeof bindZipLookups === "function") bindZipLookups();
+    updateBookSaveState();
   }
 
   function openEdit(pid) {
@@ -7944,7 +8312,7 @@
   }
 
   function posTabs(active) {
-    return '<div class="pos-tabs" role="tablist"><a href="' + hashFor({ page: "pos", posTab: "invoice", invoiceId: state.invoiceId }) + '" class="' + (active !== "quotes" ? "active" : "") + '">Invoice</a><a href="' + hashFor({ page: "pos", posTab: "quotes" }) + '" class="' + (active === "quotes" ? "active" : "") + '">Quotes</a></div>';
+    return '<div class="pos-tabs" role="tablist"><a href="' + hashFor({ page: "pos", posTab: "invoice", invoiceId: state.invoiceId }) + '" class="active">Invoice</a></div>';
   }
   function lineHtml(l) {
     const conceptMark = l.kind === "membership" ? " " + concept("Memberships are deferred in the DB design.") : "";
@@ -7989,13 +8357,21 @@
     return inv;
   }
   function renderPOS() {
-    if (state.posTab === "quotes" || state.quoteId) { renderQuotes(); return; }
+    if (state.posTab === "quotes" || state.quoteId) {
+      state.page = "quotes";
+      renderQuotesHome();
+      return;
+    }
     const ap = state.posAppointmentId ? appt(state.posAppointmentId) : (state.appointmentId ? appt(state.appointmentId) : null);
     let inv = state.invoiceId ? invoice(state.invoiceId) : (ap ? invoiceForAppt(ap) : null);
     if (!inv && ap) inv = ensureInvoiceForAppt(ap);
     if (inv) state.invoiceId = inv.id;
     const p = inv ? patient(inv.patientId) : (ap ? patient(ap.patientId) : null);
-    const start = '<div class="actions" style="margin-bottom:12px"><button type="button" class="btn" data-new-blank-invoice="1">＋ Blank invoice</button></div>';
+    const start = '<div class="actions pos-patient-tools" style="margin-bottom:12px">' +
+      '<label class="field" style="flex:1;min-width:220px"><span class="sr-only">Find a patient</span>' +
+      '<input id="posPatientSearch" type="search" placeholder="Search patients by name, #ID, or DOB" value="' + esc(state.posPatientQ || "") + '"></label>' +
+      '<div id="posPatientResults" class="patient-results"></div>' +
+      '<button type="button" class="btn" data-new-blank-invoice="1">＋ Blank invoice</button></div>';
     const head = pageHead("", "Point of Sale", p ? (patientLink(p) + " · " + esc(displayId(p.id)) + (inv ? " · " + esc(inv.id) : "")) : "", "");
     const main = inv ? invoicePopupHtml(inv, { embedded: true }) : '<div class="empty">Select a visit or start a blank invoice.</div>';
     const body = posTabs("invoice") +
@@ -8004,6 +8380,52 @@
       '<div class="pos-page pos-layout">' + main + posTodayListHtml() + "</div>";
     renderChrome('<a href="' + hashFor({ page: "pos" }) + '">Point of Sale</a>' + (inv ? " / " + esc(inv.id) : ""), head, body);
     if (inv) bindPosSearch(inv);
+    bindPosPatientSearch();
+  }
+  function bindPosPatientSearch() {
+    const input = $("#posPatientSearch");
+    const box = $("#posPatientResults");
+    if (!input || !box) return;
+    const paint = function () {
+      state.posPatientQ = input.value;
+      const q = String(input.value || "").trim().toLowerCase();
+      if (q.length < 2) { box.innerHTML = ""; return; }
+      const hits = (store.patients || []).filter(function (pt) {
+        return ((pt.name || "") + " " + displayId(pt.id) + " " + (pt.id || "") + " " + (pt.dob || "") + " " + fmtDob(pt.dob)).toLowerCase().indexOf(q) >= 0;
+      }).slice(0, 8);
+      box.innerHTML = hits.map(function (pt) {
+        return '<button type="button" class="row" data-pos-pick-patient="' + esc(pt.id) + '">' + esc(pt.name) + " · " + esc(displayId(pt.id)) + "</button>";
+      }).join("") || '<div class="empty">No patients match</div>';
+    };
+    input.addEventListener("input", paint);
+    if (input.value) paint();
+  }
+  function completeOrFinalizeSale(invId) {
+    const inv = invoice(invId);
+    if (!inv) return;
+    if (inv.finalized) { toast("This receipt is already locked"); return; }
+    finalizeInvoice(invId);
+    const cur = invoice(invId);
+    if (cur) {
+      refreshInvoiceBalance(cur);
+      if (cur.balance === 0) cur.status = "Paid";
+    }
+  }
+  function addChargesFromNote(invId) {
+    const inv = invoice(invId);
+    if (!inv || inv.finalized) return;
+    const p = patient(inv.patientId);
+    const notes = ((p && p.notes) || []).slice().reverse();
+    const charges = [];
+    notes.forEach(function (n) { (n.charges || []).forEach(function (c) { charges.push(c); }); });
+    if (!charges.length) { toast("No charges on this patient's notes"); return; }
+    inv.lines = inv.lines || [];
+    charges.forEach(function (c) {
+      inv.lines.push({ kind: "service", name: c.name || "Note charge", qty: 1, unitPrice: c.amount != null ? c.amount : null, fromNote: true });
+    });
+    refreshInvoiceBalance(inv);
+    toast("Added " + charges.length + " charge" + (charges.length === 1 ? "" : "s") + " from notes");
+    render();
   }
 
   function quoteRowHtml(q, href) {
@@ -8494,7 +8916,7 @@
   }
   function isFrontDeskRole(role) {
     role = role || state.actingRole;
-    return role === "Clinic Coordinator" || role === "Clinic Manager";
+    return role === "Clinical Coordinator" || role === "Clinic Manager";
   }
   function canEditChartHistory(role) {
     return isMaRole(role);
@@ -8527,28 +8949,137 @@
       return true;
     }).sort(function (a, b) { return String(a.time).localeCompare(String(b.time)) || String(a.id).localeCompare(String(b.id)); });
   }
+
+  function consentInlineHtml(s) {
+    let t = esc(s);
+    t = t.replace(/\[SAMPLE\]/g, '<span class="consent-sample">[SAMPLE]</span>');
+    t = t.replace(/\[PLACEHOLDER[^\]]*\]/g, function (m) { return '<span class="consent-sample">' + m + "</span>"; });
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    if (/after[-\s]hours/i.test(s)) {
+      t += '<span class="consent-open-q">After-hours phone: Open question</span>';
+    }
+    return t;
+  }
+  function renderConsentMarkdown(md) {
+    if (!md) return '<p class="empty">Wording is not loaded.</p>';
+    const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+    let html = "", i = 0, inList = false;
+    const flushList = function () { if (inList) { html += "</ul>"; inList = false; } };
+    const isTableRow = function (line) { return /^\s*\|/.test(line) && /\|/.test(line.slice(1)); };
+    const isTableSep = function (line) { return /^\s*\|?\s*:?-{3,}/.test(line); };
+    while (i < lines.length) {
+      const raw = lines[i];
+      const line = raw.replace(/\s+$/, "");
+      if (!line) { flushList(); html += ""; i += 1; continue; }
+      if (isTableRow(line)) {
+        flushList();
+        const rows = [];
+        while (i < lines.length && isTableRow(lines[i])) {
+          if (!isTableSep(lines[i])) rows.push(lines[i]);
+          i += 1;
+        }
+        html += "<table>" + rows.map(function (r, ri) {
+          const cells = r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(function (c) { return c.trim(); });
+          const tag = ri === 0 ? "th" : "td";
+          return "<tr>" + cells.map(function (c) { return "<" + tag + ">" + consentInlineHtml(c) + "</" + tag + ">"; }).join("") + "</tr>";
+        }).join("") + "</table>";
+        continue;
+      }
+      const h = line.match(/^(#{1,3})\s+(.*)$/);
+      if (h) { flushList(); html += "<h" + h[1].length + ">" + consentInlineHtml(h[2]) + "</h" + h[1].length + ">"; i += 1; continue; }
+      if (/^>\s?/.test(line)) { flushList(); html += "<blockquote>" + consentInlineHtml(line.replace(/^>\s?/, "")) + "</blockquote>"; i += 1; continue; }
+      if (/^[-*]\s+/.test(line)) {
+        if (!inList) { html += "<ul>"; inList = true; }
+        html += "<li>" + consentInlineHtml(line.replace(/^[-*]\s+/, "")) + "</li>";
+        i += 1; continue;
+      }
+      flushList();
+      html += "<p>" + consentInlineHtml(line) + "</p>";
+      i += 1;
+    }
+    flushList();
+    return html;
+  }
+  function consentWordingBlock(form) {
+    const pack = (BRIZZA.CONSENT_WORDING || {})[form.id];
+    if (!pack || !pack.markdown) return '<p class="row-sub">Wording is not loaded for this form.</p>';
+    return '<details class="consent-wording-wrap"><summary>View form wording</summary>' +
+      '<div class="consent-wording">' + renderConsentMarkdown(pack.markdown) + "</div></details>";
+  }
+  function canSeeDissolveConsent(a) {
+    if (isOwnerRole()) return true;
+    const prov = a && a.provider ? staffRecord(a.provider) : null;
+    return !!(prov && (prov.isMd || prov.role === "MD / Clinic Owner"));
+  }
+  function consentFormVisible(form, a) {
+    if (!form) return false;
+    if (form.ownerMdOnly) return canSeeDissolveConsent(a);
+    return true;
+  }
+  function consentExpired(rec) {
+    if (!rec || !rec.signedAt) return false;
+    const signed = String(rec.signedAt).slice(0, 10);
+    if (signed && addDays(signed, 365) <= todayET()) return true;
+    if (rec.productChanged) return true;
+    return false;
+  }
   function appointmentConsentsHtml(a, p) {
     if (!p) return '<div class="appt-consents"><div class="empty">No patient on this appointment.</div></div>';
-    const current = [
-      ["Clinical consent", p.consents && p.consents.clinical],
-      ["Photo consent", p.consents && p.consents.photo],
-      ["Marketing consent", p.consents && p.consents.marketing]
-    ];
-    const history = p.consentsHistory || [];
-    const photoOn = !!(p.consents && p.consents.photo && !/not (yet|authorized|on file)/i.test(p.consents.photo));
-    const rows = current.map(function (pair) {
-      return '<div class="row"><span>' + esc(pair[0]) + "</span><strong>" + esc(pair[1] || "Not on file") + "</strong></div>";
+    p.consentRecords = p.consentRecords || [];
+    const forms = (BRIZZA.CONSENT_FORMS || []).filter(function (f) { return consentFormVisible(f, a); });
+    const hiddenDissolve = (BRIZZA.CONSENT_FORMS || []).some(function (f) { return f.ownerMdOnly && !consentFormVisible(f, a); });
+    const rows = forms.map(function (f) {
+      const rec = (p.consentRecords || []).filter(function (r) { return r.formId === f.id; }).slice(-1)[0];
+      const expired = consentExpired(rec);
+      const status = rec && rec.signedAt ? (expired ? "Re-sign due" : "Signed") : (rec && rec.presentedAt ? "Presented" : "Not started");
+      const when = rec && rec.signedAt ? rec.signedAt : (rec && rec.presentedAt ? rec.presentedAt : "");
+      const vol = f.kind === "marketing-photo" ? '<div class="row-sub">Voluntary — never required to book or treat.</div>' : "";
+      const hold = f.ownerMdOnly && !canSeeDissolveConsent(a) ? " locked" : "";
+      const acts = (f.ownerMdOnly && !canSeeDissolveConsent(a))
+        ? '<span class="row-sub">Owner / MD only</span>'
+        : ('<button type="button" class="btn tiny" data-consent-act="present" data-consent-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">Present</button>' +
+           (isMaRole() && !isOwnerRole()
+             ? '<span class="row-sub">MA may present; the patient signs, not the MA as provider.</span>'
+             : '<button type="button" class="btn tiny primary" data-consent-act="sign" data-consent-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">Patient signs</button>'));
+      return '<div class="consent-row" data-consent-kind="' + esc(f.kind) + '">' +
+        "<div><strong>" + esc(f.title) + "</strong>" + vol +
+        '<div class="row-sub">Re-sign at least once every 12 months, and whenever the service, product, or device changes.' + (expired ? " This record is flagged for re-sign." : "") + "</div>" +
+        consentWordingBlock(f) +
+        "</div>" +
+        '<div class="consent-sig">' + esc(status) + (when ? " · " + esc(when) : "") + (expired ? " · 12-month re-sign flag" : "") + "</div>" +
+        "<div>" + acts + "</div></div>";
     }).join("");
-    const past = history.length
-      ? history.map(function (h) {
-          return '<div class="row-sub">' + esc(h.kind || "Consent") + " · " + esc(h.status || "") + (h.when ? " · " + esc(fmtDate(h.when)) : "") + (h.note ? " · " + esc(h.note) : "") + "</div>";
-        }).join("")
-      : '<div class="row-sub">No earlier consents on file</div>';
     return '<div class="appt-consents">' +
-      "<h3>Current consents</h3>" + rows +
-      '<label class="photo-consent"><input type="checkbox" data-photo-consent="' + esc(p.id) + '"' + (photoOn ? " checked" : "") + "> Photo consent on file</label>" +
-      "<h3>Past consents</h3>" + past +
-      '<p class="row-sub">Consent titles are placeholders only. This mockup does not include legal form text.</p></div>';
+      "<h3>Consent notes</h3>" +
+      '<p class="row-sub">Each treatment has its own consent. Clinical photography and marketing photography are separate records. A financial policy acknowledgment is included. Consents are not clinical notes.</p>' +
+      rows +
+      (hiddenDissolve ? '<p class="row-sub">Filler dissolve consent is available only when the provider or acting role is Owner / MD.</p>' : "") +
+      '<p class="row-sub">Cancellation: 24-hour cutoff, $50 late-cancel fee and $50 no-show fee.</p></div>';
+  }
+  function applyConsentAction(pid, apptId, formId, act) {
+    const p = patient(pid);
+    const form = (BRIZZA.CONSENT_FORMS || []).find(function (f) { return f.id === formId; });
+    const a = appt(apptId);
+    if (!p || !form) return;
+    if (form.ownerMdOnly && !canSeeDissolveConsent(a)) { toast("Filler dissolve consent is Owner / MD only"); return; }
+    p.consentRecords = p.consentRecords || [];
+    let rec = p.consentRecords.filter(function (r) { return r.formId === formId && !r.archived; }).slice(-1)[0];
+    if (!rec) {
+      rec = { id: nextId("CN-", p.consentRecords), formId: formId, title: form.title, kind: form.kind, appointmentId: apptId };
+      p.consentRecords.push(rec);
+    }
+    if (act === "present") {
+      rec.presentedAt = nowET();
+      rec.presentedBy = actingName();
+      toast("Consent presented to the patient");
+    } else if (act === "sign") {
+      if (isMaRole() && !isOwnerRole() && !isClinicalRole()) { toast("The medical assistant can present this form but cannot sign as the provider. The patient signs."); return; }
+      rec.signedAt = nowET();
+      rec.signedByPatient = p.name;
+      rec.witnessedBy = actingName();
+      toast("Patient signature recorded · " + rec.signedAt);
+    }
+    render();
   }
   function openEmnInfo(pid, nid) {
     const p = patient(pid);
@@ -8563,7 +9094,20 @@
     const statuses = (BRIZZA.NOTE_STATUSES || ["Draft", "Ready for review", "Finalized", "Amended"]).map(function (s) {
       return "<option" + ((n.status || "Draft") === s ? " selected" : "") + ">" + esc(s) + "</option>";
     }).join("");
-    const chargeLines = (n.charges || []).map(function (c) { return (c.name || "") + (c.amount != null ? " · " + c.amount : ""); }).join("\n");
+    const catalogOpts = (BRIZZA.CATALOG || []).map(function (c) {
+      return '<option value="' + esc(c.name) + '" data-price="' + (c.price != null ? esc(String(c.price)) : "") + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) : "") + "</option>";
+    }).join("");
+    const chargeRows = ((n.charges && n.charges.length) ? n.charges : [{ name: "", amount: null }]).map(function (c, i) {
+      return '<div class="tpl-opt-row emn-charge-row">' +
+        '<select data-emn-charge-name="' + i + '"><option value="">Select a charge</option>' +
+        (BRIZZA.CATALOG || []).map(function (cat) {
+          return '<option value="' + esc(cat.name) + '"' + (c.name === cat.name ? " selected" : "") + ">" + esc(cat.name) + (cat.price != null ? " · " + money(cat.price) : "") + "</option>";
+        }).join("") +
+        (c.name && !(BRIZZA.CATALOG || []).some(function (cat) { return cat.name === c.name; }) ? '<option selected value="' + esc(c.name) + '">' + esc(c.name) + "</option>" : "") +
+        "</select>" +
+        '<input type="number" min="0" step="0.01" placeholder="Amount" data-emn-charge-amt="' + i + '" value="' + esc(c.amount != null ? String(c.amount) : "") + '">' +
+      "</div>";
+    }).join("");
     showModal("Note details",
       '<div class="formgrid">' +
         '<div class="field full"><label for="emnTitle">Note name</label><input id="emnTitle" value="' + esc(n.title || n.type || "") + '"></div>' +
@@ -8572,8 +9116,11 @@
         '<div class="field"><label for="emnPrimary">Primary provider</label><select id="emnPrimary">' + staffOpts(n.primaryProvider || n.provider || (ap && ap.provider) || "") + "</select></div>" +
         '<div class="field"><label for="emnSecondary">Secondary provider</label><select id="emnSecondary">' + staffOpts(n.secondaryProvider || "") + "</select></div>" +
         '<div class="field"><label for="emnAssistant">Assistant</label><select id="emnAssistant">' + staffOpts(n.assistant || "") + "</select></div>" +
-        '<div class="field full"><label for="emnCharges">Charges (one per line, name · amount). Front desk can pull these into checkout.</label>' +
-        '<textarea id="emnCharges" rows="3" placeholder="Botox · 21">' + esc(chargeLines) + "</textarea></div></div>" +
+        '<div class="field"><label for="emnNextAppt">Next appointment</label><input id="emnNextAppt" type="date" value="' + esc(n.nextAppointmentDate || "") + '"></div>' +
+        '<div class="field full"><span>Charges</span>' +
+        '<p class="row-sub">Pick from the catalog. The Clinical Coordinator can add these in Point of Sale with Add charges from note.</p>' +
+        '<div id="emnChargeRows">' + chargeRows + "</div>" +
+        '<button type="button" class="btn tiny" id="emnAddCharge">＋ Add charge</button></div></div>' +
         (isMaRole() ? '<p class="row-sub">The medical assistant can start and edit a draft but cannot set the status to Finalized.</p>' : ""),
       function () {
         const nextStatus = $("#emnStatus").value;
@@ -8584,11 +9131,15 @@
         n.primaryProvider = $("#emnPrimary").value;
         n.secondaryProvider = $("#emnSecondary").value;
         n.assistant = $("#emnAssistant").value;
-        n.charges = ($("#emnCharges").value || "").split("\n").map(function (line) {
-          const parts = line.split("·").map(function (s) { return s.trim(); });
-          if (!parts[0]) return null;
-          const amt = parts[1] ? Number(parts[1].replace(/[^0-9.]/g, "")) : null;
-          return { name: parts[0], amount: (amt === amt && parts[1]) ? amt : null };
+        n.nextAppointmentDate = ($("#emnNextAppt") && $("#emnNextAppt").value) || "";
+        n.charges = Array.prototype.map.call(document.querySelectorAll("[data-emn-charge-name]"), function (sel) {
+          const i = sel.getAttribute("data-emn-charge-name");
+          const amtEl = document.querySelector('[data-emn-charge-amt="' + i + '"]');
+          const name = sel.value;
+          if (!name) return null;
+          const raw = amtEl ? amtEl.value : "";
+          const amt = raw ? Number(raw) : null;
+          return { name: name, amount: (amt === amt ? amt : null) };
         }).filter(Boolean);
         toast("Note details saved");
         closeModal();
@@ -8619,10 +9170,23 @@
   function myDayTab() {
     const t = state.myDayTab || "patients";
     if (t === "today") return "patients";
+    if (t === "mine") return "notes";
     return t;
   }
+  function pendingEmnCount() {
+    const who = actingName();
+    let n = 0;
+    (store.patients || []).forEach(function (p) {
+      (p.notes || []).forEach(function (note) {
+        if (isNoteSigned(note)) return;
+        if (!isOwnerRole() && ! (state.actingRole === "Clinic Manager") && note.provider && note.provider !== who) return;
+        n += 1;
+      });
+    });
+    return n;
+  }
   function myDayDate() {
-    return state.myDayDate || todayET();
+    return state.myDayDate || defaultClinicDate();
   }
   function canSeeMyDayPending() {
     return canStartNote() || isOwnerRole() || state.actingRole === "Clinic Manager";
@@ -8633,9 +9197,8 @@
   function myDayTabsHtml() {
     const cur = myDayTab();
     const tabs = [["patients", "Today's patients"]];
-    if (canSeeMyDayPending()) tabs.push(["pending", "Pending EMNs"]);
-    if (canStartNote() || isOwnerRole()) tabs.push(["mine", "My notes"]);
-    if (canSeeMyDayClinicNotes()) tabs.push(["notes", "Notes"]);
+    if (canSeeMyDayPending()) tabs.push(["pending", "Pending EMNs (" + pendingEmnCount() + ")"]);
+    if (canStartNote() || isOwnerRole() || canSeeMyDayClinicNotes()) tabs.push(["notes", "Notes"]);
     const tabBtns = tabs.map(function (t) {
       const on = t[0] === cur;
       return '<a class="btn small' + (on ? " primary" : "") + '" role="tab" aria-selected="' + (on ? "true" : "false") + '" href="' + hashFor({ page: "emr", myDayTab: t[0], myDayDate: myDayDate() }) + '">' + t[1] + "</a>";
@@ -8704,6 +9267,24 @@
       (id ? '<div class="id-preview" aria-label="ID on file"><div class="id-preview-card"><strong>' + esc(p.name) + "</strong><div>" + esc(fmtDob(p.dob)) + " · " + esc(displayId(p.id)) + "</div><div class=\"row-sub\">" + esc(id.type || "Photo ID") + " on file (synthetic placeholder)</div></div></div>" : "") +
       "</div>";
   }
+  function checkinReady(a) {
+    const items = BRIZZA.CHECKIN_PREP_ITEMS || [];
+    const rec = (a && a.checkinPrep) || {};
+    return items.length > 0 && items.every(function (it) { return !!rec[it.id]; });
+  }
+  function checkinCellHtml(a) {
+    const ready = checkinReady(a);
+    const open = state.expandedCheckin === a.id;
+    const items = (BRIZZA.CHECKIN_PREP_ITEMS || []).map(function (it) {
+      const on = !!(a.checkinPrep && a.checkinPrep[it.id]);
+      return '<label class="choice"><input type="checkbox" data-checkin-item="' + esc(it.id) + '" data-checkin-appt="' + esc(a.id) + '"' + (on ? " checked" : "") + "> " + esc(it.label) + "</label>";
+    }).join("");
+    return '<span class="prep-cell">' +
+      '<button type="button" class="checkin-pill ' + (ready ? "ready" : "needs") + '" data-expand-checkin="' + esc(a.id) + '">' +
+        (ready ? "Check-in ready" : "Needs check-in prep") + "</button>" +
+      (open ? '<div class="prep-detail checkin-detail" role="tooltip">' + items + '<p class="row-sub">Check-in prep is separate from clinical prep.</p></div>' : "") +
+    "</span>";
+  }
   function myDayVisitCard(a, opts) {
     opts = opts || {};
     const p = patient(a.patientId);
@@ -8712,7 +9293,8 @@
     const apptNote = a.prepNotes ? esc(a.prepNotes) : '<span class="muted">No appointment note</span>';
     const noteBtn = (canStartNote() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
     const hxBtn = (isMaRole() && p) ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "clinical-profile" }) + '">Update history</a>' : "";
-    const consentBtn = (isMaRole() && p) ? '<button type="button" class="btn tiny" data-open-consents="' + esc(a.id) + '">Complete consents</button>' : "";
+    const consentBtn = ((isMaRole() || isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") && p) ? '<button type="button" class="btn tiny" data-open-consents="' + esc(a.id) + '">Complete consents</button>' : "";
+    const schedNextBtn = ((isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") && p) ? '<button type="button" class="btn tiny" data-sched-next="' + esc(a.id) + '" data-pid="' + esc(p.id) + '">Schedule next appt</button>' : "";
     const emnBlock = p ? ('<div class="myday-emns"><div class="row-sub"><strong>Visit EMNs</strong></div>' +
       (visitNotes.map(function (n) {
         return '<div class="emn-row"><div>' + esc(n.type || "Note") + " · " + esc(n.provider || "") + "</div>" + emnActionsHtml(p, n) + "</div>";
@@ -8733,8 +9315,12 @@
         (p ? " · " + esc(displayId(p.id)) : "") + "</div>" +
       alerts +
       (opts.prep ? '<div class="emr-snap">' + prepCellHtml(a, state.expandedPrep === a.id) + "</div>" : "") +
-      '<div class="emr-snap myday-appt-note"><strong>Appointment notes</strong> ' + apptNote +
-        ' <button type="button" class="btn-icon" data-edit-prep="' + esc(a.id) + '" title="Edit appointment note" aria-label="Edit appointment note">✎</button></div>' +
+      ((isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") ? '<div class="emr-snap">' + checkinCellHtml(a) + "</div>" : "") +
+      '<div class="emr-snap myday-appt-note"><strong>Appointment notes</strong> ' +
+        (state.editingPrep === a.id
+          ? '<textarea id="prep-' + esc(a.id) + '" class="wl-note" data-prep-notes="' + esc(a.id) + '" rows="3" placeholder="Appointment notes">' + esc(a.prepNotes || "") + "</textarea>"
+          : (apptNote + ' <button type="button" class="btn-icon" data-edit-prep="' + esc(a.id) + '" title="Edit appointment note" aria-label="Edit appointment note">✎</button>')) +
+        "</div>" +
       emnBlock + forms +
       ((opts.providerCue && chargesMissing(a)) ? '<span class="cal-pay unpaid">Charges missing</span>' : "") +
       checkoutIfAllowedHtml(a) +
@@ -8742,7 +9328,7 @@
         reminderActionsHtml(a) +
         '<button type="button" class="btn tiny" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
         (p ? '<a class="btn tiny" href="' + href + '">Open chart</a>' : "") +
-        noteBtn + hxBtn + consentBtn +
+        noteBtn + hxBtn + consentBtn + schedNextBtn +
       "</div>";
     return jewelWrap(a, inner, "emr-patient myday-card", 'data-appt="' + esc(a.id) + '"');
   }
@@ -8766,14 +9352,28 @@
       const d = it.n.date || "";
       if (from && d && d < from) return false;
       if (to && d && d > to) return false;
+      if (statusFilter && statusFilter !== "all" && (it.n.status || "Draft") !== statusFilter) return false;
       return true;
     });
     filtered.sort(function (a, b) {
       return String(b.n.date || "").localeCompare(String(a.n.date || "")) || String((b.n.id || "")).localeCompare(String(a.n.id || ""));
     });
     const newBtn = canStartNote() ? '<button type="button" class="btn tiny primary" data-new-dash-note="1">＋ New note</button>' : "";
-    const filters = '<div class="myday-note-filters"><label class="field"><span class="row-sub">From</span><input type="date" id="notesFrom" value="' + esc(from) + '" placeholder="Any date"></label>' +
-      '<label class="field"><span class="row-sub">To</span><input type="date" id="notesTo" value="' + esc(to) + '" placeholder="Any date"></label></div>';
+    const statusFilter = state.notesStatusFilter || "all";
+    const statusOpts = [["all", "All statuses"], ["Draft", "Draft"], ["Ready for review", "Ready for review"], ["Finalized", "Finalized"], ["Amended", "Amended"]];
+    const filters = '<div class="myday-note-filters">' +
+      (canSeeMyDayClinicNotes() && !pendingOnly
+        ? ('<label class="field"><span class="row-sub">Whose</span><select id="notesScope">' +
+           '<option value="mine"' + (scope === "mine" ? " selected" : "") + ">Mine</option>" +
+           '<option value="all"' + (scope === "all" ? " selected" : "") + ">All clinic</option></select></label>")
+        : "") +
+      '<label class="field"><span class="row-sub">Status</span><select id="notesStatusFilter">' +
+        statusOpts.map(function (pair) {
+          return '<option value="' + pair[0] + '"' + (statusFilter === pair[0] ? " selected" : "") + ">" + esc(pair[1]) + "</option>";
+        }).join("") +
+      "</select></label>" +
+      '<label class="field"><span class="row-sub">From</span><input type="date" id="notesFrom" value="' + esc(from) + '"></label>' +
+      '<label class="field"><span class="row-sub">To</span><input type="date" id="notesTo" value="' + esc(to) + '"></label></div>';
     const rows = filtered.map(function (it) {
       const n = it.n, p = it.p;
       const lateMark = isNoteLate(n) ? ' <span class="wl-late">Late</span>' : "";
@@ -8782,27 +9382,27 @@
         '<div class="row-sub">' + esc(fmtDate(n.date)) + (n.time ? " · " + esc(fmtTime(n.time)) : "") + " · " + esc(n.provider || "") + "</div></div>" +
         emnActionsHtml(p, n) + "</div>";
     }).join("") || '<div class="empty">No notes in this list.</div>';
-    return '<div class="card"><div class="cardhead"><h2>' + (pendingOnly ? "Pending EMNs" : (scope === "mine" ? "My notes" : "Notes")) + "</h2>" + filters + newBtn + "</div><div class=\"cardbody\">" + rows + "</div></div>";
+    return '<div class="card"><div class="cardhead"><h2>' + (pendingOnly ? "Pending EMNs" : "Notes") + "</h2>" + filters + newBtn + "</div><div class=\"cardbody\">" + rows + "</div></div>";
   }
   function renderToday() {
     const day = myDayDate();
     const staff = actingProviderStaff();
     const ma = isMaRole();
     const fd = isFrontDeskRole() || (isOwnerRole() && !staff);
-    const coord = state.actingRole === "Clinic Coordinator" || isFrontDeskRole();
+    const coord = state.actingRole === "Clinical Coordinator" || isFrontDeskRole();
     const tab = myDayTab();
     let sub = esc(fmtDate(day));
-    if (fd || coord) sub += " · Front desk";
+    if (fd || coord) sub += " · Clinical Coordinator";
     else if (ma) sub += " · Medical assistant · all providers";
     else if (staff) sub += " · " + esc(staff.name);
+    const dayList = clinicDayAppointments(day) || [];
+    if (dayList.length && !isClinicClosedDay(day)) sub += " · " + dayList.length + " visit" + (dayList.length === 1 ? "" : "s");
     const head = pageHead("My Day", "My Day", sub, myDayTabsHtml());
     let main = "";
     if (tab === "pending") {
       main = myDayNotesPanel("mine", true);
-    } else if (tab === "mine") {
-      main = myDayNotesPanel("mine", false);
     } else if (tab === "notes") {
-      main = myDayNotesPanel("all", false);
+      main = myDayNotesPanel((state.notesScope === "all" && canSeeMyDayClinicNotes()) ? "all" : "mine", false);
     } else if (isClinicClosedDay(day)) {
       main = clinicClosedBanner(day);
     } else if (fd || coord) {
@@ -8827,7 +9427,7 @@
         (list.map(function (a) { return myDayVisitCard(a, { prep: true, showClinical: true, providerCue: true }); }).join("") || '<div class="empty">' + (staff ? "No patients on this provider's schedule this day." : "No patients on the clinic schedule this day.") + "</div>") +
         "</div></div>";
     }
-    renderChrome('<a href="' + hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }) + '">My Day</a>', head, main);
+    renderChrome('<a href="' + hashFor({ page: "emr", myDayTab: "patients", myDayDate: defaultClinicDate() }) + '">My Day</a>', head, main);
     const fromEl = $("#notesFrom");
     const toEl = $("#notesTo");
     const applyNotesDates = function () {
@@ -8837,6 +9437,10 @@
     };
     if (fromEl) fromEl.addEventListener("change", applyNotesDates);
     if (toEl) toEl.addEventListener("change", applyNotesDates);
+    const scopeEl = $("#notesScope");
+    if (scopeEl) scopeEl.addEventListener("change", function () { state.notesScope = scopeEl.value; render(); });
+    const stEl = $("#notesStatusFilter");
+    if (stEl) stEl.addEventListener("change", function () { state.notesStatusFilter = stEl.value; render(); });
   }
 
   function renderEmr() { renderToday(); }
@@ -9310,6 +9914,56 @@
       printInvoiceReceipt(prn.getAttribute("data-print-receipt"));
       return;
     }
+    if (e.target && (e.target.id === "emnAddCharge" || e.target.closest("#emnAddCharge"))) {
+      e.preventDefault();
+      const host = document.getElementById("emnChargeRows");
+      if (host) {
+        const i = host.querySelectorAll("[data-emn-charge-name]").length;
+        const opts = (BRIZZA.CATALOG || []).map(function (cat) {
+          return '<option value="' + esc(cat.name) + '">' + esc(cat.name) + (cat.price != null ? " · " + money(cat.price) : "") + "</option>";
+        }).join("");
+        const row = document.createElement("div");
+        row.className = "tpl-opt-row emn-charge-row";
+        row.innerHTML = '<select data-emn-charge-name="' + i + '"><option value="">Select a charge</option>' + opts + "</select>" +
+          '<input type="number" min="0" step="0.01" placeholder="Amount" data-emn-charge-amt="' + i + '">';
+        host.appendChild(row);
+      }
+      return;
+    }
+    const emailRcpt = e.target.closest("[data-email-receipt]");
+    if (emailRcpt) {
+      e.preventDefault();
+      toast("Email receipt is simulated in this mockup");
+      return;
+    }
+    const completeSale = e.target.closest("[data-complete-sale], [data-finalize-receipt]");
+    if (completeSale) {
+      e.preventDefault();
+      completeOrFinalizeSale(completeSale.getAttribute("data-complete-sale") || completeSale.getAttribute("data-finalize-receipt"));
+      return;
+    }
+    const catTab = e.target.closest("[data-pos-cat-tab]");
+    if (catTab) {
+      e.preventDefault();
+      state.posCatalogTab = catTab.getAttribute("data-pos-cat-tab") || "services";
+      render();
+      return;
+    }
+    const noteCh = e.target.closest("[data-add-note-charges]");
+    if (noteCh) {
+      e.preventDefault();
+      addChargesFromNote(noteCh.getAttribute("data-add-note-charges"));
+      return;
+    }
+    const pickPos = e.target.closest("[data-pos-pick-patient]");
+    if (pickPos) {
+      e.preventDefault();
+      const inv = newBlankInvoice(pickPos.getAttribute("data-pos-pick-patient"));
+      state.invoiceId = inv.id;
+      state.posAppointmentId = null;
+      render();
+      return;
+    }
     const rmLine = e.target.closest("[data-remove-line]");
     if (rmLine) {
       e.preventDefault();
@@ -9381,6 +10035,52 @@
       const ap = appt(openConsents.getAttribute("data-open-consents"));
       if (ap) openAppointment(ap.id, { pane: "consents" });
       else toast("Open the appointment to complete consents");
+      return;
+    }
+    const consentAct = e.target.closest("[data-consent-act]");
+    if (consentAct) {
+      e.preventDefault();
+      applyConsentAction(consentAct.getAttribute("data-pid"), consentAct.getAttribute("data-appt"), consentAct.getAttribute("data-consent-form"), consentAct.getAttribute("data-consent-act"));
+      return;
+    }
+    const schedNext = e.target.closest("[data-sched-next]");
+    if (schedNext) {
+      e.preventDefault();
+      if (isMarketingRole()) { toast("Schedule is read-only for Marketing"); return; }
+      const ap = appt(schedNext.getAttribute("data-sched-next"));
+      const pid = schedNext.getAttribute("data-pid");
+      const provider = (ap && ap.provider) || "";
+      let jump = defaultClinicDate();
+      if (ap) {
+        const notes = visitNotesOf(ap);
+        notes.forEach(function (n) {
+          const d = n.nextAppointmentDate || (n.values && (n.values.nextAppointment || n.values.nextAppt));
+          if (d && String(d).match(/^\d{4}-\d{2}-\d{2}$/)) jump = d;
+        });
+      }
+      const staff = staffRecord(provider);
+      if (staff && staff.id) state.weekProviderId = staff.id;
+      location.hash = hashFor({ page: "schedule", date: jump, view: "calendar", calMode: "week" });
+      setTimeout(function () { openBook(pid, { date: jump, provider: provider, lockPatient: true }); }, 0);
+      return;
+    }
+    const expandCheckin = e.target.closest("[data-expand-checkin]");
+    if (expandCheckin) {
+      e.preventDefault();
+      const id = expandCheckin.getAttribute("data-expand-checkin");
+      state.expandedCheckin = state.expandedCheckin === id ? null : id;
+      render();
+      return;
+    }
+    const checkItem = e.target.closest("[data-checkin-item]");
+    if (checkItem) {
+      e.preventDefault();
+      const ap = appt(checkItem.getAttribute("data-checkin-appt"));
+      if (!ap) return;
+      ap.checkinPrep = ap.checkinPrep || {};
+      const key = checkItem.getAttribute("data-checkin-item");
+      ap.checkinPrep[key] = !ap.checkinPrep[key];
+      render();
       return;
     }
     const expandPrep = e.target.closest("[data-expand-prep]");
@@ -9553,8 +10253,41 @@
     if (locChip) { e.preventDefault(); state.locationId = locChip.getAttribute("data-loc-chip"); state.compareLocations = false; render(); return; }
     const locCmp = e.target.closest("[data-loc-compare]");
     if (locCmp) { e.preventDefault(); state.compareLocations = true; render(); return; }
+    const typeFilt = e.target.closest("[data-type-filter]");
+    if (typeFilt) {
+      e.preventDefault();
+      const next = typeFilt.getAttribute("data-type-filter") || "";
+      state.scheduleTypeFilter = (state.scheduleTypeFilter && state.scheduleTypeFilter === next) ? "" : next;
+      render();
+      return;
+    }
+    const dayPlus = e.target.closest("[data-day-plus]");
+    if (dayPlus) {
+      e.preventDefault();
+      if (isMarketingRole()) { toast("Schedule is read-only for Marketing"); return; }
+      const d = dayPlus.getAttribute("data-day-plus");
+      if (state.page === "schedule" && state.scheduleView === "calendar" && state.calMode === "month" && state.expandedCalDay !== d) {
+        state.expandedCalDay = d;
+        state.date = d;
+        render();
+        return;
+      }
+      if (!(state.page === "schedule" && state.calMode === "day" && state.date === d)) {
+        location.hash = hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" });
+        return;
+      }
+      openBook(state.selected, { date: d, provider: slotProvider() });
+      return;
+    }
+    const openBlk = e.target.closest("[data-open-block]");
+    if (openBlk) {
+      e.preventDefault();
+      if (isMarketingRole()) { toast("Schedule is read-only for Marketing"); return; }
+      openAddBlock(openBlk.getAttribute("data-open-block"));
+      return;
+    }
     const emptySlot = e.target.closest("[data-drop-slot]");
-    if (emptySlot && !e.target.closest(".cal-event, .block-card, select, button, a, input, .status-dd, .audit-icon, [data-open-appt]")) {
+    if (emptySlot && !e.target.closest(".cal-event, .cal-block, .block-card, select, button, a, input, .status-dd, .audit-icon, [data-open-appt], [data-open-block], [data-day-plus]")) {
       e.preventDefault();
       const parts = emptySlot.getAttribute("data-drop-slot").split("|");
       openBook(state.selected, { date: parts[0], time: parts[1], provider: parts[2] || slotProvider() });
@@ -9638,6 +10371,13 @@
   }
 
   function onChange(e) {
+    const chName = e.target && e.target.closest && e.target.closest("[data-emn-charge-name]");
+    if (chName) {
+      const i = chName.getAttribute("data-emn-charge-name");
+      const amt = document.querySelector('[data-emn-charge-amt="' + i + '"]');
+      const cat = (BRIZZA.CATALOG || []).find(function (c) { return c.name === chName.value; });
+      if (amt && cat && cat.price != null && !amt.value) amt.value = cat.price;
+    }
     if (handleTplBuilderChange(e)) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute("data-task-owner")) {
       const rec = (store.tasks || []).find(function (t) { return t.id === e.target.getAttribute("data-task-owner"); });
@@ -9660,7 +10400,7 @@
     else if (e.target.id === "notesProvider") { state.notesProvider = e.target.value; render(); }
     else if (e.target.id === "notesGroup") { state.notesGroup = e.target.value; render(); }
     else if (e.target.id === "myDayDate") {
-      state.myDayDate = e.target.value || todayET();
+      state.myDayDate = e.target.value || defaultClinicDate();
       state.myDayTab = "patients";
       go({ page: "emr", myDayTab: "patients", myDayDate: state.myDayDate });
     }
@@ -9790,7 +10530,7 @@
     state.contrast = checkContrast();
     if (state.contrast.failed) console.warn("Contrast check failures", state.contrast);
     else console.info("Theme contrast: all configured text/background pairs meet their WCAG targets.");
-    if (!location.hash) history.replaceState(null, "", hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }));
+    if (!location.hash) history.replaceState(null, "", hashFor({ page: "emr", myDayTab: "patients", myDayDate: defaultClinicDate() }));
     window.addEventListener("hashchange", applyRoute);
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", function (e) {

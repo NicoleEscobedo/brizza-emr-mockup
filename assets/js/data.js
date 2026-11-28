@@ -9,8 +9,14 @@ BRIZZA.CLINIC = {
   location: "Manhattan Clinic",
   hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET",
   tz: "America/New_York",
-  payModel: "Cash-pay"
+  payModel: "Cash-pay",
+  address: "Manhattan Clinic (address placeholder)",
+  phone: "Phone placeholder"
 };
+
+/* Swappable text mark until the final logo arrives. One constant + CSS hook
+   (.clinic-logo-mark). Text only — do not ship an emblem image. */
+BRIZZA.LOGO = { text: "BRIZZA AESTHETICS", cssClass: "clinic-logo-mark" };
 
 /* Manhattan Clinic is the sourced location. Long Island is a synthetic sample location (Open question 26). */
 BRIZZA.LOCATIONS = [
@@ -48,10 +54,26 @@ BRIZZA.ZIP_LOOKUP = {
   "07102": { city: "Newark", state: "NJ" },
   "07302": { city: "Jersey City", state: "NJ" },
   "07601": { city: "Hackensack", state: "NJ" },
+  "07748": { city: "Middletown", state: "NJ" },
+  "06457": { city: "Middletown", state: "CT" },
   "06830": { city: "Greenwich", state: "CT" },
+  "06511": { city: "New Haven", state: "CT" },
   "02108": { city: "Boston", state: "MA" }
 };
 BRIZZA.COUNTRIES = ["United States", "Canada", "United Kingdom", "Mexico"];
+BRIZZA.US_STATES = [
+  ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],
+  ["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],
+  ["FL","Florida"],["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],
+  ["IN","Indiana"],["IA","Iowa"],["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],
+  ["ME","Maine"],["MD","Maryland"],["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],
+  ["MS","Mississippi"],["MO","Missouri"],["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],
+  ["NH","New Hampshire"],["NJ","New Jersey"],["NM","New Mexico"],["NY","New York"],
+  ["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],["OK","Oklahoma"],["OR","Oregon"],
+  ["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],["SD","South Dakota"],
+  ["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],["VA","Virginia"],
+  ["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"]
+];
 
 
 
@@ -252,13 +274,13 @@ BRIZZA.STAFF = [
   { id: "hayes", short: "Hayes", name: "Stella Hayes, LE", role: "Aesthetician", title: "Aesthetician", credential: "LE", isProvider: true },
   { id: "lily", short: "Morgan", name: "Lily Morgan", role: "Clinic Manager", title: "Clinic Manager", isProvider: false },
   { id: "blair", short: "Brooks", name: "Blair Brooks", role: "Marketing Specialist", title: "Marketing", isProvider: false },
-  { id: "serena", short: "Collins", name: "Serena Collins", role: "Clinic Coordinator", title: "Clinic Coordinator", isProvider: false },
+  { id: "serena", short: "Collins", name: "Serena Collins", role: "Clinical Coordinator", title: "Clinical Coordinator", isProvider: false },
   { id: "ortiz", short: "Ortiz", name: "Camila Ortiz", role: "Medical Assistant", title: "Medical Assistant", isProvider: false }
 ];
 /* Real calendar holidays — not shifted with sample data. */
 /* Major US holidays (and weekday observations when the date falls on a weekend).
-   Not shifted with sample data. Columbus Day / Indigenous Peoples' Day is omitted
-   as a typical private-clinic closure (Open question). The Friday after Thanksgiving is not closed. */
+   Not shifted with sample data. Nicole confirmed (Round 17 answers, Nov 27):
+   close Columbus Day / Indigenous Peoples' Day and the Friday after Thanksgiving. */
 BRIZZA.HOLIDAYS = {
   "2026-01-01": "New Year's Day",
   "2026-01-19": "Martin Luther King Jr. Day",
@@ -268,8 +290,10 @@ BRIZZA.HOLIDAYS = {
   "2026-07-03": "Independence Day (observed)",
   "2026-07-04": "Independence Day",
   "2026-09-07": "Labor Day",
+  "2026-10-12": "Columbus Day",
   "2026-11-11": "Veterans Day",
   "2026-11-26": "Thanksgiving",
+  "2026-11-27": "Friday after Thanksgiving",
   "2026-12-25": "Christmas",
   "2027-01-01": "New Year's Day",
   "2027-01-18": "Martin Luther King Jr. Day",
@@ -280,8 +304,10 @@ BRIZZA.HOLIDAYS = {
   "2027-07-04": "Independence Day",
   "2027-07-05": "Independence Day (observed)",
   "2027-09-06": "Labor Day",
+  "2027-10-11": "Columbus Day",
   "2027-11-11": "Veterans Day",
   "2027-11-25": "Thanksgiving",
+  "2027-11-26": "Friday after Thanksgiving",
   "2027-12-24": "Christmas (observed)",
   "2027-12-25": "Christmas"
 };
@@ -291,7 +317,7 @@ BRIZZA.PROVIDERS = BRIZZA.STAFF.filter(function (s) { return s.isProvider; }).ma
 BRIZZA.ROLES = [
   "MD / Clinic Owner",
   "Clinic Manager",
-  "Clinic Coordinator",
+  "Clinical Coordinator",
   "RN / NP Injector",
   "Aesthetician",
   "Medical Assistant",
@@ -300,11 +326,12 @@ BRIZZA.ROLES = [
 BRIZZA.ROOMING_STATUSES = BRIZZA.ROOMING_BOARD_STATUSES;
 /* Admin block reasons as specified for this mockup; not an approved V1 catalog. */
 
-/* Mockup lunch windows (Nicole asked to stagger front desk and MA; exact times were not given).
-   Front desk 12:00–1:00 p.m., MA 1:00–2:00 p.m. Providers use a Lunch block on the date,
-   a same-location gap in their availability template, or 1:00–2:00 p.m. as a default. */
+/* Mockup lunch windows (Nicole asked to stagger Clinical Coordinator and MA; exact times were not given).
+   Clinical Coordinator 12:00–1:00 p.m., MA 1:00–2:00 p.m. Providers use a Lunch block on the date,
+   a same-location gap in their availability template (1:00–2:00 p.m. for every provider, including Hayes),
+   or 1:00–2:00 p.m. as a default. */
 BRIZZA.STAFF_LUNCH = {
-  "Clinic Coordinator": { start: "12:00", end: "13:00" },
+  "Clinical Coordinator": { start: "12:00", end: "13:00" },
   "Medical Assistant": { start: "13:00", end: "14:00" }
 };
 
@@ -337,7 +364,8 @@ BRIZZA.availabilityTemplates = [
     ] },
   { id: "AVT-1003", provider: "Stella Hayes, LE", color: "#FFFCF6", startDate: "2026-11-02", endDate: null, everyNWeeks: 1, days: [1, 2, 3, 4, 5],
     blocks: [
-      { locationId: "LOC-MANHATTAN", start: "10:00", end: "18:00" }
+      { locationId: "LOC-MANHATTAN", start: "10:00", end: "13:00" },
+      { locationId: "LOC-MANHATTAN", start: "14:00", end: "18:00" }
     ] }
 ];
 
@@ -884,4 +912,38 @@ BRIZZA.DEMO_STEPS = [
   {id:"d6",ms:10000,hash:"#/configuration",title:"Synthetic prototype",
     caption:"This is an interactive mockup with in-memory synthetic records. It is not a production EMR, has no live database, and must not be used with real patient data.",
     decisions:"Project data policy"}
+];
+
+/* Role-to-status map (Round 18 item 28). Every role sees the full list; only these values are selectable. */
+BRIZZA.STATUS_PERMISSIONS = {
+  "MD / Clinic Owner": ["*"],
+  "Clinic Manager": ["*"],
+  "Clinical Coordinator": ["Scheduled", "Confirmed", "Checked in", "Ready for checkout", "Checked out", "No-show", "Canceled"],
+  "RN / NP Injector": ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"],
+  "Aesthetician": ["Ready for clinical", "With clinical", "Ready for provider", "With provider", "Ready for checkout"],
+  "Medical Assistant": ["Checked in", "Ready for clinical", "With clinical", "Ready for provider"],
+  "Marketing Specialist": []
+};
+
+/* Coordinator check-in prep is separate from clinical prep (Round 18 item 27). */
+BRIZZA.CHECKIN_PREP_ITEMS = [
+  { id: "id", label: "Photo ID on file" },
+  { id: "intake", label: "Intake received" },
+  { id: "confirm", label: "Appointment confirmed" },
+  { id: "consents", label: "Consents presented" },
+  { id: "next", label: "Next visit discussed" }
+];
+
+/* Consent form catalog. Verbatim wording is in assets/js/consents.js, copied from
+   /workspace/brizza-hq/consents/ just before this push. Filler dissolve is Owner/MD only. */
+BRIZZA.CONSENT_FORMS = [
+  { id: "consent-neuromodulator", title: "Neuromodulator treatment", kind: "treatment", placeholder: true, file: "neuromodulator-consent.md" },
+  { id: "consent-filler", title: "Dermal filler", kind: "treatment", placeholder: true, file: "dermal-filler-consent.md" },
+  { id: "consent-dissolve", title: "Filler dissolve", kind: "treatment", placeholder: true, ownerMdOnly: true, file: "filler-dissolve-consent.md" },
+  { id: "consent-peel", title: "Chemical peel", kind: "treatment", placeholder: true, file: "chemical-peel-consent.md" },
+  { id: "consent-microneedling", title: "Microneedling", kind: "treatment", placeholder: true, file: "microneedling-consent.md" },
+  { id: "consent-facial", title: "Customized facial", kind: "treatment", placeholder: true, file: "customized-facial-consent.md" },
+  { id: "consent-photo-clinical", title: "Clinical photography", kind: "clinical-photo", placeholder: true, file: "clinical-photography-consent.md" },
+  { id: "consent-photo-marketing", title: "Marketing photography", kind: "marketing-photo", placeholder: true, voluntary: true, file: "marketing-photo-authorization.md" },
+  { id: "consent-financial", title: "Financial and cancellation policy", kind: "financial", placeholder: true, file: "financial-cancellation-policy-acknowledgment.md" }
 ];

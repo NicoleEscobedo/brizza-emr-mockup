@@ -15,7 +15,7 @@ BRIZZA.CLINIC = {
 /* Manhattan Clinic is the sourced location. Long Island is a synthetic sample location (Open question 26). */
 BRIZZA.LOCATIONS = [
   { id: "LOC-MANHATTAN", name: "Manhattan Clinic", short: "Manhattan", hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET", tz: "America/New_York", synthetic: false },
-  { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Monday–Friday, 10:00 a.m.–6:00 p.m. ET", tz: "America/New_York" }
+  { id: "LOC-LONGISLAND", name: "Long Island", short: "Long Island", hours: "Open question", hoursOpenQuestion: true, tz: "America/New_York" }
 ];
 BRIZZA.DEFAULT_LOCATION = "LOC-MANHATTAN";
 /* Built-in ZIP lookup for address auto-fill (NYC / Long Island / NJ plus a handful more). Prototype only. */
@@ -123,25 +123,42 @@ BRIZZA.appointmentTypes = [
   { id: "follow-up", name: "Follow-up", minutes: 15, confirmName: "Follow-up", confirmDraft: true, reasonIds: ["follow-up", "botox", "jeuveau", "juvederm", "volbella", "mini-facial", "facial", "hydrafacial", "chemical-peel", "microneedling", "toxin-touch-up"] }
 ];
 
-/* Cards fill by type family; the left stripe is visit status. Text is ink (AA). */
+/* Jewel Box (palette B): ivory card body with a 24px jewel family band.
+   Status is a 4px left stripe on the ivory body, below a 3px gap from the band. */
 BRIZZA.CARD_CREAM = "#FFFCF6";
+BRIZZA.CANCEL_FEE = 50;
 BRIZZA.TYPE_FAMILIES = [
-  { id: "injectables", name: "Injectables", types: ["Neurotoxin", "Filler", "Dissolve"], bg: "#F3E4D8", fg: "#352820" },
-  { id: "skin", name: "Skin", types: ["Facial", "Chemical Peel", "Microneedling", "Hydrafacial", "Mini Facial", "Customized Facial"], bg: "#E8E0F0", fg: "#352820" },
-  { id: "wax", name: "Wax", types: ["Wax"], bg: "#F3DDD8", fg: "#352820" },
-  { id: "consult", name: "Consult / Follow-up", types: ["Consultation", "Follow-up"], bg: "#E4EAF3", fg: "#352820" },
-  { id: "admin", name: "Admin", types: ["Admin", "Meeting", "Rep meeting", "Lunch", "Personal", "OFF"], bg: "#EDE8E0", fg: "#352820" }
+  { id: "injectables", name: "Injectables", short: "Injectables", types: ["Neurotoxin", "Filler", "Dissolve"], band: "#584682", bandFg: "#FFFCF6" },
+  { id: "skin", name: "Skin", short: "Skin", types: ["Facial", "Chemical Peel", "Microneedling", "Hydrafacial", "Mini Facial", "Customized Facial"], band: "#026C52", bandFg: "#FFFCF6" },
+  { id: "wax", name: "Wax", short: "Wax", types: ["Wax"], band: "#D8A959", bandFg: "#352820" },
+  { id: "consult", name: "Consult / Follow-up", short: "Consult", types: ["Consultation", "Follow-up"], band: "#00589D", bandFg: "#FFFCF6" },
+  { id: "admin", name: "Admin", short: "Admin", types: ["Admin", "Meeting", "Rep meeting", "Lunch", "Personal", "OFF"], band: "#C3C7CB", bandFg: "#352820" }
 ];
+/* Back-compat type map: cards no longer fill with these; bands come from TYPE_FAMILIES. */
 BRIZZA.TYPE_COLORS = {
-  "Consultation": { bg: "#E4EAF3", fg: "#352820", bar: "#B7C9E8" },
-  "Neurotoxin": { bg: "#F3E4D8", fg: "#352820", bar: "#E6C8B4" },
-  "Filler": { bg: "#F3E4D8", fg: "#352820", bar: "#E8C2D3" },
-  "Dissolve": { bg: "#F3E4D8", fg: "#352820", bar: "#E8D0B8" },
-  "Facial": { bg: "#E8E0F0", fg: "#352820", bar: "#D4C4E8" },
-  "Chemical Peel": { bg: "#E8E0F0", fg: "#352820", bar: "#E6D6A8" },
-  "Microneedling": { bg: "#E8E0F0", fg: "#352820", bar: "#D5C6DE" },
-  "Wax": { bg: "#F3DDD8", fg: "#352820", bar: "#E8C8C0" },
-  "Follow-up": { bg: "#E4EAF3", fg: "#352820", bar: "#C5D0DC" }
+  "Consultation": { bg: "#FFFCF6", fg: "#352820", bar: "#00589D" },
+  "Neurotoxin": { bg: "#FFFCF6", fg: "#352820", bar: "#584682" },
+  "Filler": { bg: "#FFFCF6", fg: "#352820", bar: "#584682" },
+  "Dissolve": { bg: "#FFFCF6", fg: "#352820", bar: "#584682" },
+  "Facial": { bg: "#FFFCF6", fg: "#352820", bar: "#026C52" },
+  "Chemical Peel": { bg: "#FFFCF6", fg: "#352820", bar: "#026C52" },
+  "Microneedling": { bg: "#FFFCF6", fg: "#352820", bar: "#026C52" },
+  "Wax": { bg: "#FFFCF6", fg: "#352820", bar: "#D8A959" },
+  "Follow-up": { bg: "#FFFCF6", fg: "#352820", bar: "#00589D" }
+};
+/* Official visit-status colors (STATUS_COLORS.md). Deep color for 4px stripes and solid pills. */
+BRIZZA.STATUS_META = {
+  "Scheduled": { color: "#6F6F6F", fg: "#FFFCF6", tint: "#E8E8E8", tintFg: "#352820", icon: "clock" },
+  "Confirmed": { color: "#005E66", fg: "#FFFCF6", tint: "#D0E7E9", tintFg: "#352820", icon: "check" },
+  "Checked in": { color: "#157A40", fg: "#FFFCF6", tint: "#D4E7D8", tintFg: "#352820", icon: "arrive" },
+  "Ready for clinical": { color: "#00367C", fg: "#FFFCF6", tint: "#E0E1F5", tintFg: "#352820", icon: "wait" },
+  "With clinical": { color: "#004F38", fg: "#FFFCF6", tint: "#D4E7DE", tintFg: "#352820", icon: "clinical" },
+  "Ready for provider": { color: "#815600", fg: "#FFFCF6", tint: "#F0E0CE", tintFg: "#352820", icon: "wait" },
+  "With provider": { color: "#771E51", fg: "#FFFCF6", tint: "#F3DDE6", tintFg: "#352820", icon: "provider" },
+  "Ready for checkout": { color: "#8A558D", fg: "#FFFCF6", tint: "#ECDEEC", tintFg: "#352820", icon: "checkout" },
+  "Checked out": { color: "#071D31", fg: "#FFFCF6", tint: "#DCE3EC", tintFg: "#352820", icon: "done" },
+  "Canceled": { color: "#313539", fg: "#FFFCF6", tint: "#E3E3E4", tintFg: "#352820", icon: "cancel" },
+  "No-show": { color: "#7F000F", fg: "#FFFCF6", tint: "#FCDBD6", tintFg: "#352820", icon: "noshow" }
 };
 
 /* Nicole-given prices (2026-11-18). Costs were not given — cost stays null/TBD. Quantity is entered by staff. */
@@ -209,17 +226,17 @@ BRIZZA.ROOMING_FLOW_BUCKETS = [
   { id: "checked-out", label: "Checked out", statuses: ["Checked out"] }
 ];
 BRIZZA.STATUS_DOTS = {
-  "Scheduled": "#B8AA9B",
-  "Confirmed": "#6E6055",
-  "Checked in": "#5A3510",
-  "No-show": "#7A2E22",
-  "Canceled": "#6E6055",
-  "Ready for clinical": "#2A5EA8",
-  "With clinical": "#2E7A4F",
-  "Ready for provider": "#6B4CA0",
-  "With provider": "#A44D68",
-  "Ready for checkout": "#8A6A28",
-  "Checked out": "#1E3044"
+  "Scheduled": "#6F6F6F",
+  "Confirmed": "#005E66",
+  "Checked in": "#157A40",
+  "No-show": "#7F000F",
+  "Canceled": "#313539",
+  "Ready for clinical": "#00367C",
+  "With clinical": "#004F38",
+  "Ready for provider": "#815600",
+  "With provider": "#771E51",
+  "Ready for checkout": "#8A558D",
+  "Checked out": "#071D31"
 };
 /* Back-compat alias used by a few leftover labels; prefer VISIT_STATUSES. */
 BRIZZA.appointmentStatuses = BRIZZA.VISIT_STATUSES;
@@ -239,7 +256,35 @@ BRIZZA.STAFF = [
   { id: "ortiz", short: "Ortiz", name: "Camila Ortiz", role: "Medical Assistant", title: "Medical Assistant", isProvider: false }
 ];
 /* Real calendar holidays — not shifted with sample data. */
-BRIZZA.HOLIDAYS = { "2026-11-26": "Thanksgiving" };
+/* Major US holidays (and weekday observations when the date falls on a weekend).
+   Not shifted with sample data. Columbus Day / Indigenous Peoples' Day is omitted
+   as a typical private-clinic closure (Open question). The Friday after Thanksgiving is not closed. */
+BRIZZA.HOLIDAYS = {
+  "2026-01-01": "New Year's Day",
+  "2026-01-19": "Martin Luther King Jr. Day",
+  "2026-02-16": "Presidents' Day",
+  "2026-05-25": "Memorial Day",
+  "2026-06-19": "Juneteenth",
+  "2026-07-03": "Independence Day (observed)",
+  "2026-07-04": "Independence Day",
+  "2026-09-07": "Labor Day",
+  "2026-11-11": "Veterans Day",
+  "2026-11-26": "Thanksgiving",
+  "2026-12-25": "Christmas",
+  "2027-01-01": "New Year's Day",
+  "2027-01-18": "Martin Luther King Jr. Day",
+  "2027-02-15": "Presidents' Day",
+  "2027-05-31": "Memorial Day",
+  "2027-06-18": "Juneteenth (observed)",
+  "2027-06-19": "Juneteenth",
+  "2027-07-04": "Independence Day",
+  "2027-07-05": "Independence Day (observed)",
+  "2027-09-06": "Labor Day",
+  "2027-11-11": "Veterans Day",
+  "2027-11-25": "Thanksgiving",
+  "2027-12-24": "Christmas (observed)",
+  "2027-12-25": "Christmas"
+};
 BRIZZA.PROVIDERS = BRIZZA.STAFF.filter(function (s) { return s.isProvider; }).map(function (s) { return s.name; });
 
 
@@ -564,8 +609,8 @@ BRIZZA.seed = function () {
           historySnapshot:{allergies:["Hyaluronic acid — swelling"],meds:["Cetirizine · as needed"],conditions:["History of cold sores"],consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"}}},
           {id:"N-5",date:"2026-11-18",type:"Injectables Consult",templateId:"inj-consult",appointmentId:"A-6214",procedurePerformed:"No",provider:"Dr. Valentina A. Rossi, MD",role:"RN / NP Injector",status:"Draft",
           text:"Visit note is in progress.",values:{}}],
-        consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized"},
-        photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],
+        consents:{clinical:"Current · signed Oct 28, 2026",marketing:"Not authorized",photo:"Authorized · signed Oct 28, 2026"},
+        photos:["Clinical baseline · Oct 28, 2026"],documents:["Intake and medical history · Oct 28, 2026"],idOnFile:{type:"New York driver license",collected:"2026-10-28"},
         treatments:[],followups:[{id:"F-1",text:"Check in after consultation",due:"2026-11-25"}],demoHistory:[],
         registration:{idUploaded:{status:"Uploaded",date:"2026-10-28"},formsCompleted:{status:"Completed",date:"2026-10-28"},demographicsConfirmed:{status:"Confirmed",date:"2026-10-28"}}},
       {id:"BZ0002",name:"Jordan Patel",dob:"1976-09-02",sex:"Male",phone:"(212) 555-0132",email:"j.patel@example.com",status:"Active",
@@ -673,7 +718,7 @@ BRIZZA.seed = function () {
     ],
     quotes: [
       {id:"Q-1001",patientId:"BZ0001",appointmentId:"A-6203",templateId:"full-face-toxin",name:"Full-face toxin",status:"Open",
-        lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"}],created:"2026-10-28",broughtToRoom:false,invoiceId:null,visitKind:null},
+        lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"}],created:"2026-10-28",followUpDue:"2026-11-18",broughtToRoom:false,invoiceId:null,visitKind:null},
       {id:"Q-1002",patientId:"BZ0003",appointmentId:"A-6207",templateId:"facial-series-3",name:"Facial series of 3",status:"Open",
         lines:[{kind:"package",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:375,qty:null,amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
     ],

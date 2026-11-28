@@ -797,3 +797,298 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
 @media (max-width:900px){
   .tpl-builder,.tpl-editor-grid{grid-template-columns:1fr}
 }
+
+/* ── Round 17: Jewel Box cards + official status colors ─────────────── */
+:root{
+  --card-ivory:#FFFCF6;
+  --card-ink:#352820;
+  --jewel-injectables:#584682;
+  --jewel-skin:#026C52;
+  --jewel-wax:#D8A959;
+  --jewel-consult:#00589D;
+  --jewel-admin:#C3C7CB;
+  --status-scheduled:#6F6F6F;
+  --status-confirmed:#005E66;
+  --status-checked-in:#157A40;
+  --status-ready-clinical:#00367C;
+  --status-with-clinical:#004F38;
+  --status-ready-provider:#815600;
+  --status-with-provider:#771E51;
+  --status-ready-checkout:#8A558D;
+  --status-checked-out:#071D31;
+  --status-canceled:#313539;
+  --status-noshow:#7F000F;
+}
+
+.jewel-card,
+.cal-event.jewel-card,
+.appt-card.jewel-card,
+.emr-patient.jewel-card,
+.room-card.jewel-card,
+.flow-card.jewel-card{
+  background:var(--card-ivory);
+  color:var(--card-ink);
+  padding:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  border:1px solid var(--line);
+  border-left-width:1px;
+  border-left-style:solid;
+  border-left-color:var(--line);
+  margin:0 0 6px;
+}
+.jewel-band{
+  height:24px;
+  min-height:24px;
+  background:var(--type-band,#C3C7CB);
+  color:var(--type-band-fg,#352820);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  display:flex;
+  align-items:center;
+  padding:0 10px;
+  line-height:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.jewel-body{
+  background:var(--card-ivory);
+  color:var(--card-ink);
+  border-left:4px solid var(--status,#6F6F6F);
+  margin-top:3px; /* ivory gap so the jewel band and status stripe never touch */
+  padding:8px 10px 8px 10px;
+  min-width:0;
+  flex:1;
+}
+.jewel-card.is-canceled{opacity:1;background:var(--card-ivory)}
+.jewel-card.is-canceled .jewel-body{border-left-style:dashed;border-left-color:var(--status-canceled)}
+.jewel-card.is-canceled .t,
+.jewel-card.is-canceled .cal-event-mid,
+.jewel-card.is-canceled .patient-name,
+.jewel-card.is-canceled .jewel-name,
+.jewel-card.is-canceled .appt-title{text-decoration:line-through}
+.cal-event.jewel-card{position:relative;cursor:grab}
+.cal-event.jewel-card .jewel-body{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 8px}
+.cal-event.jewel-card .t{width:100%}
+.cal-noroom{margin-left:0;display:inline-block}
+.cal-event .row-sub{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%}
+
+/* Status pills: tinted on the schedule, solid on Patient flow. Icon + label. */
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  border-radius:999px;
+  padding:2px 8px 2px 6px;
+  font-size:11px;
+  font-weight:650;
+  line-height:1.3;
+  white-space:nowrap;
+  border:0;
+  vertical-align:middle;
+}
+.status-pill .status-ico{flex:0 0 auto;display:block}
+.status-pill.is-tint{background:var(--status-tint,#E8E8E8);color:var(--status-tint-fg,#352820)}
+.status-pill.is-solid{background:var(--status,#6F6F6F);color:var(--status-fg,#FFFCF6)}
+.status-pill.is-canceled{text-decoration:none}
+.status-select.status-pill{
+  appearance:none;
+  -webkit-appearance:none;
+  cursor:pointer;
+  padding-right:22px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23352820' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  background-repeat:no-repeat;
+  background-position:right 8px center;
+  background-size:10px 6px;
+}
+.status-select.status-pill.is-solid{
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23FFFCF6' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  background-repeat:no-repeat;
+  background-position:right 8px center;
+  background-size:10px 6px;
+}
+
+.type-family-chip{
+  background:var(--card-ivory);
+  color:var(--card-ink);
+  border:1px solid var(--line);
+  padding:0 8px 0 0;
+  border-radius:6px;
+  font-size:11px;
+  font-weight:650;
+  margin-right:6px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  overflow:hidden;
+  line-height:22px;
+}
+.type-family-chip::before{
+  content:"";
+  display:block;
+  width:10px;
+  height:22px;
+  background:var(--type-band,#C3C7CB);
+}
+.status-legend .legend-item{display:inline-flex;align-items:center;gap:6px;margin:0 10px 6px 0}
+
+.open-q-hours{display:inline-block;padding:1px 8px;border:1px dashed var(--line);border-radius:6px;background:#F7F4EE;font-weight:650}
+
+/* Keep leftover type-fill rules from painting Jewel Box cards with old family fills */
+.cal-event.jewel-card,
+.appt-card.jewel-card,
+.emr-patient.jewel-card,
+.wl-row{background:var(--card-ivory);color:var(--card-ink)}
+.wl-row{border-left:4px solid var(--status,#6F6F6F)}
+.wl-row.is-canceled{border-left-style:dashed}
+.status-select-plain{
+  appearance:none;
+  -webkit-appearance:none;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  font-weight:650;
+  padding:0 14px 0 0;
+  margin:0;
+  cursor:pointer;
+  max-width:14em;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='currentColor' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  background-repeat:no-repeat;
+  background-position:right 0 center;
+  background-size:9px 5px;
+}
+.cal-hd.is-holiday{background:#F4F0E9}
+
+/* Round 17 Part 2: compact Patient flow and Suite cards */
+.btn.tiny{
+  font-size:11px;
+  font-weight:650;
+  padding:3px 8px;
+  line-height:1.25;
+  min-height:0;
+  border-radius:999px;
+}
+.room-card.jewel-card{
+  position:relative;
+  margin:0 6px 8px;
+  padding:0;
+  border-bottom:0;
+}
+.room-card .jewel-body{padding:8px 8px 8px 8px}
+.flow-head{
+  display:flex;
+  align-items:flex-start;
+  gap:6px;
+  min-width:0;
+}
+.flow-head .room-name{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:700;
+  color:inherit;
+  text-decoration:none;
+}
+.flow-head .room-name:hover,.flow-head .room-name:focus-visible{text-decoration:underline}
+.room-card .room-timer,
+.suite-occ .room-timer{
+  position:static;
+  flex:0 0 auto;
+  font-size:10px;
+  line-height:1.2;
+  padding:2px 6px;
+  border-radius:999px;
+  background:var(--field);
+  color:var(--ink);
+  font-variant-numeric:tabular-nums;
+  font-weight:700;
+  white-space:nowrap;
+}
+.room-card .room-timer.wait-gold,
+.suite-occ .room-timer.wait-gold{background:#E8C547;color:#352820}
+.flow-actions{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px;
+  margin-top:8px;
+}
+.flow-actions .status-pill{max-width:100%}
+.flow-actions .suite-dd{
+  font-size:11px;
+  padding:3px 6px;
+  margin:0;
+  max-width:9.8em;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--field);
+}
+.suite-card{text-align:left;padding:12px;display:flex;flex-direction:column}
+.suite-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.suite-card .suite-name{margin:0;font-size:16px}
+.suite-card .suite-svc{margin:2px 0 8px;color:var(--muted);font-size:12px}
+.suite-occ{font-size:11px;font-weight:700;white-space:nowrap}
+.suite-occ.is-busy{color:#004F38}
+.suite-card .room-card{margin:0;flex:0 0 auto}
+.suite-card .flow-actions{display:flex}
+.suite-card.drop-on{outline:2px solid var(--accent);outline-offset:2px}
+.suite-zones,.suite-zone,.room-type-badge{display:none}
+@media (max-width:1200px){
+  .room-card .jewel-band{padding:0 8px;letter-spacing:.05em}
+}
+
+/* Round 17 Part 3: My Day */
+.myday-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.myday-cal{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:650;margin-left:8px}
+.myday-cal input[type="date"]{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--field)}
+.myday-card.jewel-card{margin:0 0 12px}
+.myday-appt-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.emn-row{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+.emn-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.emn-preview{flex-basis:100%;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px}
+.emn-past{margin-top:6px;font-size:12px}
+.emn-past summary{cursor:pointer;font-weight:650}
+.note-status-chip{display:inline-flex;align-items:center;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;letter-spacing:.03em;background:#E8E8E8;color:#352820}
+.note-status-chip[data-note-status="Ready for review"]{background:#E0E1F5;color:#00367C}
+.note-status-chip[data-note-status="Finalized"]{background:#D4E7DE;color:#004F38}
+.note-status-chip[data-note-status="Amended"]{background:#F0E0CE;color:#815600}
+.forms-exp{margin-top:8px;font-size:12px}
+.forms-exp summary{cursor:pointer;font-weight:650}
+.form-line{margin:3px 0}
+.form-line.is-ok{color:#004F38}
+.form-line.is-miss{color:#815600}
+.id-preview-card{margin-top:8px;max-width:240px;padding:10px 12px;border-radius:10px;background:linear-gradient(180deg,#E8EEF5,#FFFCF6);border:1px solid var(--line);font-size:12px}
+.prep-cell{position:relative;display:inline-block}
+.prep-detail{z-index:40;top:calc(100% + 6px);left:0;right:auto}
+
+/* Round 17 Part 4: chart tabs, month, quotes, tasks, consents */
+.tabs a.tab,.patient-tabs a.tab, .cardhead .tab{font-size:12px;padding:6px 10px}
+.month-lite{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.month-chip{font-size:11px;line-height:1.2;padding:2px 6px 2px 8px;background:#FFFCF6;border:1px solid var(--line);border-left:3px solid var(--type-band,#C3C7CB);border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.forms-last-sent{margin-left:8px;font-size:12px}
+.task-assign{display:inline-flex;align-items:center;gap:6px}
+.staff-ava{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#E8EEF5;color:#352820;font-size:9px;font-weight:700;letter-spacing:.04em}
+.task-log{flex-basis:100%;margin-top:6px;font-size:12px}
+.task-log summary{cursor:pointer;font-weight:650}
+.task-act{padding:4px 0;border-top:1px solid var(--line)}
+.task-log-add{display:flex;gap:6px;margin-top:6px}
+.task-log-add input{flex:1;padding:4px 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.appt-mini-tabs{display:flex;gap:6px;padding:8px 16px 0}
+.appt-consents{padding:12px 16px 16px}
+.appt-consents h3{margin:12px 0 6px;font-size:13px}
+.photo-consent{display:flex;align-items:center;gap:8px;margin:10px 0;font-weight:650}
+#emnCharges{min-height:4em}
+.cal-cell.is-holiday-closed,.cal-slot.is-holiday-closed{background:#F4F0E9}
+.flow-head{position:relative;padding-right:44px;align-items:flex-start}
+.flow-head .room-name{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25;flex:1}
+.flow-head .room-timer{position:absolute;top:0;right:0}
+.flow-actions .status-pill{white-space:normal;max-width:100%;line-height:1.2}
+.flow-actions .status-select-plain{max-width:11em}

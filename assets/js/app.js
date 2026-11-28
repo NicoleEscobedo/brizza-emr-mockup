@@ -572,21 +572,24 @@
   }
 
   function normalizePatientTab(tab) {
+    if (HIDDEN_CHART_TABS[tab]) return HIDDEN_CHART_TABS[tab];
     if (tab === "documents" || tab === "forms") return "records";
     if (tab === "treatment-history" || tab === "clinical-notes") return "snapshot";
+    if (tab === "contact") return "demographics";
+    if (tab === "clinical") return "clinical-profile";
+    if (tab === "visits") return "appointments";
+    if (tab === "money") return "ledger";
     return TABS[tab] ? tab : "snapshot";
   }
   const TABS = {
     snapshot: "Snapshot",
-    demographics: "Demographics",
-    "clinical-profile": "Clinical profile",
-    appointments: "Appointments",
-    photos: "Photos",
-    records: "Documents & forms",
-    ledger: "Ledger",
-    quotes: "Quotes",
-    "follow-up": "Follow-up history"
+    demographics: "Contact",
+    "clinical-profile": "Clinical",
+    appointments: "Visits",
+    records: "Documents",
+    ledger: "Money"
   };
+  const HIDDEN_CHART_TABS = { photos: "clinical-profile", quotes: "ledger", "follow-up": "appointments", forms: "records", documents: "records" };
 
   function parseHash() {
     const raw = (location.hash || "#/patients").replace(/^#/, "");
@@ -629,9 +632,17 @@
         const tab = ({ home: "home", users: "users", team: "users", availability: "availability", types: "types", reasons: "types", settings: "settings", locations: "locations", templates: "templates" })[parts[1]] || "home";
         route = { page: "admin", adminTab: tab, redirect: parts[1] === "reasons" || parts[1] === "team" };
       }
-    } else if (p0 === "emr" || p0 === "board" || p0 === "my-board" || p0 === "today") {
-      const tab = (parts[1] === "tomorrow" || parts[1] === "week") ? parts[1] : "today";
-      route = { page: "emr", todayTab: tab, redirect: p0 === "emr" || p0 === "board" || p0 === "my-board" };
+    } else if (p0 === "emr" || p0 === "board" || p0 === "my-board" || p0 === "today" || p0 === "my-day") {
+      let tab = "patients";
+      let date = null;
+      let legacy = null;
+      (parts.slice(1) || []).forEach(function (seg) {
+        if (seg === "tomorrow" || seg === "week") legacy = seg;
+        else if (seg === "today" || seg === "patients") tab = "patients";
+        else if (seg === "pending" || seg === "mine" || seg === "notes") tab = seg;
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(seg)) date = seg;
+      });
+      route = { page: "emr", myDayTab: tab, myDayDate: date, todayTab: "today", todayLegacy: legacy, redirect: p0 !== "my-day" };
     } else if (p0 === "configuration") {
       route = { page: "admin", adminTab: "settings", redirect: true };
     } else if (p0 === "appointment-types") {
@@ -661,11 +672,16 @@
       route = { page: "admin", adminTab: "availability", redirect: true };
     } else if (p0 === "notes") {
       const segs = parts.slice(1);
+      const mine = segs.indexOf("mine") >= 0;
       route = {
-        page: "notes",
+        page: "emr",
+        myDayTab: mine ? "mine" : "notes",
         notesDash: segs.indexOf("signed") >= 0 ? "signed" : "pending",
-        notesScope: segs.indexOf("mine") >= 0 ? "mine" : "all"
+        notesScope: mine ? "mine" : "all",
+        redirect: true
       };
+    } else if (p0 === "quotes") {
+      route = { page: "quotes", quoteId: parts[1] && parts[1] !== "new" ? parts[1] : null };
     }
     return route;
   }
@@ -703,8 +719,17 @@
     else if (route.page === "audit") path = "/audit/" + route.auditId;
     else if (route.page === "rooming") path = "/patient-flow/" + (route.date || state.roomingDate || todayET());
     else if (route.page === "inventory") path = "/admin/inventory/" + (route.invTab || state.invTab || "summary");
-    else if (route.page === "emr") path = "/today" + (route.todayTab && route.todayTab !== "today" ? "/" + route.todayTab : (state.todayTab && state.todayTab !== "today" && !route.todayTab ? "/" + state.todayTab : ""));
-    else if (route.page === "notes") path = "/notes" + (route.notesScope === "mine" ? "/mine" : "") + (route.notesDash === "signed" ? "/signed" : "");
+    else if (route.page === "emr") {
+      const tab = route.myDayTab || state.myDayTab || "patients";
+      const date = route.myDayDate || state.myDayDate || "";
+      path = "/my-day";
+      if (tab && tab !== "patients") path += "/" + tab;
+      if (date && tab === "patients") path += "/" + date;
+    } else if (route.page === "notes") {
+      path = "/my-day/" + (route.notesScope === "mine" ? "mine" : "notes") + (route.notesDash === "signed" ? "/signed" : "");
+    } else if (route.page === "quotes") {
+      path = "/quotes" + (route.quoteId ? "/" + route.quoteId : "");
+    }
     return "#" + path + "?theme=01";
   }
 
@@ -725,7 +750,13 @@
       state.selected = r.selected;
       state.tab = normalizePatientTab(r.tab || "snapshot");
     }
+    if (r.quoteId !== undefined) state.quoteId = r.quoteId;
     if (r.todayTab) state.todayTab = r.todayTab;
+    if (r.myDayTab) state.myDayTab = r.myDayTab;
+    if (r.myDayDate) state.myDayDate = r.myDayDate;
+    else if (r.page === "emr" && r.todayLegacy === "tomorrow") state.myDayDate = nextBusinessDay(todayET());
+    else if (r.page === "emr" && !r.myDayDate && !state.myDayDate) state.myDayDate = todayET();
+    if (r.todayLegacy) state.todayTab = "today";
     if (r.notesDash) state.notesDash = r.notesDash;
     if (r.notesScope) state.notesScope = r.notesScope;
     else if (r.page === "notes") state.notesScope = r.notesScope || "all";
@@ -1299,8 +1330,8 @@
     const colHead = '<div class="wl-head" aria-hidden="true"><div>Time</div><div>Patient</div><div>Provider / Suite</div><div>Type / Reason</div><div>Registration</div><div>Prep</div><div>Status</div><div>Clinical notes</div><div>Appointment notes</div><div>Balance</div><div>Invoice</div></div>';
     const collapsed = wlBucketState();
     let groups = "";
-    if (isWeekend(date)) {
-      groups = '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    if (isClinicClosedDay(date)) {
+      groups = clinicClosedBanner(date);
     } else {
       wlBucketLabels().forEach(function (bk) {
         const set = timed.filter((a) => wlBucketFor(a) === bk.key);
@@ -1398,8 +1429,9 @@
     const details = r.items.map(function (i) {
       return '<div class="row-sub">' + (i.ok ? "✓" : "○") + " " + esc(i.label) + "</div>";
     }).join("");
-    return '<button type="button" class="prep-pill ' + (r.ready ? "ready" : "needs") + '" data-expand-prep="' + esc(a.id) + '" aria-expanded="' + (open ? "true" : "false") + '" title="' + esc(tip) + '">' + esc(label) + "</button>" +
-      (open ? '<div class="prep-detail" role="tooltip">' + details + "</div>" : "");
+    return '<span class="prep-cell">' +
+      '<button type="button" class="prep-pill ' + (r.ready ? "ready" : "needs") + '" data-expand-prep="' + esc(a.id) + '" aria-expanded="' + (open ? "true" : "false") + '" title="' + esc(tip) + '">' + esc(label) + "</button>" +
+      (open ? '<div class="prep-detail" role="tooltip">' + details + "</div>" : "") + "</span>";
   }
 
   function ensureInvoiceForAppt(a, opts) {
@@ -1728,9 +1760,14 @@
     refreshInvoiceBalance(inv);
     const t = invoiceTotals(inv);
     const credit = patientCredit(p);
-    const due = (t.balance != null && !t.tbd) ? t.balance : 0;
-    const use = Math.min(credit, Math.max(0, due));
-    if (use <= 0) { toast("No credit to apply"); return; }
+    if (credit <= 0) { toast("No credit to apply"); return; }
+    let use;
+    if (t.balance != null && !t.tbd) {
+      if (t.balance <= 0) { toast("Nothing is due on this invoice"); return; }
+      use = Math.min(credit, t.balance);
+    } else {
+      use = credit;
+    }
     const before = credit;
     p.credit = Math.round((credit - use) * 100) / 100;
     inv.payments = inv.payments || [];
@@ -2632,42 +2669,41 @@
       return ["emr", "rooming", "schedule", "patients", "queue"].indexOf(key) >= 0;
     }
     if (role === "Clinic Coordinator") {
-      return ["emr", "schedule", "rooming", "patients", "queue", "pos"].indexOf(key) >= 0;
+      return ["emr", "schedule", "rooming", "patients", "queue", "pos", "quotes"].indexOf(key) >= 0;
     }
     if (role === "RN / NP Injector" || role === "Aesthetician") {
       return ["emr", "notes", "schedule", "patients", "queue", "inventory", "availability"].indexOf(key) >= 0;
     }
     if (role === "MD / Clinic Owner") {
-      return ["emr", "notes", "notes-mine", "schedule", "patients", "queue", "pos", "admin", "inventory", "availability"].indexOf(key) >= 0;
+      return ["emr", "notes", "notes-mine", "schedule", "rooming", "patients", "queue", "pos", "quotes", "admin", "inventory", "availability"].indexOf(key) >= 0;
     }
     if (role === "Clinic Manager") {
-      return ["emr", "notes", "schedule", "rooming", "patients", "queue", "pos", "admin", "inventory", "availability"].indexOf(key) >= 0;
+      return ["emr", "notes", "schedule", "rooming", "patients", "queue", "pos", "quotes", "admin", "inventory", "availability"].indexOf(key) >= 0;
     }
     return key !== "worklist";
   }
   function roleNavHtml(nav) {
     const role = state.actingRole;
-    const today = nav(hashFor({ page: "emr", todayTab: "today" }), "emr", "Today", "✚");
+    const today = nav(hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }), "emr", "My Day", "✚");
     const sched = nav(hashFor({ page: "schedule", date: state.date, view: "calendar", calMode: state.calMode }), "schedule", "Schedule", "▦");
     const flow = nav(hashFor({ page: "rooming" }), "rooming", "Patient flow", "▣");
     const pats = nav(hashFor({ page: "patients", selected: state.selected, tab: isMarketingRole() ? "demographics" : (state.tab || "snapshot") }), "patients", "Patients", "♙");
     const notes = nav(hashFor({ page: "notes", notesDash: state.notesDash || "pending" }), "notes", notesNavLabel(), "✎");
     const tasks = nav(hashFor({ page: "queue", date: state.date }), "queue", "Tasks", "☷");
     const pos = nav(hashFor({ page: "pos" }), "pos", "Point of Sale", "☰");
+    const quotes = nav(hashFor({ page: "quotes" }), "quotes", "Quotes", "💼");
     const admin = nav(hashFor({ page: "admin", adminTab: state.adminTab || "home" }), "admin", "Admin", "⚙");
     const inv = nav(hashFor({ page: "admin", adminTab: "inventory" }), "inventory", "Inventory" + (canManageInventory() ? "" : " 🔒"), "▣");
     const avail = nav(hashFor({ page: "admin", adminTab: "availability" }), "availability", "Availability" + (canManageAvailability() ? "" : " 🔒"), "▦");
     let main = "";
     if (isMarketingRole()) main = sched + pats;
     else if (role === "Medical Assistant") main = today + flow + sched + pats + tasks;
-    else if (role === "Clinic Coordinator") main = today + sched + flow + pats + tasks + pos;
-    else if (role === "RN / NP Injector" || role === "Aesthetician") main = today + notes + sched + pats + tasks;
+    else if (role === "Clinic Coordinator") main = today + sched + flow + pats + tasks + pos + quotes;
+    else if (role === "RN / NP Injector" || role === "Aesthetician") main = today + sched + pats + tasks;
     else if (role === "MD / Clinic Owner") {
-      const myNotes = nav(hashFor({ page: "notes", notesDash: "pending", notesScope: "mine" }), "notes-mine", "My notes", "✎");
-      const allNotes = nav(hashFor({ page: "notes", notesDash: "pending", notesScope: "all" }), "notes", notesNavLabel(), "✎");
-      main = today + myNotes + allNotes + sched + pats + tasks + pos;
+      main = today + sched + flow + pats + tasks + pos + quotes;
     }
-    else if (role === "Clinic Manager") main = today + sched + flow + pats + notes + tasks + pos;
+    else if (role === "Clinic Manager") main = today + sched + flow + pats + tasks + pos + quotes;
     else main = today + sched + pats;
     const clinic = (canSeeNav("admin") ? admin : "") +
       ((canSeeNav("inventory") && !canSeeNav("admin")) ? inv : "") +
@@ -2686,6 +2722,7 @@
         (key === "queue" && state.page === "queue") ||
         (key === "rooming" && state.page === "rooming") ||
         (key === "pos" && (state.page === "pos" || state.page === "checkout")) ||
+        (key === "quotes" && state.page === "quotes") ||
         (key === "inventory" && state.page === "admin" && state.adminTab === "inventory") ||
         (key === "emr" && state.page === "emr") ||
         (key === "admin" && state.page === "admin");
@@ -2953,19 +2990,20 @@
           '<p class="row-sub">' + reviewed + "</p>" +
           '<div class="actions"><button class="btn primary" type="button" data-save-chart-hx="' + esc(p.id) + '">Save history</button>' +
           '<button class="btn" type="button" data-review-chart-hx="' + esc(p.id) + '">Mark reviewed</button></div></div>' +
-          '<div class="profile-block"><h3 class="section-title">Treatment history</h3>' + (p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>') + "</div>";
+          '<div class="profile-block"><h3 class="section-title">Treatment history</h3>' + (p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>') + "</div>" +
+          photosSectionHtml(p);
       } else {
         body = `<div class="profile-block"><div class="two"><div><h3 class="section-title">Medical history</h3><p class="row-sub">Providers confirm history in the visit note. Medical assistants update it on this chart.</p>${lastNoteLineHtml(p.id)}${rows(p.conditions, "No history items recorded")}
         <h3 class="section-title" style="margin-top:18px">Medications</h3>${rows(p.meds, "No current medications recorded")}
         <h3 class="section-title" style="margin-top:18px">Pharmacy</h3>${p.pharmacy ? '<div class="row"><span>' + esc(p.pharmacy) + "</span></div>" : '<div class="empty">No pharmacy recorded (if applicable)</div>'}</div>
         <div><h3 class="section-title">Allergies and alerts</h3>${rows(p.allergies, "No allergy information recorded")}<p class="row-sub">${reviewed}</p></div></div></div>
-        <div class="profile-block"><h3 class="section-title">Treatment history</h3>${p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}</div>`;
+        <div class="profile-block"><h3 class="section-title">Treatment history</h3>${p.treatments && p.treatments.length ? p.treatments.map((tr) => '<div class="row"><span>' + esc(tr) + '</span><span class="badge">Recorded</span></div>').join("") : '<div class="empty">No treatment recorded. Appointment or consultation completion does not imply treatment.</div>'}</div>` + photosSectionHtml(p);
       }
     } else if (state.tab === "appointments") {
       const list = apptsFor(p).slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
       body = `<div class="labelrow"><h3 class="section-title">Appointment history</h3>
         <a class="btn small primary" href="#modal-book" data-open="book" data-pid="${p.id}">＋ Schedule appointment</a></div>
-        <div class="scroll-list appt-history">${list.map(appointmentRow).join("") || '<div class="empty">No appointments</div>'}</div>`;
+        <div class="scroll-list appt-history">${list.map(appointmentRow).join("") || '<div class="empty">No appointments</div>'}</div>` + followupSectionHtml(p);
     } else if (state.tab === "photos") {
       body = `<div class="two"><div><h3 class="section-title">Clinical photography</h3>${p.photos.length ? p.photos.map((x) => '<div class="row"><span>' + esc(x) + "</span></div>").join("") : '<div class="empty">No clinical photos</div>'}</div>
         <div><h3 class="section-title">Authorization records</h3>
@@ -2995,7 +3033,8 @@
         '<div class="ledger-credit">Available credit <strong>' + money(credit) + "</strong></div>" +
         '<p class="row-sub">Payment status is independent of appointment status. A blank payment, such as a prepayment, is added to patient credit.</p>' +
         "<h3 class=\"section-title\">Invoices</h3>" + invRows +
-        "<h3 class=\"section-title\" style=\"margin-top:16px\">Payments</h3>" + payRows;
+        "<h3 class=\"section-title\" style=\"margin-top:16px\">Payments</h3>" + payRows +
+        quotesTeaserHtml(p);
     } else if (state.tab === "quotes") {
       const qs = (store.quotes || []).filter((q) => q.patientId === p.id);
       body = `<h3 class="section-title">Quotes</h3>
@@ -3009,6 +3048,32 @@
     return body;
   }
 
+  function photosSectionHtml(p) {
+    return '<div class="profile-block"><h3 class="section-title">Photos</h3>' +
+      ((p.photos || []).length ? p.photos.map(function (x) { return '<div class="row"><span>' + esc(x) + "</span></div>"; }).join("") : '<div class="empty">No clinical photos</div>') +
+      '<div class="row"><span>Photo consent</span>' + badge((p.consents && p.consents.photo) || "Not on file") + "</div>" +
+      '<div class="row"><span>Clinical consent</span>' + badge((p.consents && p.consents.clinical) || "—") + "</div>" +
+      '<div class="row"><span>Marketing photo authorization</span>' + badge((p.consents && p.consents.marketing) || "—") + "</div>" +
+      '<p class="row-sub">Clinical photography consent is separate from marketing photo authorization.</p></div>';
+  }
+  function followupSectionHtml(p) {
+    return '<div class="profile-block"><div class="labelrow"><h3 class="section-title">Follow-up history</h3>' +
+      '<a class="btn tiny" href="#modal-followup" data-open="followup" data-pid="' + p.id + '">＋ Add follow-up</a>' +
+      '<button type="button" class="btn tiny" data-open="add-task" data-pid="' + p.id + '">＋ Add task</button></div>' +
+      ((p.followups || []).length ? p.followups.map(function (f) {
+        return '<div class="row"><div><div class="row-title">' + esc(f.text) + '</div><div class="row-sub">Due ' + esc(fmtDate(f.due || f)) + "</div></div></div>";
+      }).join("") : '<div class="empty">No follow-up tasks</div>') + "</div>";
+  }
+  function quotesTeaserHtml(p) {
+    const qs = (store.quotes || []).filter(function (q) { return q.patientId === p.id; });
+    const open = qs.filter(function (q) { return q.status === "Open" || q.status === "Prepaid"; });
+    return '<h3 class="section-title" style="margin-top:16px">Quotes</h3>' +
+      '<p class="row-sub">The full quotes dashboard lives under Workspace · Quotes, so this chart stays uncluttered.</p>' +
+      (open.length ? open.map(function (q) {
+        return '<a class="row" href="' + hashFor({ page: "quotes", quoteId: q.id }) + '"><div><div class="row-title">' + esc(q.name) + '</div><div class="row-sub">' + esc(q.id) + "</div></div>" + badge(q.status) + "</a>";
+      }).join("") : '<div class="empty">No open quotes</div>') +
+      '<div class="actions"><a class="btn tiny" href="' + hashFor({ page: "quotes" }) + '">Open quotes dashboard</a></div>';
+  }
   function renderPatients() {
     const p = patient(state.selected) || store.patients[0];
     state.selected = p.id;
@@ -3032,7 +3097,8 @@
     const nextActions = isMarketingRole() ? "" : ('<div class="actions chart-quick">' +
       '<span class="chart-balance">Balance ' + balLabel + "</span>" +
       '<button type="button" class="btn small" data-collect-balance="' + p.id + '">Collect balance</button>' +
-      '<button type="button" class="btn small" data-send-forms="' + p.id + '">' + (formsSent ? "Forms sent" : "Send forms") + "</button>" +
+      '<button type="button" class="btn small" data-send-forms="' + p.id + '">' + (formsSent ? "Send forms again" : "Send forms") + "</button>" +
+      (p.formsSent && p.formsSent.when ? '<span class="row-sub forms-last-sent">Last sent ' + esc(p.formsSent.when) + "</span>" : "") +
       '<button type="button" class="btn small" data-open="rebook" data-pid="' + p.id + '">Rebook / Recall</button>' +
       "</div>");
     const head = pageHead("", isMarketingRole() ? "Patients" : "Patient chart", "", isMarketingRole() ? "" : '<a class="btn small primary" href="#modal-book" data-open="book" data-pid="' + p.id + '">＋ Appointment</a>');
@@ -3202,45 +3268,114 @@
       : ' data-open="note-view" data-pid="' + esc(a.patientId) + '" data-nid="' + esc(n.id) + '"';
     return '<div class="wl-clinote"><button type="button" class="btn small" ' + attr + '>' + esc(st) + "</button></div>";
   }
-  function statusColor(status) {
-    return (BRIZZA.STATUS_DOTS || {})[status] || "#6E6055";
+  function statusMeta(status) {
+    const m = (BRIZZA.STATUS_META || {})[status];
+    if (m) return m;
+    const color = (BRIZZA.STATUS_DOTS || {})[status] || "#6F6F6F";
+    return { color: color, fg: "#FFFCF6", tint: "#E8E8E8", tintFg: "#352820", icon: "clock" };
   }
-  function statusInk(bg) {
-    const hex = String(bg || "#6E6055").replace("#", "");
+  function statusColor(status) {
+    return statusMeta(status).color;
+  }
+  function statusInk(bgOrStatus) {
+    const meta = (BRIZZA.STATUS_META || {})[bgOrStatus];
+    if (meta) return meta.fg;
+    const hex = String(bgOrStatus || "#6F6F6F").replace("#", "");
     const full = hex.length === 3 ? hex.split("").map(function (c) { return c + c; }).join("") : hex;
     const n = parseInt(full, 16);
     if (Number.isNaN(n)) return "#FFFCF6";
     const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-    return lum > 0.55 ? "#352820" : "#FFFCF6";
+    const rs = r / 255, gs = g / 255, bs = b / 255;
+    const lin = function (c) { return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const lum = 0.2126 * lin(rs) + 0.7152 * lin(gs) + 0.0722 * lin(bs);
+    return lum > 0.4 ? "#352820" : "#FFFCF6";
+  }
+  function statusIconSvg(kind) {
+    const common = 'class="status-ico" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false"';
+    const stroke = 'fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"';
+    const map = {
+      clock: '<circle cx="6" cy="6" r="4.4" ' + stroke + '/><path d="M6 3.8v2.4l1.8 1.1" ' + stroke + '/>',
+      check: '<path d="M2.4 6.2l2.3 2.3 4.9-5" ' + stroke + '/>',
+      arrive: '<path d="M2 6h6.2M6.2 3.6L8.8 6 6.2 8.4" ' + stroke + '/><path d="M10 2.4v7.2" ' + stroke + '/>',
+      wait: '<circle cx="6" cy="6" r="4.4" ' + stroke + '/><path d="M6 3.6v2.6h2.2" ' + stroke + '/>',
+      clinical: '<path d="M6 2.2v7.6M2.2 6h7.6" ' + stroke + '/>',
+      provider: '<circle cx="6" cy="4" r="1.8" ' + stroke + '/><path d="M2.6 10c.4-2 1.8-3 3.4-3s3 1 3.4 3" ' + stroke + '/>',
+      checkout: '<rect x="2.2" y="3.2" width="7.6" height="6.2" rx="1" ' + stroke + '/><path d="M4 5.2h4M4 7.4h2.6" ' + stroke + '/>',
+      done: '<circle cx="6" cy="6" r="4.4" ' + stroke + '/><path d="M3.8 6.2l1.6 1.6 3-3.2" ' + stroke + '/>',
+      cancel: '<path d="M3 3l6 6M9 3l-6 6" ' + stroke + '/>',
+      noshow: '<circle cx="6" cy="6" r="4.4" ' + stroke + '/><path d="M6 3.6v3.1" ' + stroke + '/><circle cx="6" cy="8.5" r=".55" fill="currentColor"/>'
+    };
+    return "<svg " + common + ">" + (map[kind] || map.clock) + "</svg>";
+  }
+  function statusStyleVars(status) {
+    const m = statusMeta(status);
+    return "--status:" + m.color + ";--status-fg:" + m.fg + ";--status-tint:" + m.tint + ";--status-tint-fg:" + m.tintFg;
+  }
+  function statusPill(status, variant) {
+    const m = statusMeta(status);
+    const kind = variant === "solid" ? "is-solid" : "is-tint";
+    const canceled = status === "Canceled" ? " is-canceled" : "";
+    return '<span class="status-pill ' + kind + canceled + '" style="' + statusStyleVars(status) + '">' + statusIconSvg(m.icon) + "<span>" + esc(status) + "</span></span>";
   }
   function statusDot(status) {
     const color = statusColor(status);
     return '<span class="status-dot" style="background:' + color + '" title="' + esc(status) + '" aria-label="' + esc(status) + '"></span>';
   }
-  function statusLegend() {
+  function statusLegend(variant) {
     const list = (BRIZZA.VISIT_STATUSES || []).slice();
     ["Scheduled", "Confirmed", "No-show", "Canceled"].forEach(function (s) {
       if (list.indexOf(s) < 0) list.push(s);
     });
-    const items = list.map((s) =>
-      '<span class="legend-item">' + statusDot(s) + " " + esc(s) + "</span>"
-    ).join("");
+    const items = list.map(function (s) {
+      return '<span class="legend-item">' + statusPill(s, variant || "tint") + "</span>";
+    }).join("");
     return '<div class="legend status-legend" aria-label="Visit status">' + items + "</div>";
+  }
+  function locationHoursLabel(loc) {
+    const l = typeof loc === "string" ? (BRIZZA.LOCATIONS || []).find(function (x) { return x.id === loc; }) : loc;
+    if (!l) return (BRIZZA.CLINIC && BRIZZA.CLINIC.hours) || "";
+    if (l.hoursOpenQuestion) return "Open question — Long Island hours differ from Manhattan; Nicole will supply them.";
+    return l.hours || (BRIZZA.CLINIC && BRIZZA.CLINIC.hours) || "";
+  }
+  function locationHoursHtml(loc) {
+    const l = typeof loc === "string" ? (BRIZZA.LOCATIONS || []).find(function (x) { return x.id === loc; }) : loc;
+    const label = locationHoursLabel(l);
+    if (l && l.hoursOpenQuestion) return '<span class="open-q-hours">Open question · ' + esc(label) + "</span>";
+    return esc(label);
+  }
+  function clinicClosedBanner(date) {
+    const hol = holidayName(date);
+    if (hol) return '<div class="cal-closed">Clinic closed · ' + esc(hol) + " (major US holiday).</div>";
+    if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    return "";
+  }
+  function jewelWrap(a, innerHtml, extraClass, attrs) {
+    const fam = typeFamilyFor(a && a.type);
+    const canceled = a && a.status === "Canceled";
+    const cls = ["jewel-card", canceled ? "is-canceled" : "", extraClass || ""].filter(Boolean).join(" ");
+    const band = esc((fam && (fam.short || fam.name)) || "Visit");
+    return '<div class="' + cls + '" data-type="' + esc((a && a.type) || "") + '" data-status="' + esc((a && a.status) || "") + '" data-family="' + esc((fam && fam.id) || "") + '" style="' + cardTypeStyle(a) + '"' + (attrs ? " " + attrs : "") + ">" +
+      '<div class="jewel-band">' + band + "</div>" +
+      '<div class="jewel-body">' + (innerHtml || "") + "</div></div>";
   }
   function statusSelect(a, idSuffix) {
     const id = "visit-status-" + a.id + (idSuffix ? "-" + idSuffix : "");
-    const color = statusColor(a.status);
-    const ink = statusInk(color);
-    if (idSuffix === "wl") {
-      if (isClinicalVisitStatus(a.status)) {
-        return '<span class="status-ro" style="background:' + color + ";color:" + ink + '">' + esc(a.status) + "</span>";
-      }
-      return '<label class="sr-only" for="' + id + '">Visit status</label><select id="' + id + '" class="status-dd status-dd-colored" data-visit-status="' + esc(a.id) + '" style="background:' + color + ";color:" + ink + ";border-color:" + color + '">' +
-        frontDeskStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+    const variant = (idSuffix && (idSuffix === "flow" || String(idSuffix).indexOf("room") === 0)) ? "solid" : "tint";
+    const pillKind = variant === "solid" ? "is-solid" : "is-tint";
+    const m = statusMeta(a.status);
+    const wrap = function (control) {
+      return '<span class="status-pill ' + pillKind + (a.status === "Canceled" ? " is-canceled" : "") + '" style="' + statusStyleVars(a.status) + '">' +
+        statusIconSvg(m.icon) + control + "</span>";
+    };
+    if (idSuffix === "wl" && isClinicalVisitStatus(a.status)) {
+      return statusPill(a.status, "tint");
     }
-    return '<label class="sr-only" for="' + id + '">Visit status</label><select id="' + id + '" class="status-dd status-dd-colored" data-visit-status="' + esc(a.id) + '" style="background:' + color + ";color:" + ink + ";border-color:" + color + '">' +
-      visitStatuses().map((s) => "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>").join("") + "</select>";
+    const opts = (idSuffix === "wl" ? frontDeskStatuses() : visitStatuses()).map(function (s) {
+      return "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>";
+    }).join("");
+    return '<label class="sr-only" for="' + id + '">Visit status</label>' + wrap(
+      '<select id="' + id + '" class="status-dd status-select-plain" data-visit-status="' + esc(a.id) + '">' + opts + "</select>"
+    );
   }
   function paperworkBadge(a) {
     if (a.status !== "Checked in") return "";
@@ -3389,12 +3524,23 @@
     role = role || state.actingRole;
     return isOwnerRole(role) || (BRIZZA.CLINICAL_NOTE_ROLES || []).indexOf(role) >= 0;
   }
+  function canStartNote(role) {
+    return isClinicalRole(role) || isMaRole(role);
+  }
+  function canEditNote(n, role) {
+    if (!n) return canStartNote(role);
+    if (!isNoteEditable(n)) return false;
+    if (isClinicalRole(role)) return true;
+    if (isMaRole(role)) return isNoteAuthor(n);
+    return false;
+  }
   function canUseTemplate(tplOrId, role) {
     role = role || state.actingRole;
     const tpl = typeof tplOrId === "object" && tplOrId ? tplOrId : getNoteTemplate(tplOrId);
     const id = (tpl && (tpl.familyId || tpl.id)) || (typeof tplOrId === "string" ? tplOrId : "");
     if (!id) return isClinicalRole(role);
     if (isOwnerRole(role)) return true;
+    if (isMaRole(role)) return true;
     if (tpl && tpl.roles && tpl.roles.length) return tpl.roles.indexOf(role) >= 0;
     if (role === "Aesthetician") return id.indexOf("aes-") === 0;
     if (role === "RN / NP Injector") return id.indexOf("inj-") === 0;
@@ -3404,7 +3550,7 @@
     return currentNoteTemplates().filter(function (tpl) { return canUseTemplate(tpl, role); });
   }
   function createNoteButton(pid, apptId, visitId) {
-    if (!isClinicalRole()) return "";
+    if (!canStartNote()) return "";
     const ap = apptId ? ' data-appt="' + esc(apptId) + '"' : "";
     const vis = visitId ? ' data-visit="' + esc(visitId) + '"' : "";
     return '<button class="btn small" type="button" data-open="note-composer" data-pid="' + esc(pid) + '"' + ap + vis + '>Create Note</button>';
@@ -3529,7 +3675,7 @@
     return fmtTime(w.start) + "–" + fmtTime(w.end);
   }
   function appointmentTouchesLunch(date, time, end, provider) {
-    if (!date || !time || isWeekend(date)) return false;
+    if (!date || !time || isClinicClosedDay(date)) return false;
     const w = lunchWindow(date, provider);
     const start = toMinutes(time);
     const fin = end ? toMinutes(end) : start + 15;
@@ -3539,7 +3685,7 @@
     return start < le && fin > ls;
   }
   function isLunchSlot(date, time, provider) {
-    if (!date || !time || isWeekend(date)) return false;
+    if (!date || !time || isClinicClosedDay(date)) return false;
     const w = lunchWindow(date, provider);
     return time >= w.start && time < w.end;
   }
@@ -3585,24 +3731,34 @@
     inv.lines = inv.lines || [];
     const existing = inv.lines.find(isCancelFeeLine);
     if (existing) return;
+    const fee = Number(BRIZZA.CANCEL_FEE || 50);
     inv.lines.push({
       kind: "fee",
       name: "Cancellation / no-show fee",
       qty: 1,
-      unitPrice: null,
+      unitPrice: fee,
       feeAutoApplied: true,
       waived: false
     });
     inv.status = inv.status === "Paid" ? "Partially Paid" : (inv.status || "Draft");
-    (a.history = a.history || []).push("Cancellation / no-show fee auto-applied (amount TBD) · " + nowET());
+    (a.history = a.history || []).push("Cancellation / no-show fee auto-applied (" + money(fee) + ") · " + nowET());
     addAudit({
       action: "Auto-applied cancellation / no-show fee",
       recordType: "Invoice",
       recordId: inv.id,
       recordPath: { page: "pos", invoiceId: inv.id },
-      changes: [{ field: "lines", before: "—", after: "Cancellation / no-show fee (amount TBD)" }]
+      changes: [{ field: "lines", before: "—", after: "Cancellation / no-show fee (" + money(fee) + ")" }]
     });
     refreshInvoiceBalance(inv);
+    if (a.deposit && a.deposit.appliedTo === "no-show-or-late-cancel-fee" && Number(a.deposit.amount) > 0) {
+      const apply = Math.min(Number(a.deposit.amount), fee);
+      const already = (inv.payments || []).some(function (p) { return p && p.method === "Consult deposit" && p.towardFee; });
+      if (!already && apply > 0) {
+        inv.payments = inv.payments || [];
+        inv.payments.push({ id: nextId("PAY-", inv.payments), method: "Consult deposit", status: "Paid", recorded: nowET(), amount: apply, towardFee: true });
+        refreshInvoiceBalance(inv);
+      }
+    }
   }
   function waiveCancelFee(inv, line) {
     if (!canWaiveFees()) { toast("Only a Manager or Owner can waive a fee"); return; }
@@ -3632,7 +3788,7 @@
     const waive = canWaiveFees()
       ? '<button type="button" class="btn small" data-waive-fee="' + esc(inv.id) + '">Waive fee</button>'
       : '<p class="row-sub">Only a Manager or Owner can waive this fee.</p>';
-    return '<div class="notice">Cancellation / no-show fee auto-applied. Amount is TBD (no approved fee was provided).' + waive + "</div>";
+    return '<div class="notice">Cancellation / no-show fee auto-applied · ' + money(line.unitPrice != null ? line.unitPrice : (BRIZZA.CANCEL_FEE || 50)) + '.' + waive + "</div>";
   }
   function holidayName(date) {
     return (BRIZZA.HOLIDAYS && BRIZZA.HOLIDAYS[date]) || "";
@@ -3779,7 +3935,7 @@
     return "<" + tag + ' class="' + (classes || "") + '"' + (extraAttrs || "") + ">" + inner + "</" + tag + ">";
   }
   function slotAvailability(date, time, provider) {
-    if (isWeekend(date)) return "closed";
+    if (isClinicClosedDay(date)) return "closed";
     const providers = (provider && provider !== "All providers") ? [provider] : selectedProviderNames();
     let any = false, outside = false;
     providers.forEach(function (pv) {
@@ -3812,19 +3968,17 @@
     return fams.find(function (f) { return (f.types || []).indexOf(type) >= 0; }) || null;
   }
   function typeFill(type) {
-    const fam = typeFamilyFor(type);
-    if (fam && fam.bg) return fam.bg;
-    const tc = (BRIZZA.TYPE_COLORS || {})[type];
-    return (tc && tc.bg) || BRIZZA.CARD_CREAM || "#FFFCF6";
+    return BRIZZA.CARD_CREAM || "#FFFCF6";
   }
   function cardTypeStyle(a) {
-    const status = statusColor((a && a.status) || "");
-    return "--type-fill:" + typeFill(a && a.type) + ";--status-bar:" + status + ";border-left-color:" + status;
+    const fam = typeFamilyFor(a && a.type) || {};
+    const m = statusMeta((a && a.status) || "");
+    return "--type-band:" + (fam.band || "#C3C7CB") + ";--type-band-fg:" + (fam.bandFg || "#352820") + ";" + statusStyleVars((a && a.status) || "") + ";--status-bar:" + m.color + ";--type-fill:" + (BRIZZA.CARD_CREAM || "#FFFCF6");
   }
   function typeLegend() {
     return '<div class="legend" aria-label="Appointment type colors">' +
       (BRIZZA.TYPE_FAMILIES || []).map(function (f) {
-        return '<span class="type-chip type-family-chip" data-family="' + esc(f.id) + '" style="--type-fill:' + esc(f.bg) + '">' + esc(f.name) + "</span>";
+        return '<span class="type-chip type-family-chip" data-family="' + esc(f.id) + '" style="--type-band:' + esc(f.band || "#C3C7CB") + '">' + esc(f.name) + "</span>";
       }).join("") +
       '<span class="legend-item"><span class="swatch clinic"></span>Office hours (Mon–Fri 10:00 a.m.–6:00 p.m. ET)</span>' +
       '<span class="legend-item"><span class="swatch avail"></span>Available</span>' +
@@ -3988,8 +4142,9 @@
   }
   function slotCellHtml(date, time, provider, inner) {
     const key = slotKey(date, time, provider);
-    const cls = "cal-slot cal-cell " + slotClass(date, time, provider || "All providers");
-    return '<div class="' + cls + '" data-drop-slot="' + esc(key) + '">' + (inner || "") + addSlotButton(date, time, provider) + "</div>";
+    const closed = isClinicClosedDay(date);
+    const cls = "cal-slot cal-cell " + slotClass(date, time, provider || "All providers") + (closed ? " is-holiday-closed" : "");
+    return '<div class="' + cls + '" data-drop-slot="' + esc(key) + '">' + (inner || "") + (closed ? "" : addSlotButton(date, time, provider)) + "</div>";
   }
   function visibleLocations() {
     const all = BRIZZA.LOCATIONS || [];
@@ -4070,6 +4225,10 @@
       const suiteId = el.getAttribute("data-drop-suite");
       const role = el.getAttribute("data-drop-role");
       setAppointmentSuite(id, suiteId, role);
+    });
+    zone(".suite-card[data-drop-suite]", function (id, el) {
+      const suiteId = el.getAttribute("data-drop-suite");
+      setAppointmentSuite(id, suiteId);
     });
     zone("[data-drop-suite][data-unassign]", function (id) { setAppointmentSuite(id, null); });
   }
@@ -4295,12 +4454,12 @@
     if (prev && !draft.previewEdited) prev.value = compileNoteSentences(tpl, draft.values, draft) || compileFieldText(tpl, draft.values);
   }
   function openNoteComposer(pid, apptId, visitId, noteId) {
-    if (!isClinicalRole()) { toast("Create Note is limited to clinical roles"); return; }
+    if (!canStartNote()) { toast("Starting a note is limited to clinical roles and the medical assistant"); return; }
     captureNoteReturn();
     const p = patient(pid);
     const ap = apptId ? appt(apptId) : null;
     const existing = (noteId && p) ? (p.notes || []).find(function (n) { return n.id === noteId; }) : null;
-    if (noteId && existing && (isNoteSigned(existing) || !canUseTemplate(templateIdFromNote(existing)))) {
+    if (noteId && existing && (isNoteSigned(existing) || !canEditNote(existing))) {
       openNoteView(pid, noteId);
       return;
     }
@@ -4423,7 +4582,7 @@
   function upsertNoteFromDraft(opts) {
     opts = opts || {};
     const draft = state.noteDraft;
-    if (!draft || !isClinicalRole()) return null;
+    if (!draft || !canStartNote()) return null;
     const tpl = getNoteTemplate(draft.templateId) || (BRIZZA.NOTE_TEMPLATES || []).find((t) => t.id === draft.templateId);
     if (!tpl) { toast("Select a template"); return null; }
     draft.values = collectNoteValues();
@@ -4461,6 +4620,19 @@
     rec.visitId = rec.visitId || draft.visitId || undefined;
     rec.appointmentId = rec.appointmentId || draft.apptId || undefined;
     rec.fromConsultId = rec.fromConsultId || draft.fromConsultId || undefined;
+    (function fillNoteInfo() {
+      const ap = rec.appointmentId ? appt(rec.appointmentId) : null;
+      rec.dos = rec.dos || (ap && ap.date) || rec.date || todayET();
+      rec.primaryProvider = rec.primaryProvider || (ap && ap.provider) || rec.provider || actingName();
+      rec.secondaryProvider = rec.secondaryProvider || "";
+      const ma = (BRIZZA.STAFF || []).find(function (s) { return s.role === "Medical Assistant"; });
+      if (!rec.assistant) rec.assistant = (ma && ma.name) || "";
+      if (!rec.title) {
+        const reason = ap ? reasonText(ap) : "";
+        rec.title = (rec.type || "Note") + (reason ? " - " + reason : (ap && ap.type ? " - " + ap.type : ""));
+      }
+      rec.charges = rec.charges || [];
+    })();
     if (!rec.visitId && rec.appointmentId) {
       const a = appt(rec.appointmentId);
       if (a && a.visitId) rec.visitId = a.visitId;
@@ -4597,32 +4769,28 @@
     const cardHtml = (a, place) => {
       const p = patient(a.patientId);
       const nxt = nextRoomingStatus(a.status);
-      const last = auditIconFor("Appointment", a.id);
+      const last = "";
       const apptLink = '<a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id, view: "list" }) + '">' + esc(a.id) + "</a>";
       const uid = esc(a.id) + (place ? "-" + place : "");
-      const sel = '<label class="sr-only" for="room-set-' + uid + '">Set visit status</label>' + statusSelect(a, "room-" + uid);
-      const suiteOpts = ['<option value="">Not in a suite</option>'].concat((BRIZZA.SUITES || []).flatMap((s) => [
-        "<option value=\"" + esc(s.id) + "|With clinical\"" + (a.suiteId === s.id && a.status === "With clinical" ? " selected" : "") + ">" + esc(s.name) + " · Clinical</option>",
-        "<option value=\"" + esc(s.id) + "|With provider\"" + (a.suiteId === s.id && a.status === "With provider" ? " selected" : "") + ">" + esc(s.name) + " · Provider</option>"
-      ]));
-      const suiteSel = place === "suite" ? "" : ('<label class="sr-only" for="suite-set-' + uid + '">Move to suite</label><select id="suite-set-' + uid + '" data-suite-role="' + esc(a.id) + '">' + suiteOpts.join("") + "</select>");
-      const adv = nxt && place !== "suite" ? '<button class="btn advance-sm" type="button" data-room-advance="' + esc(a.id) + '">Advance</button>' : "";
-      const chartBtn = p ? '<a class="btn small" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">Open chart</a>' : "";
-      const noteBtn = (isClinicalRole() && p) ? '<button class="btn small" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
-      const controls = place === "suite" ? "" : (sel + suiteSel);
-      const suiteName = a.suiteId ? ((BRIZZA.SUITES.find((s) => s.id === a.suiteId) || {}).name || a.suiteId) : "Not in a suite";
+      const sel = place === "suite" ? "" : ('<label class="sr-only" for="visit-status-' + esc(a.id) + '-flow">Set visit status</label>' + statusSelect(a, "flow"));
+      const suiteOpts = ['<option value="">Not in a suite</option>'].concat((BRIZZA.SUITES || []).map(function (s) {
+        return "<option value=\"" + esc(s.id) + "\"" + (a.suiteId === s.id ? " selected" : "") + ">" + esc(s.name) + "</option>";
+      }));
+      const suiteSel = place === "suite" ? "" : ('<label class="sr-only" for="suite-set-' + uid + '">Move to suite</label><select id="suite-set-' + uid + '" class="suite-dd" data-suite-role="' + esc(a.id) + '">' + suiteOpts.join("") + "</select>");
+      const adv = nxt && place !== "suite" ? '<button class="btn tiny" type="button" data-room-advance="' + esc(a.id) + '">Advance</button>' : "";
+      const chartBtn = p ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">Open chart</a>' : "";
+      const noteBtn = (isClinicalRole() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
+      const inSuite = a.suiteId ? ((BRIZZA.SUITES.find(function (s) { return s.id === a.suiteId; }) || {}).name || a.suiteId) : "";
       const nameHtml = p
         ? '<a class="room-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>"
         : esc(a.patientId);
-      return `<div class="room-card" data-rooming="${esc(a.id)}" tabindex="0">
-        <span class="room-type-badge">${esc(a.type || "")}</span>
-        <span class="${timerClass(a.statusSince)}" data-room-mins="${esc(String(a.statusSince || nowMs()))}">${minutesLabel(a.statusSince)}</span>
-        <div class="row-title">${statusDot(a.status)} ${nameHtml} ${last}</div>
-        <div class="row-sub">${esc(fmtTime(a.time))} · ${esc(a.type)} · ${apptLink}</div>
-        <div class="row-sub">${esc(a.provider)} · ${esc(suiteName)}</div>
-        <div class="actions">${chartBtn}${noteBtn}${adv}</div>
-        ${controls}
-      </div>`;
+      const wait = place === 'suite' ? '' : ('<span class="' + timerClass(a.statusSince) + '" data-room-mins="' + esc(String(a.statusSince || nowMs())) + '">' + minutesLabel(a.statusSince) + "</span>");
+      const inner =
+        '<div class="flow-head">' + nameHtml + last + wait + "</div>" +
+        '<div class="row-sub">' + esc(fmtTime(a.time)) + " · " + esc(a.type) + " · " + apptLink + "</div>" +
+        '<div class="row-sub">' + esc(a.provider) + (inSuite && place !== "suite" ? " · " + esc(inSuite) : "") + "</div>" +
+        '<div class="flow-actions">' + chartBtn + noteBtn + adv + sel + suiteSel + "</div>";
+      return jewelWrap(a, inner, "room-card flow-card", 'data-rooming="' + esc(a.id) + '" tabindex="0"');
     };
     const buckets = BRIZZA.ROOMING_FLOW_BUCKETS || (BRIZZA.ROOMING_BOARD_STATUSES || []).map(function (s) { return { label: s, statuses: [s] }; });
     const cols = buckets.map(function (bk) {
@@ -4633,11 +4801,13 @@
     const suites = (BRIZZA.SUITES || []).map((s) => {
       const occ = occupantInSuite(s.id, date, null);
       const occupied = !!occ;
-      const mins = occupied && occ.suiteSince ? '<div class="row-sub">Occupied <span class="' + timerClass(occ.suiteSince) + '" data-room-mins="' + esc(String(occ.suiteSince)) + '">' + minutesLabel(occ.suiteSince) + "</span></div>" : '<div class="row-sub">Available</div>';
-      const inner = occupied ? cardHtml(occ, "suite") : '<div class="empty">Available</div>';
-      return '<div class="suite-card' + (occupied ? " occupied" : "") + '"><h2 class="suite-name">' + esc(s.name) + '</h2><p class="suite-svc">' + esc(s.service) + "</p>" +
-        badge(occupied ? "Occupied" : "Available") + mins + inner +
-        '<div class="suite-zones"><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With clinical">Clinical</div><div class="suite-zone" data-drop-suite="' + esc(s.id) + '" data-drop-role="With provider">Provider</div></div></div>';
+      const occLabel = occupied
+        ? ('Occupied' + (occ.suiteSince ? ' · <span class="' + timerClass(occ.suiteSince) + '" data-room-mins="' + esc(String(occ.suiteSince)) + '">' + minutesLabel(occ.suiteSince) + "</span>" : ""))
+        : "Available";
+      const inner = occupied ? cardHtml(occ, "suite") : '<div class="empty">Drop a patient here</div>';
+      return '<div class="suite-card' + (occupied ? " occupied" : "") + '" data-drop-suite="' + esc(s.id) + '">' +
+        '<div class="suite-card-head"><h2 class="suite-name">' + esc(s.name) + '</h2><span class="suite-occ' + (occupied ? " is-busy" : "") + '">' + occLabel + "</span></div>" +
+        '<p class="suite-svc">' + esc(s.service) + "</p>" + inner + "</div>";
     }).join("");
     const body = '<div class="rooming-fit">' + head + toolbar +
       '<div class="room-flow-wrap"><h2 class="section-title">Patient flow</h2><div class="room-board">' + cols + "</div></div>" +
@@ -4678,7 +4848,7 @@
     const end = $("#blkEnd").value;
     const warn = $("#blkWarn");
     if (!date) { warn.innerHTML = '<div class="notice">Date is required.</div>'; return; }
-    if (isWeekend(date)) { warn.innerHTML = '<div class="notice">Blocks must fall on Monday–Friday.</div>'; return; }
+    if (isClinicClosedDay(date)) { warn.innerHTML = '<div class="notice">Blocks must fall on an open clinic day (Monday–Friday, not a major US holiday).</div>'; return; }
     if (start >= end) { warn.innerHTML = '<div class="notice">End must be after start, within 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
     if (start < "10:00" || end > "18:00") { warn.innerHTML = '<div class="notice">Start and end must stay within Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>'; return; }
     const rec = {
@@ -4752,10 +4922,9 @@
       const posHref = a.invoiceId
         ? hashFor({ page: "pos", invoiceId: a.invoiceId, posTab: "invoice" })
         : hashFor({ page: "pos", appointmentId: a.id, posTab: "invoice" });
-      return `<div class="appt-card" data-type="${esc(a.type)}" data-open-appt="${esc(a.id)}" style="${cardTypeStyle(a)}">
-        <div class="appt-card-top">
+      const listInner = `<div class="appt-card-top">
           <div>
-            <div class="appt-title">${statusDot(a.status)} <a href="${openHref}">${esc(fmtTime(a.time))}</a> · ${p ? patientLink(p) : esc(a.patientId)} ${auditIconFor("Appointment", a.id)}</div>
+            <div class="appt-title"><a href="${openHref}">${esc(fmtTime(a.time))}</a> · ${p ? patientLink(p) : esc(a.patientId)} ${auditIconFor("Appointment", a.id)}</div>
             <div class="row-sub">${esc(a.type)} · ${esc(reasonText(a))} · ${esc(dur)} · ${esc(a.provider)}</div>
             ${paperworkBadge(a)}
           </div>
@@ -4765,8 +4934,8 @@
             <button class="btn small" type="button" data-expand-reg="${esc(a.id)}" aria-expanded="${open ? "true" : "false"}" aria-controls="reg-panel-${esc(a.id)}">Registration</button>
           </div>
         </div>
-        ${open ? registrationPanel(a) : ""}
-      </div>`;
+        ${open ? registrationPanel(a) : ""}`;
+      return jewelWrap(a, listInner, "appt-card", 'data-open-appt="' + esc(a.id) + '"');
     });
     const items = visible.map((a, i) => ({ t: a.time, html: apptRows[i] }))
       .concat(dayBlocks(state.date).map((b) => ({ t: b.start, html: blockCard(b) })))
@@ -4792,7 +4961,7 @@
             ${providerChipsHtml()}
           </div>
         </div>
-        <div class="cardbody">${isWeekend(state.date) ? '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>' : rows}
+        <div class="cardbody">${isClinicClosedDay(state.date) ? clinicClosedBanner(state.date) : rows}
           ${openQ("Office-hours shading is synthetic sample availability, not taken from the V1 documents (Open question 18). Double-booking over an Admin block requires an admin override and a reason (Open question 15).")}
         </div>
       </div>
@@ -4818,12 +4987,9 @@
   function calendarEvent(a) {
     const p = patient(a.patientId);
     const href = hashFor({ page: "schedule", date: state.date, appointmentId: a.id, view: "calendar", calMode: state.calMode });
-    const dd = '<span class="status-ro cal-status-text">' + esc(a.status) + "</span>";
-    const color = statusColor(a.status);
     const locked = isApptLocked(a);
     const tip = [p ? p.name : a.patientId, cardTypeLabel(a), fmtTime(a.time), a.status].join(" · ");
     const canceled = a.status === "Canceled";
-    const cancelBadge = canceled ? ' <span class="badge canceled-badge">Canceled</span>' : "";
     const mate = linkedVisitMate(a);
     const linkBadge = mate ? '<span class="cal-link-tag" title="Linked visit, one invoice">Linked · ' + esc(mate.type) + "</span>" : "";
     const noRoom = !a.suiteId ? '<span class="cal-noroom">No suite</span>' : "";
@@ -4831,11 +4997,13 @@
     const payCue = due.unpaid
       ? '<span class="cal-pay unpaid">' + (due.tbd ? "Unpaid TBD" : "Unpaid") + "</span>"
       : ((invoiceForAppt(a) || {}).status === "Paid" ? '<span class="cal-pay paid">Paid</span>' : "");
-    return '<div class="cal-event' + (canceled ? " is-canceled" : "") + (mate ? " is-linked" : "") + '" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked || canceled ? "false" : "true") + '" style="' + cardTypeStyle(a) + '">' +
-      '<span class="t">' + statusDot(a.status) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a> · " + (p ? patientLink(p) : esc(a.patientId)) + cancelBadge + "</span>" +
+    const attrs = 'data-open-appt="' + esc(a.id) + '" data-appt-drag="' + esc(a.id) + '" draggable="' + (locked || canceled ? "false" : "true") + '"';
+    const inner =
+      '<span class="t">' + (p ? patientLink(p) : esc(a.patientId)) + ' <a href="' + href + '">' + esc(fmtTime(a.time)) + "</a></span>" +
       '<span class="cal-event-mid"><a href="' + href + '">' + esc(cardTypeLabel(a)) + "</a>" + linkBadge + "</span>" +
-      '<span class="row-sub">' + esc(a.provider) + " · " + esc(a.status) + noRoom + payCue + "</span>" + dd +
-      '<span class="appt-pop" role="tooltip">' + esc(tip) + "</span></div>";
+      '<span class="row-sub">' + esc(a.provider) + " " + statusPill(a.status, "tint") + noRoom + payCue + "</span>" +
+      '<span class="appt-pop" role="tooltip">' + esc(tip) + "</span>";
+    return jewelWrap(a, inner, "cal-event" + (mate ? " is-linked" : ""), attrs);
   }
 
   function rangeAppointments(start, end, locationId) {
@@ -4898,7 +5066,7 @@
   }
 
   function calendarDayGrid(date, locationId) {
-    if (isWeekend(date)) return '<div class="cal-closed">Clinic closed · weekends are outside Monday–Friday, 10:00 a.m.–6:00 p.m. ET.</div>';
+    if (isClinicClosedDay(date)) return clinicClosedBanner(date);
     const hours = scheduleHours();
     const list = dayAppointments(date, locationId);
     const blocks = dayBlocks(date).filter(function (b) { return !locationId || b.locationId === locationId; });
@@ -4937,9 +5105,11 @@
       return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + displayId(a.patientId) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
     };
     const heads = '<div class="cal-time"></div>' + days.map(function (d) {
-      return '<div class="cal-hd"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' +
+      const hol = holidayName(d);
+      return '<div class="cal-hd' + (hol ? " is-holiday" : "") + '"><a href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' +
         esc(new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })) +
-        '</a> <span class="count">' + esc(dayCountLabel(d)) + "</span></div>";
+        '</a> <span class="count">' + esc(dayCountLabel(d)) + "</span>" +
+        (hol ? '<div class="row-sub">' + esc(hol) + " · closed</div>" : "") + "</div>";
     }).join("");
     const rows = hours.map(function (h) {
       const cells = days.map(function (d) {
@@ -4977,8 +5147,13 @@
         return !q || ((patient(a.patientId) && patient(a.patientId).name) + " " + a.patientId + " " + a.type + " " + a.id).toLowerCase().indexOf(q) >= 0;
       };
       const visAppts = dayAppts.filter(vis);
-      const extra = visAppts.length > 3 ? '<div class="row-sub">+' + (visAppts.length - 3) + " more</div>" : "";
-      const chips = inMonth && !closed ? visAppts.slice(0, 3).map(calendarEvent).join("") + extra + dayBlks.map(calendarBlock).join("") : "";
+      const chips = inMonth && !closed && visAppts.length
+        ? ('<div class="month-lite">' + visAppts.slice(0, 3).map(function (a) {
+            const p = patient(a.patientId);
+            const fam = typeFamilyFor(a.type) || {};
+            return '<div class="month-chip" style="--type-band:' + (fam.band || "#C3C7CB") + '">' + esc((p && p.name) || a.patientId) + "</div>";
+          }).join("") + (visAppts.length > 3 ? '<div class="row-sub">+' + (visAppts.length - 3) + " more</div>" : "") + "</div>")
+        : "";
       const count = dayCountLabel(d);
       const dayLink = '<a class="d" href="' + hashFor({ page: "schedule", date: d, view: "calendar", calMode: "day" }) + '">' + Number(d.slice(8)) + "</a>" + (count && !closed ? ' <span class="count">' + esc(count) + "</span>" : "");
       const closedLabel = closed && inMonth ? '<div class="row-sub">' + esc(hol || "Closed") + "</div>" : "";
@@ -5116,7 +5291,7 @@
         list.push({ id: f.id, kind: "follow-up", text: f.text, patientId: p.id, appointmentId: f.appointmentId || null, owner: f.owner || "", due: f.due || "", done: !!f.done, createdAt: f.due || "" });
       });
     });
-    list.push({ id: "T-CALL-1", kind: "call", text: "Call to confirm today's consultation", patientId: "BZ0001", appointmentId: "A-6214", owner: "Serena Collins", due: "2026-11-17", done: false, createdAt: "2026-11-16" });
+    list.push({ id: "T-CALL-1", kind: "call", text: "Call to confirm today's consultation", patientId: "BZ0001", appointmentId: "A-6214", owner: "Serena Collins", due: "2026-11-17", done: false, createdAt: "2026-11-16", activity: [{ text: "Left VM", who: "Serena Collins", when: "Nov 16, 2026, 4:10 p.m. ET" }, { text: "Called pt", who: "Serena Collins", when: "Nov 17, 2026, 10:05 a.m. ET" }] });
     list.push({ id: "T-CALL-2", kind: "call", text: "Call about unpaid balance", patientId: "BZ0005", appointmentId: "A-6231", owner: "Serena Collins", due: "2026-11-25", done: false, createdAt: "2026-11-18" });
     list.push({ id: "T-CALL-3", kind: "call", text: "Recall after no-show", patientId: "BZ0004", appointmentId: "A-6236", owner: "Lily Morgan", due: "2026-11-19", done: false, createdAt: "2026-11-18" });
     return list;
@@ -5181,6 +5356,36 @@
         render();
       }, "Add task");
   }
+  function staffInitials(name) {
+    const s = staffRecord(name);
+    const src = (s && s.short) || name || "?";
+    const parts = String(src).split(/[\s,]+/).filter(Boolean);
+    const letters = (parts[0] ? parts[0].charAt(0) : "?") + (parts[1] ? parts[1].charAt(0) : "");
+    return '<span class="staff-ava" aria-hidden="true">' + esc(letters.toUpperCase()) + "</span>";
+  }
+  function taskActivityHtml(t) {
+    const log = t.activity || [];
+    const open = state.expandedTask === t.id;
+    const rows = log.slice().reverse().map(function (e) {
+      return '<div class="task-act"><div>' + esc(e.text) + '</div><div class="row-sub">' + esc(e.who || "") + " · " + esc(e.when || "") + "</div></div>";
+    }).join("") || '<div class="row-sub">No follow-up notes yet</div>';
+    return '<details class="task-log"' + (open ? " open" : "") + ' data-task-log="' + esc(t.id) + '"><summary>Activity · ' + log.length + "</summary>" +
+      rows +
+      '<div class="task-log-add"><label class="sr-only" for="task-note-' + esc(t.id) + '">Add activity</label>' +
+      '<input id="task-note-' + esc(t.id) + '" data-task-note-text="' + esc(t.id) + '" placeholder="called pt, left VM…">' +
+      '<button type="button" class="btn tiny" data-task-note="' + esc(t.id) + '">Add</button></div></details>';
+  }
+  function addTaskActivity(id, text) {
+    const rec = (store.tasks || []).find(function (t) { return t.id === id; });
+    if (!rec) return;
+    const note = String(text || "").trim();
+    if (!note) { toast("Enter a follow-up note"); return; }
+    rec.activity = rec.activity || [];
+    rec.activity.push({ text: note, who: actingName(), when: nowET() });
+    state.expandedTask = id;
+    toast("Activity added");
+    render();
+  }
   function renderQueue() {
     const today = todayET();
     const mine = actingName();
@@ -5207,10 +5412,12 @@
       return '<div class="task-row' + (t.done ? " is-done" : "") + (over ? " is-overdue" : "") + '" data-task="' + esc(t.id) + '">' +
         '<div><div class="row-title">' + esc(t.text) + (t.kind === "call" ? ' <span class="cal-noroom">Call</span>' : "") + (over ? ' <span class="wl-unpaid-mark">Overdue</span>' : "") + "</div>" +
         '<div class="row-sub">' + esc(p ? p.name : t.patientId) + (visit ? " · " + esc(visit) : "") + " · due " + esc(fmtDate(t.due || "")) + "</div></div>" +
+        '<div class="task-assign"><span class="staff-chip" title="Assignee">' + staffInitials(t.owner || "") + "</span>" +
         '<label class="sr-only" for="task-owner-' + esc(t.id) + '">Assign to</label>' +
-        '<select id="task-owner-' + esc(t.id) + '" data-task-owner="' + esc(t.id) + '">' + taskOwnerOptions(t.owner || "") + "</select>" +
-        (t.done ? "" : '<button type="button" class="btn small" data-task-done="' + esc(t.id) + '">Complete</button>') +
-        (p ? '<a class="btn small" href="' + hashFor({ page: "patients", selected: p.id, tab: "follow-up" }) + '">Open chart</a>' : "") +
+        '<select id="task-owner-' + esc(t.id) + '" data-task-owner="' + esc(t.id) + '">' + taskOwnerOptions(t.owner || "") + "</select></div>" +
+        (t.done ? "" : '<button type="button" class="btn tiny" data-task-done="' + esc(t.id) + '">Complete</button>') +
+        (p ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "visits" }) + '">Open chart</a>' : "") +
+        taskActivityHtml(t) +
       "</div>";
     };
     const bodyGroups = owners.map(function (owner) {
@@ -5422,7 +5629,7 @@
     const head = pageHead("", "Locations", "", "");
     const rows = (BRIZZA.LOCATIONS || []).map(function (l) {
       return '<div class="card" style="margin-bottom:12px"><div class="cardhead"><h2>' + esc(l.name) + "</h2></div>" +
-        '<div class="cardbody"><div class="row-sub">' + esc(l.hours || (BRIZZA.CLINIC && BRIZZA.CLINIC.hours) || "Mon–Fri 10:00 a.m.–6:00 p.m.") + " · " + esc(l.tz || "America/New_York") + "</div></div></div>";
+        '<div class="cardbody"><div class="row-sub">' + locationHoursHtml(l) + " · " + esc(l.tz || "America/New_York") + "</div></div></div>";
     }).join("");
     renderAdminChrome(head, rows || '<div class="empty">No locations</div>');
   }
@@ -6545,7 +6752,7 @@
     if (!type) missing.push("Appointment type");
     if (!provider) missing.push("Provider");
     if (!date) missing.push("Date");
-    else if (isWeekend(date)) missing.push("Date");
+    else if (isClinicClosedDay(date)) missing.push(holidayName(date) ? "Date (" + holidayName(date) + ", clinic closed)" : "Date");
     if (!time) missing.push("Start time");
     if (!end || (time && toMinutes(end) <= toMinutes(time))) missing.push("End time");
     if (!locationId) missing.push("Location");
@@ -6878,7 +7085,7 @@
     if (!type) missing.push("Appointment type");
     if (!locationId) missing.push("Location");
     if (!date) missing.push("Date");
-    else if (isWeekend(date)) missing.push("Date must be Monday–Friday");
+    else if (isClinicClosedDay(date)) missing.push(holidayName(date) ? ("Clinic closed · " + holidayName(date)) : "Date must be Monday–Friday");
     if (!time) missing.push("Start time");
     if (!provider) missing.push("Primary provider");
     const hits = overlappingBlocks(date, time, type, reasons, provider, bookSelectedMinutes());
@@ -7038,10 +7245,12 @@
   function openQuotesFor(pid) {
     return (store.quotes || []).filter(function (q) { return q.patientId === pid && (q.status === "Open" || q.status === "Prepaid"); });
   }
+  function openAppointment(id, opts) { return openAppointmentModal(id, opts); }
   function openAppointmentModal(id, opts) {
     const a = appt(id);
     if (!a) return;
     opts = opts || {};
+    state.apptPane = opts.pane || "details";
     if (opts.skipPush) state._skipModalPush = true;
     state.appointmentId = id;
     const p = patient(a.patientId);
@@ -7077,7 +7286,11 @@
             '<select id="actionStatus" class="status-dd status-dd-colored" style="' + statusColorStyle + '">' +
               visitStatuses().map(function (s) { return "<option" + (a.status === s ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") +
             "</select></div></header>" +
-        '<div class="appt-card-grid">' +
+        '<div class="appt-mini-tabs">' +
+          '<button type="button" class="btn tiny' + (state.apptPane === "consents" ? "" : " primary") + '" data-appt-pane="details">Details</button>' +
+          '<button type="button" class="btn tiny' + (state.apptPane === "consents" ? " primary" : "") + '" data-appt-pane="consents">Consents</button>' +
+        "</div>" +
+        (state.apptPane === "consents" ? appointmentConsentsHtml(a, p) : ('<div class="appt-card-grid">' +
           '<section class="appt-pane">' +
             "<h3>Patient</h3>" +
             '<div class="row-sub">' + esc(p ? (p.phone || "—") : "—") + "</div>" +
@@ -7120,7 +7333,7 @@
             '<button type="button" class="btn primary btn-invoice-lg" data-open-pos="' + esc(a.id) + '">Create invoice</button>' +
             checkoutActionsHtml(a) +
           "</section>" +
-        "</div>" +
+        "</div>")) +
         '<div id="statusWarn"></div>' +
       "</div>",
       function () { saveAppointmentActions(a); },
@@ -7551,15 +7764,52 @@
     if (inv) bindPosSearch(inv);
   }
 
+  function quoteRowHtml(q, href) {
+    const p = patient(q.patientId);
+    const due = q.followUpDue ? ("Follow up " + fmtDate(q.followUpDue)) : "";
+    return '<a class="row" href="' + href + '"><div><div class="row-title">' + esc(q.name) + " · " + (p ? p.name : q.patientId) + '</div><div class="row-sub">' + esc(q.id) + " · " + esc(q.created) + (due ? " · " + due : "") + '</div></div>' + badge(q.status) + "</a>";
+  }
   function renderQuotes() {
     const qid = state.quoteId;
     if (qid) { renderQuoteDetail(qid); return; }
     const head = pageHead("Point of Sale", "Quotes", "Statuses: Open, Prepaid, Converted, Expired.", "");
-    const rows = (store.quotes || []).map((q) => {
-      const p = patient(q.patientId);
-      return '<a class="row" href="' + hashFor({ page: "pos", posTab: "quotes", quoteId: q.id }) + '"><div><div class="row-title">' + esc(q.name) + " · " + (p ? p.name : q.patientId) + '</div><div class="row-sub">' + esc(q.id) + " · " + esc(q.created) + '</div></div>' + badge(q.status) + "</a>";
+    const rows = (store.quotes || []).map(function (q) {
+      return quoteRowHtml(q, hashFor({ page: "pos", posTab: "quotes", quoteId: q.id }));
     }).join("") || '<div class="empty">No quotes</div>';
     renderChrome('<a href="' + hashFor({ page: "pos", posTab: "quotes" }) + '">Quotes</a>', head, posTabs("quotes") + '<div class="card"><div class="cardbody">' + rows + "</div></div>");
+  }
+  function renderQuotesHome() {
+    if (state.quoteId) { renderQuoteDetail(state.quoteId); return; }
+    const all = store.quotes || [];
+    const open = all.filter(function (q) { return q.status === "Open" || q.status === "Prepaid"; });
+    const follow = open.filter(function (q) { return q.followUpDue && q.followUpDue <= todayET(); });
+    const head = pageHead("Quotes", "Quotes", "Open quotes, follow-ups, and new quotes.",
+      '<button type="button" class="btn small primary" data-new-quote="1">＋ New quote</button>');
+    const openRows = open.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No open quotes</div>';
+    const followRows = follow.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quote follow-ups due today or earlier.</div>';
+    const recent = all.slice().sort(function (x, y) { return String(y.created || "").localeCompare(String(x.created || "")); }).slice(0, 8)
+      .map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quotes yet</div>';
+    const body = '<div class="grid quotes-dash">' +
+      '<div class="card"><div class="cardhead"><h2>Open quotes · ' + open.length + '</h2></div><div class="cardbody">' + openRows + '</div></div>' +
+      '<div class="card"><div class="cardhead"><h2>Follow-up worklist</h2></div><div class="cardbody">' + followRows + '</div></div>' +
+      '<div class="card"><div class="cardhead"><h2>Recent</h2></div><div class="cardbody">' + recent + '</div></div></div>';
+    renderChrome('<a href="' + hashFor({ page: "quotes" }) + '">Quotes</a>', head, body);
+  }
+  function openNewQuoteModal() {
+    const pats = (store.patients || []).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>"; }).join("");
+    const tpls = (BRIZZA.QUOTE_TEMPLATES || []).map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.name) + "</option>"; }).join("");
+    showModal("New quote",
+      '<div class="formgrid"><div class="field"><label for="quotePatient">Patient</label><select id="quotePatient">' + pats + "</select></div>" +
+      '<div class="field"><label for="quoteTpl">Template</label><select id="quoteTpl">' + tpls + "</select></div>" +
+      '<div class="field"><label for="quoteFollow">Follow-up date <span class="row-sub">(optional)</span></label><input id="quoteFollow" type="date"></div></div>',
+      function () {
+        const pid = $("#quotePatient") && $("#quotePatient").value;
+        const tid = $("#quoteTpl") && $("#quoteTpl").value;
+        saveQuoteFromTemplate(pid, null, tid);
+        const q = (store.quotes || []).find(function (x) { return x.patientId === pid; });
+        if (q && $("#quoteFollow") && $("#quoteFollow").value) q.followUpDue = $("#quoteFollow").value;
+        if (q) go({ page: "quotes", quoteId: q.id });
+      }, "Save quote");
   }
   function renderQuoteDetail(id) {
     const q = (store.quotes || []).find((x) => x.id === id);
@@ -7813,7 +8063,7 @@
         ' <button class="btn small" type="button" data-av-edit="' + esc(t.id) + '">Edit</button>' +
         ' <button class="btn small" type="button" data-av-delete="' + esc(t.id) + '">Delete</button></div>' +
         '<div class="cardbody"><div class="row-sub">Starts ' + esc(fmtDob(t.startDate)) + " · Ends " + esc(end) +
-        " · Every " + esc(String(t.everyNWeeks || 1)) + " week(s) · " + esc(dayNames(t.days)) + "</div>" +
+         " · " + esc((Number(t.everyNWeeks || 1) === 1) ? "Every week" : ("Every " + String(t.everyNWeeks) + " weeks")) + " · " + esc(dayNames(t.days)) + "</div>" +
         '<div style="margin-top:6px">' + esc(locBlocks) + " " + flag + "</div></div></div>";
     }).join("") || '<div class="empty">No availability templates</div>';
     const body = '<div class="card"><div class="cardbody">' +
@@ -7993,7 +8243,7 @@
   }
   function nextBusinessDay(iso) {
     let d = addDays(iso, 1);
-    while (isWeekend(d)) d = addDays(d, 1);
+    while (isClinicClosedDay(d)) d = addDays(d, 1);
     return d;
   }
   function visitHasCharges(a) {
@@ -8016,21 +8266,73 @@
       return true;
     }).sort(function (a, b) { return String(a.time).localeCompare(String(b.time)) || String(a.id).localeCompare(String(b.id)); });
   }
-  function todayTab() {
-    return state.todayTab === "tomorrow" || state.todayTab === "week" ? state.todayTab : "today";
-  }
-  function todayTabsHtml() {
-    if (!isFrontDeskRole() && !isOwnerRole()) return "";
-    const cur = todayTab();
-    const tabs = [
-      ["today", "Today"],
-      ["tomorrow", "Tomorrow prep"],
-      ["week", "Next 7 days"]
+  function appointmentConsentsHtml(a, p) {
+    if (!p) return '<div class="appt-consents"><div class="empty">No patient on this appointment.</div></div>';
+    const current = [
+      ["Clinical consent", p.consents && p.consents.clinical],
+      ["Photo consent", p.consents && p.consents.photo],
+      ["Marketing consent", p.consents && p.consents.marketing]
     ];
-    return '<div class="today-tabs" role="tablist" aria-label="Front desk Today">' + tabs.map(function (t) {
-      const on = t[0] === cur;
-      return '<a class="btn small' + (on ? " primary" : "") + '" role="tab" aria-selected="' + (on ? "true" : "false") + '" href="' + hashFor({ page: "emr", todayTab: t[0] }) + '">' + t[1] + "</a>";
-    }).join("") + "</div>";
+    const history = p.consentsHistory || [];
+    const photoOn = !!(p.consents && p.consents.photo && !/not (yet|authorized|on file)/i.test(p.consents.photo));
+    const rows = current.map(function (pair) {
+      return '<div class="row"><span>' + esc(pair[0]) + "</span><strong>" + esc(pair[1] || "Not on file") + "</strong></div>";
+    }).join("");
+    const past = history.length
+      ? history.map(function (h) {
+          return '<div class="row-sub">' + esc(h.kind || "Consent") + " · " + esc(h.status || "") + (h.when ? " · " + esc(fmtDate(h.when)) : "") + (h.note ? " · " + esc(h.note) : "") + "</div>";
+        }).join("")
+      : '<div class="row-sub">No earlier consents on file</div>';
+    return '<div class="appt-consents">' +
+      "<h3>Current consents</h3>" + rows +
+      '<label class="photo-consent"><input type="checkbox" data-photo-consent="' + esc(p.id) + '"' + (photoOn ? " checked" : "") + "> Photo consent on file</label>" +
+      "<h3>Past consents</h3>" + past +
+      '<p class="row-sub">Consent titles are placeholders only. This mockup does not include legal form text.</p></div>';
+  }
+  function openEmnInfo(pid, nid) {
+    const p = patient(pid);
+    const n = p && (p.notes || []).find(function (x) { return x.id === nid; });
+    if (!n) return;
+    const ap = n.appointmentId ? appt(n.appointmentId) : null;
+    const staffOpts = function (selected) {
+      return '<option value=""></option>' + (BRIZZA.STAFF || []).map(function (s) {
+        return "<option" + (s.name === selected ? " selected" : "") + ">" + esc(s.name) + "</option>";
+      }).join("");
+    };
+    const statuses = (BRIZZA.NOTE_STATUSES || ["Draft", "Ready for review", "Finalized", "Amended"]).map(function (s) {
+      return "<option" + ((n.status || "Draft") === s ? " selected" : "") + ">" + esc(s) + "</option>";
+    }).join("");
+    const chargeLines = (n.charges || []).map(function (c) { return (c.name || "") + (c.amount != null ? " · " + c.amount : ""); }).join("\n");
+    showModal("Note details",
+      '<div class="formgrid">' +
+        '<div class="field full"><label for="emnTitle">Note name</label><input id="emnTitle" value="' + esc(n.title || n.type || "") + '"></div>' +
+        '<div class="field"><label for="emnDos">Date of service (DOS)</label><input id="emnDos" type="date" value="' + esc(n.dos || n.date || "") + '"></div>' +
+        '<div class="field"><label for="emnStatus">Note status</label><select id="emnStatus">' + statuses + "</select></div>" +
+        '<div class="field"><label for="emnPrimary">Primary provider</label><select id="emnPrimary">' + staffOpts(n.primaryProvider || n.provider || (ap && ap.provider) || "") + "</select></div>" +
+        '<div class="field"><label for="emnSecondary">Secondary provider</label><select id="emnSecondary">' + staffOpts(n.secondaryProvider || "") + "</select></div>" +
+        '<div class="field"><label for="emnAssistant">Assistant</label><select id="emnAssistant">' + staffOpts(n.assistant || "") + "</select></div>" +
+        '<div class="field full"><label for="emnCharges">Charges (one per line, name · amount). Front desk can pull these into checkout.</label>' +
+        '<textarea id="emnCharges" rows="3" placeholder="Botox · 21">' + esc(chargeLines) + "</textarea></div></div>" +
+        (isMaRole() ? '<p class="row-sub">The medical assistant can start and edit a draft but cannot set the status to Finalized.</p>' : ""),
+      function () {
+        const nextStatus = $("#emnStatus").value;
+        if (nextStatus === "Finalized" && !canFinalizeNote(n)) { toast("The medical assistant cannot finalize a note"); return; }
+        n.title = $("#emnTitle").value.trim() || n.type || "Note";
+        n.dos = $("#emnDos").value || n.date;
+        n.status = nextStatus;
+        n.primaryProvider = $("#emnPrimary").value;
+        n.secondaryProvider = $("#emnSecondary").value;
+        n.assistant = $("#emnAssistant").value;
+        n.charges = ($("#emnCharges").value || "").split("\n").map(function (line) {
+          const parts = line.split("·").map(function (s) { return s.trim(); });
+          if (!parts[0]) return null;
+          const amt = parts[1] ? Number(parts[1].replace(/[^0-9.]/g, "")) : null;
+          return { name: parts[0], amount: (amt === amt && parts[1]) ? amt : null };
+        }).filter(Boolean);
+        toast("Note details saved");
+        closeModal();
+        render();
+      }, "Save details");
   }
   function checkoutIfAllowedHtml(a) {
     if (!(isFrontDeskRole() || isOwnerRole())) return "";
@@ -8040,39 +8342,7 @@
     }
     if (a.status !== "Ready for checkout") return "";
     if (!visitHasCharges(a)) return '<span class="row-sub">Check out once charges exist</span>';
-    return '<button class="btn small primary" type="button" data-fd-checkout="' + esc(a.id) + '">Check out</button>';
-  }
-  function compactVisitRow(a, opts) {
-    opts = opts || {};
-    const p = patient(a.patientId);
-    const prep = opts.prep ? prepCellHtml(a, state.expandedPrep === a.id) : "";
-    const charge = (opts.providerCue && chargesMissing(a)) ? '<span class="cal-pay unpaid">Charges missing</span>' : "";
-    const dueFlag = checkoutIfAllowedHtml(a);
-    const href = p ? hashFor({ page: "patients", selected: p.id, tab: "demographics" }) : "#";
-    return '<div class="emr-patient" data-type="' + esc(a.type) + '" data-status="' + esc(a.status) + '" style="' + cardTypeStyle(a) + '">' +
-      '<div><a class="patient-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a>" +
-      '<div class="emr-snap">' + esc(fmtDate(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + " · " + esc(a.status) + " · " + esc(providerAvailLabel(a.provider) || a.provider) +
-      (a.suiteId ? " · " + esc(suiteName(a.suiteId)) : "") + "</div>" +
-      (opts.prep ? '<div class="emr-snap">' + prep + "</div>" : "") +
-      charge + dueFlag + "</div>" +
-      '<div class="emr-actions">' +
-        reminderActionsHtml(a) +
-        '<button type="button" class="btn small" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
-        '<a class="btn small" href="' + hashFor({ page: "rooming", date: a.date }) + '">Patient flow</a>' +
-      "</div></div>";
-  }
-  function pendingOpenItemsHtml(providerName) {
-    const pending = pendingNotesForProvider(providerName || null);
-    const late = pending.filter(function (item) { return isNoteLate(item.n); });
-    const rows = pending.map(function (item) {
-      const n = item.n, p = item.p;
-      const lateMark = isNoteLate(n) ? ' <span class="wl-late">Late</span>' : "";
-      return '<a class="row" href="' + hashFor({ page: "notes" }) + '"><div><div class="row-title">' + esc(p.name) + " · " + esc(n.type || "Note") + lateMark + '</div>' +
-        '<div class="row-sub">' + esc(fmtDate(n.date)) + " · " + esc(n.status || "Draft") + " · due " + esc(fmtDate(noteDueDate(n))) + "</div></div>" + badge(n.status || "Draft") + "</a>";
-    }).join("") || '<div class="empty">No open notes.</div>';
-    return '<div class="card"><div class="cardhead"><h2>Open items</h2><a class="btn small" href="' + hashFor({ page: "notes" }) + '">My notes' + (pending.length ? " · " + pending.length : "") + '</a></div><div class="cardbody">' +
-      (late.length ? '<div class="notice">Late notes (due end of the next business day) are flagged to the Owner and visible to the provider, Owner, and Manager.</div>' : "") +
-      rows + "</div></div>";
+    return '<button class="btn tiny primary" type="button" data-fd-checkout="' + esc(a.id) + '">Check out</button>';
   }
   function noteDueDate(n) {
     const d = n && n.date ? n.date : todayET();
@@ -8082,119 +8352,214 @@
     if (!n || isNoteSigned(n)) return false;
     return noteDueDate(n) < todayET();
   }
+  function todayTab() {
+    return "today";
+  }
+  function myDayTab() {
+    const t = state.myDayTab || "patients";
+    if (t === "today") return "patients";
+    return t;
+  }
+  function myDayDate() {
+    return state.myDayDate || todayET();
+  }
+  function canSeeMyDayPending() {
+    return canStartNote() || isOwnerRole() || state.actingRole === "Clinic Manager";
+  }
+  function canSeeMyDayClinicNotes() {
+    return isOwnerRole() || state.actingRole === "Clinic Manager";
+  }
+  function myDayTabsHtml() {
+    const cur = myDayTab();
+    const tabs = [["patients", "Today's patients"]];
+    if (canSeeMyDayPending()) tabs.push(["pending", "Pending EMNs"]);
+    if (canStartNote() || isOwnerRole()) tabs.push(["mine", "My notes"]);
+    if (canSeeMyDayClinicNotes()) tabs.push(["notes", "Notes"]);
+    const tabBtns = tabs.map(function (t) {
+      const on = t[0] === cur;
+      return '<a class="btn small' + (on ? " primary" : "") + '" role="tab" aria-selected="' + (on ? "true" : "false") + '" href="' + hashFor({ page: "emr", myDayTab: t[0], myDayDate: myDayDate() }) + '">' + t[1] + "</a>";
+    }).join("");
+    const cal = cur === "patients"
+      ? ('<label class="myday-cal">Calendar <input id="myDayDate" type="date" value="' + esc(myDayDate()) + '"></label>')
+      : "";
+    return '<div class="today-tabs myday-tabs" role="tablist" aria-label="My Day">' + tabBtns + cal + "</div>";
+  }
+  function todayTabsHtml() { return myDayTabsHtml(); }
+  function noteStatusChip(n) {
+    return '<span class="note-status-chip" data-note-status="' + esc((n && n.status) || "Draft") + '">' + esc((n && n.status) || "Draft") + "</span>";
+  }
+  function visitNotesOf(a) {
+    const p = patient(a.patientId);
+    return ((p && p.notes) || []).filter(function (n) { return n && n.appointmentId === a.id; });
+  }
+  function pastNotesOf(p, exceptApptId) {
+    return ((p && p.notes) || []).filter(function (n) { return n && n.appointmentId !== exceptApptId; })
+      .slice()
+      .sort(function (x, y) { return String(y.date || "").localeCompare(String(x.date || "")) || String(y.id || "").localeCompare(String(x.id || "")); });
+  }
+  function emnActionsHtml(p, n) {
+    const info = '<button type="button" class="btn tiny" data-emn-info="' + esc(n.id) + '" data-pid="' + esc(p.id) + '" title="Note details">Info</button>';
+    const view = '<button type="button" class="btn tiny" data-open="note-view" data-pid="' + esc(p.id) + '" data-nid="' + esc(n.id) + '">View</button>';
+    const preview = '<button type="button" class="btn tiny" data-toggle-emn="' + esc(n.id) + '">Preview</button>';
+    const print = '<button type="button" class="btn tiny" data-print-note="' + esc(p.id) + '" data-nid="' + esc(n.id) + '">Print</button>';
+    const edit = canEditNote(n) ? '<button type="button" class="btn tiny" data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Edit</button>' : "";
+    const sign = (!isNoteSigned(n) && canFinalizeNote(n)) ? '<button type="button" class="btn tiny primary" data-quick-sign="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Sign</button>' : "";
+    const openPreview = state.expandedEmn === n.id
+      ? '<div class="emn-preview"><p>' + esc(n.text || "No narrative yet.") + '</p>' + print + "</div>"
+      : "";
+    return '<div class="emn-actions">' + info + noteStatusChip(n) + view + edit + sign + preview + print + openPreview + "</div>";
+  }
+  function pastEmnDropdown(p, exceptApptId) {
+    const list = pastNotesOf(p, exceptApptId);
+    if (!list.length) return '<div class="row-sub">No earlier EMNs</div>';
+    return '<details class="emn-past"><summary>Past EMNs · ' + list.length + "</summary>" +
+      list.map(function (n) {
+        return '<div class="emn-row"><div><strong>' + esc(n.type || "Note") + "</strong> · " + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + "</div>" + emnActionsHtml(p, n) + "</div>";
+      }).join("") + "</details>";
+  }
+  function formLine(ok, label, detail) {
+    return '<div class="form-line ' + (ok ? "is-ok" : "is-miss") + '">' + (ok ? "✓" : "○") + " " + esc(label) + (detail ? ' <span class="row-sub">' + esc(detail) + "</span>" : "") + "</div>";
+  }
+  function docList(p) {
+    return (p && p.documents || []).map(function (d) { return typeof d === "string" ? d : ((d && d.title) || ""); });
+  }
+  function formsChecklistHtml(p) {
+    if (!p) return "";
+    const docs = docList(p);
+    const intake = docs.find(function (t) { return /intake/i.test(t) && !/pending/i.test(t); });
+    const hx = docs.find(function (t) { return /medical history|history/i.test(t) && !/pending/i.test(t); }) || intake;
+    const consent = p.consents && p.consents.clinical && !/not yet/i.test(p.consents.clinical);
+    const photo = p.consents && p.consents.photo && !/not (yet|authorized)/i.test(p.consents.photo);
+    const marketing = p.consents && p.consents.marketing && !/not /i.test(p.consents.marketing);
+    const id = p.idOnFile;
+    return '<div class="forms-check">' +
+      formLine(!!intake, "Intake", intake || "Not on file") +
+      formLine(!!hx, "Medical history", hx || "Not on file") +
+      formLine(!!consent, "Clinical consent", (p.consents && p.consents.clinical) || "Not yet recorded") +
+      formLine(!!photo, "Photo consent", (p.consents && p.consents.photo) || "Not on file") +
+      formLine(!!marketing, "Marketing consent", (p.consents && p.consents.marketing) || "Not authorized") +
+      formLine(!!id, "ID on file", id ? ((id.type || "ID") + (id.collected ? " · " + fmtDate(id.collected) : "")) : "Not on file") +
+      (id ? '<div class="id-preview" aria-label="ID on file"><div class="id-preview-card"><strong>' + esc(p.name) + "</strong><div>" + esc(fmtDob(p.dob)) + " · " + esc(displayId(p.id)) + "</div><div class=\"row-sub\">" + esc(id.type || "Photo ID") + " on file (synthetic placeholder)</div></div></div>" : "") +
+      "</div>";
+  }
+  function myDayVisitCard(a, opts) {
+    opts = opts || {};
+    const p = patient(a.patientId);
+    const href = p ? hashFor({ page: "patients", selected: p.id, tab: "demographics" }) : "#";
+    const visitNotes = visitNotesOf(a);
+    const apptNote = a.prepNotes ? esc(a.prepNotes) : '<span class="muted">No appointment note</span>';
+    const noteBtn = (canStartNote() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
+    const hxBtn = (isMaRole() && p) ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "clinical-profile" }) + '">Update history</a>' : "";
+    const consentBtn = (isMaRole() && p) ? '<button type="button" class="btn tiny" data-open-consents="' + esc(a.id) + '">Complete consents</button>' : "";
+    const emnBlock = p ? ('<div class="myday-emns"><div class="row-sub"><strong>Visit EMNs</strong></div>' +
+      (visitNotes.map(function (n) {
+        return '<div class="emn-row"><div>' + esc(n.type || "Note") + " · " + esc(n.provider || "") + "</div>" + emnActionsHtml(p, n) + "</div>";
+      }).join("") || '<div class="row-sub">No EMN on this visit yet.' + (noteBtn ? " Start one from this card." : "") + "</div>") +
+      (p ? pastEmnDropdown(p, a.id) : "") + "</div>") : "";
+    const alerts = (opts.showClinical && p)
+      ? ('<div class="emr-snap"><strong>Alerts</strong> ' + (((p.alerts || []).map(function (al) { return esc(al.text || al); }).join(" · ")) || "None") + "</div>" +
+         '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>")
+      : "";
+    const forms = (opts.forms && p)
+      ? ('<details class="forms-exp"' + (state.expandedForms === a.id ? " open" : "") + '><summary>Forms and ID</summary>' + formsChecklistHtml(p) + "</details>")
+      : "";
+    const inner =
+      '<div class="flow-head"><a class="patient-name room-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a> " + statusPill(a.status, "tint") + "</div>" +
+      '<div class="emr-snap">' + esc(fmtDate(a.date)) + " · " + esc(fmtTime(a.time)) + " · " + esc(a.type || "") +
+        (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(providerAvailLabel(a.provider) || a.provider) +
+        (a.suiteId ? " · " + esc(suiteName(a.suiteId)) : "") +
+        (p ? " · " + esc(displayId(p.id)) : "") + "</div>" +
+      alerts +
+      (opts.prep ? '<div class="emr-snap">' + prepCellHtml(a, state.expandedPrep === a.id) + "</div>" : "") +
+      '<div class="emr-snap myday-appt-note"><strong>Appointment notes</strong> ' + apptNote +
+        ' <button type="button" class="btn-icon" data-edit-prep="' + esc(a.id) + '" title="Edit appointment note" aria-label="Edit appointment note">✎</button></div>' +
+      emnBlock + forms +
+      ((opts.providerCue && chargesMissing(a)) ? '<span class="cal-pay unpaid">Charges missing</span>' : "") +
+      checkoutIfAllowedHtml(a) +
+      '<div class="emr-actions flow-actions">' +
+        reminderActionsHtml(a) +
+        '<button type="button" class="btn tiny" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
+        (p ? '<a class="btn tiny" href="' + href + '">Open chart</a>' : "") +
+        noteBtn + hxBtn + consentBtn +
+      "</div>";
+    return jewelWrap(a, inner, "emr-patient myday-card", 'data-appt="' + esc(a.id) + '"');
+  }
+  function myDayNotesPanel(scope, pendingOnly) {
+    const who = actingName();
+    const items = [];
+    (store.patients || []).forEach(function (p) {
+      (p.notes || []).forEach(function (n) {
+        if (scope === "mine" && n.provider && n.provider !== who && !isOwnerRole()) return;
+        if (scope === "mine" && isOwnerRole() && n.provider && n.provider !== who && state.notesScope !== "all") {
+          /* owner My notes = own notes only */
+          if (n.provider !== who) return;
+        }
+        if (pendingOnly && isNoteSigned(n)) return;
+        items.push({ p: p, n: n });
+      });
+    });
+    items.sort(function (a, b) {
+      return String(b.n.date || "").localeCompare(String(a.n.date || "")) || String((b.n.id || "")).localeCompare(String(a.n.id || ""));
+    });
+    const newBtn = canStartNote() ? '<button type="button" class="btn tiny primary" data-new-dash-note="1">＋ New note</button>' : "";
+    const rows = items.map(function (it) {
+      const n = it.n, p = it.p;
+      const lateMark = isNoteLate(n) ? ' <span class="wl-late">Late</span>' : "";
+      return '<div class="emn-row myday-note-row">' +
+        '<div><a href="' + hashFor({ page: "patients", selected: p.id, tab: "snapshot" }) + '">' + esc(p.name) + "</a> · " + esc(n.type || "Note") + lateMark +
+        '<div class="row-sub">' + esc(fmtDate(n.date)) + (n.time ? " · " + esc(fmtTime(n.time)) : "") + " · " + esc(n.provider || "") + "</div></div>" +
+        emnActionsHtml(p, n) + "</div>";
+    }).join("") || '<div class="empty">No notes in this list.</div>';
+    return '<div class="card"><div class="cardhead"><h2>' + (pendingOnly ? "Pending EMNs" : (scope === "mine" ? "My notes" : "Notes")) + "</h2>" + newBtn + "</div><div class=\"cardbody\">" + rows + "</div></div>";
+  }
   function renderToday() {
-    const day = todayET();
+    const day = myDayDate();
     const staff = actingProviderStaff();
     const ma = isMaRole();
     const fd = isFrontDeskRole() || (isOwnerRole() && !staff);
-    const tab = todayTab();
+    const coord = state.actingRole === "Clinic Coordinator" || isFrontDeskRole();
+    const tab = myDayTab();
     let sub = esc(fmtDate(day));
-    if (fd) sub += " · Front desk";
+    if (fd || coord) sub += " · Front desk";
     else if (ma) sub += " · Medical assistant · all providers";
     else if (staff) sub += " · " + esc(staff.name);
-    const head = pageHead("Today", "Today", sub, todayTabsHtml());
+    const head = pageHead("My Day", "My Day", sub, myDayTabsHtml());
     let main = "";
-    if (fd) {
-      if (tab === "tomorrow") {
-        const nxt = nextBusinessDay(day);
-        const list = clinicDayAppointments(nxt);
-        main = '<div class="card"><div class="cardhead"><h2>Tomorrow prep · ' + esc(fmtDate(nxt)) + '</h2></div><div class="cardbody">' +
-          (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits to prep for the next business day.</div>') +
-          "</div></div>";
-      } else if (tab === "week") {
-        const days = [];
-        let d = day;
-        for (let i = 0; i < 7; i += 1) { days.push(d); d = addDays(d, 1); }
-        main = days.map(function (dt) {
-          if (isWeekend(dt)) return '<div class="card"><div class="cardhead"><h2>' + esc(fmtLong(dt)) + "</h2></div><div class=\"cardbody\"><div class=\"empty\">Clinic closed</div></div></div>";
-          const list = clinicDayAppointments(dt);
-          return '<div class="card"><div class="cardhead"><h2>' + esc(fmtLong(dt)) + " · " + list.length + "</h2></div><div class=\"cardbody\">" +
-            (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits.</div>') +
-            "</div></div>";
-        }).join("");
-      } else {
-        const list = clinicDayAppointments(day);
-        main = '<div class="card"><div class="cardhead"><h2>Today\'s visits</h2></div><div class="cardbody">' +
-          (list.map(function (a) { return compactVisitRow(a, { prep: true }); }).join("") || '<div class="empty">No visits on the clinic schedule today.</div>') +
-          "</div></div>";
-      }
+    if (tab === "pending") {
+      main = myDayNotesPanel("mine", true);
+    } else if (tab === "mine") {
+      main = myDayNotesPanel("mine", false);
+    } else if (tab === "notes") {
+      main = myDayNotesPanel("all", false);
+    } else if (isClinicClosedDay(day)) {
+      main = clinicClosedBanner(day);
+    } else if (fd || coord) {
+      const list = clinicDayAppointments(day);
+      main = '<div class="card"><div class="cardhead"><h2>' + (day === todayET() ? "Today's patients" : esc(fmtLong(day))) + '</h2></div><div class="cardbody">' +
+        (list.map(function (a) { return myDayVisitCard(a, { prep: true, forms: coord || isFrontDeskRole() }); }).join("") || '<div class="empty">No visits on the clinic schedule this day.</div>') +
+        "</div></div>";
     } else if (ma) {
       const statuses = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider"];
-      const list = clinicDayAppointments(day, { statuses: statuses });
-      main = '<div class="card"><div class="cardhead"><h2>Ready for clinical work</h2><span class="row-sub">Checked in through Ready for provider, all providers</span></div><div class="cardbody">' +
-        (list.map(function (a) {
-          const p = patient(a.patientId);
-          return compactVisitRow(a, { prep: false }) +
-            (p ? '<div class="emr-actions" style="margin-top:-8px"><a class="btn small primary" href="' + hashFor({ page: "patients", selected: p.id, tab: "clinical-profile" }) + '">Update history</a></div>' : "");
-        }).join("") || '<div class="empty">No patients in Checked in through Ready for provider.</div>') +
-        "</div></div>";
+      const list = clinicDayAppointments(day);
+      const focus = list.filter(function (a) { return statuses.indexOf(a.status) >= 0; });
+      const rest = list.filter(function (a) { return statuses.indexOf(a.status) < 0 && a.status !== "Canceled" && a.status !== "No-show"; });
+      main = '<div class="card"><div class="cardhead"><h2>Clinical work</h2><span class="row-sub">Checked in through Ready for provider, all providers</span></div><div class="cardbody">' +
+        (focus.map(function (a) { return myDayVisitCard(a, { prep: true, showClinical: true }); }).join("") || '<div class="empty">No patients in Checked in through Ready for provider.</div>') +
+        "</div></div>" +
+        (rest.length ? '<div class="card"><div class="cardhead"><h2>Other visits this day</h2></div><div class="cardbody">' + rest.map(function (a) { return myDayVisitCard(a, { prep: true, showClinical: true }); }).join("") + "</div></div>" : "");
     } else {
       const list = clinicDayAppointments(day, { provider: staff ? staff.name : null }).filter(function (a) {
         return a.status !== "No-show" && a.status !== "Canceled";
       });
-      const cards = list.map(function (a) {
-        const p = patient(a.patientId);
-        if (!p) return "";
-        const alerts = ((p.alerts || []).map(function (al) { return '<span class="alert-item">' + esc(al.text) + "</span>"; }).join(" ")) || '<span class="row-sub">No alerts</span>';
-        const last = lastVisitBefore(p.id, day);
-        const lastText = last ? (fmtDate(last.date) + " · " + (last.type || "Visit")) : "No prior visit on file";
-        const note = lastNoteOf(p);
-        const noteStatus = note ? (note.status || "Draft") : "No note";
-        const pendingLast = pendingNoteFromLastVisit(p, day);
-        const reminder = pendingLast
-          ? '<div class="notice emr-pending-reminder">Pending note from the last visit · ' + esc(pendingLast.n.status || "Draft") + " · " + esc(fmtDate(pendingLast.visit.date)) + " · " + esc(pendingLast.visit.type || "Visit") + "</div>"
-          : "";
-        const noteBtn = isClinicalRole()
-          ? '<button class="btn small primary" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">＋ New note</button>'
-          : "";
-        const missing = chargesMissing(a) ? '<div class="emr-snap"><strong>Charges missing</strong></div>' : "";
-        return '<div class="emr-patient" style="' + cardTypeStyle(a) + '">' +
-          '<div><a class="patient-name" href="' + hashFor({ page: "patients", selected: p.id, tab: "demographics" }) + '">' + esc(p.name) + "</a>" +
-          '<div class="emr-snap">' + esc(fmtTime(a.time)) + " · " + esc(a.type || "") + (reasonText(a) ? " · " + esc(reasonText(a)) : "") + " · " + esc(a.status || "") + " · " + esc(displayId(p.id)) + "</div>" +
-          '<div class="emr-snap"><strong>Last note</strong> ' + esc(noteStatus) + "</div>" +
-          '<div class="emr-alerts" aria-label="Alerts">' + alerts + "</div>" +
-          '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>" +
-          '<div class="emr-snap"><strong>Last visit</strong> ' + esc(lastText) + "</div>" + missing + reminder + "</div>" +
-          '<div class="emr-actions">' +
-            '<button type="button" class="btn small" data-open-appt="' + esc(a.id) + '">Open appointment</button>' +
-            '<a class="btn small" href="' + hashFor({ page: "rooming", date: a.date }) + '">Patient flow</a>' +
-            noteBtn +
-          "</div></div>";
-      }).join("") || '<div class="empty">' + (staff ? "No patients on this provider's schedule today." : "No patients on the clinic schedule today.") + "</div>";
-      main = '<div class="emr-grid">' +
-        '<div class="card"><div class="cardhead"><h2>Today\'s patients</h2></div><div class="cardbody">' + cards + "</div></div>" +
-        pendingOpenItemsHtml(staff ? staff.name : null) +
-        "</div>";
+      main = '<div class="card"><div class="cardhead"><h2>' + (day === todayET() ? "Today's patients" : esc(fmtLong(day))) + "</h2></div><div class=\"cardbody\">" +
+        (list.map(function (a) { return myDayVisitCard(a, { prep: true, showClinical: true, providerCue: true }); }).join("") || '<div class="empty">' + (staff ? "No patients on this provider's schedule this day." : "No patients on the clinic schedule this day.") + "</div>") +
+        "</div></div>";
     }
-    renderChrome('<a href="' + hashFor({ page: "emr" }) + '">Today</a>', head, main);
+    renderChrome('<a href="' + hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }) + '">My Day</a>', head, main);
   }
 
   function renderEmr() { renderToday(); }
 
-  function noteVisitTime(n) {
-    if (n && n.time) return n.time;
-    const a = n && n.appointmentId ? appt(n.appointmentId) : null;
-    return (a && a.time) || "";
-  }
-  function notesGroupMode() {
-    if (state.notesGroup === "provider" || state.notesGroup === "date") return state.notesGroup;
-    return state.actingRole === "Clinic Manager" ? "provider" : "date";
-  }
-  function openNewNotePicker() {
-    if (!isClinicalRole()) { toast("New notes are limited to clinical roles"); return; }
-    captureNoteReturn();
-    const opts = (store.patients || []).map(function (p) {
-      return "<option value=\"" + esc(p.id) + "\">" + esc(p.name) + " · " + esc(displayId(p.id)) + "</option>";
-    }).join("");
-    showModal("New note",
-      '<div class="field"><label for="newNotePatient">Patient</label><select id="newNotePatient"><option value="">Select a patient</option>' + opts + "</select></div>",
-      function () {
-        const pid = $("#newNotePatient") && $("#newNotePatient").value;
-        if (!pid) { toast("Select a patient"); return; }
-        closeModal();
-        openNoteComposer(pid);
-      }, "Continue");
-  }
   function renderNotesDash() {
     const mode = state.notesDash === "signed" ? "signed" : "pending";
     state.notesDash = mode;
@@ -8305,12 +8670,13 @@
       else renderSettings();
     }
     else if (state.page === "visit") renderVisit();
+    else if (state.page === "quotes") renderQuotesHome();
     else if (state.page === "checkout" || state.page === "pos") renderPOS();
     else if (state.page === "audit") renderAudit();
     else if (state.page === "rooming") renderRooming();
     else if (state.page === "inventory") renderInventory();
     else if (state.page === "emr") renderEmr();
-    else if (state.page === "notes") renderNotesDash();
+    else if (state.page === "notes") { state.page = "emr"; state.myDayTab = state.notesScope === "mine" ? "mine" : "notes"; renderToday(); }
     else renderPatients();
     if (state.demo.running) paintDemoPanel();
     bindStatusStops();
@@ -8467,6 +8833,14 @@
       const box = taskShow.matches("input") ? taskShow : taskShow.querySelector("input");
       state.showCompletedTasks = box ? box.checked : !state.showCompletedTasks;
       render();
+      return;
+    }
+    const taskNote = e.target.closest("[data-task-note]");
+    if (taskNote) {
+      e.preventDefault();
+      const id = taskNote.getAttribute("data-task-note");
+      const inp = document.getElementById("task-note-" + id) || document.querySelector("[data-task-note-text=\"" + id + "\"]");
+      addTaskActivity(id, inp && inp.value);
       return;
     }
     const taskDone = e.target.closest("[data-task-done]");
@@ -8648,12 +9022,62 @@
       }
       return;
     }
+    const newQ = e.target.closest("[data-new-quote]");
+    if (newQ) { e.preventDefault(); openNewQuoteModal(); return; }
     const cred = e.target.closest("[data-apply-credit]");
     if (cred) { e.preventDefault(); applyInvoiceCredit(cred.getAttribute("data-apply-credit")); return; }
     const rem = e.target.closest("[data-add-remaining]");
     if (rem) { e.preventDefault(); addRemainingToBalance(rem.getAttribute("data-add-remaining")); return; }
     const leftUnpaid = e.target.closest("[data-left-unpaid]");
     if (leftUnpaid) { e.preventDefault(); leftWithoutPaying(leftUnpaid.getAttribute("data-left-unpaid")); return; }
+    const paneBtn = e.target.closest("[data-appt-pane]");
+    if (paneBtn) {
+      e.preventDefault();
+      const pane = paneBtn.getAttribute("data-appt-pane") || "details";
+      const aid = ($(".appt-card-ui") && $(".appt-card-ui").getAttribute("data-appt-card"));
+      if (aid) openAppointment(aid, { pane: pane });
+      return;
+    }
+    const photoC = e.target.closest("[data-photo-consent]");
+    if (photoC && e.target === photoC) {
+      const p = patient(photoC.getAttribute("data-photo-consent"));
+      if (p) {
+        p.consents = p.consents || {};
+        if (photoC.checked) {
+          p.consents.photo = "Authorized · signed " + nowET();
+          p.consentsHistory = p.consentsHistory || [];
+          p.consentsHistory.push({ kind: "Photo", status: "Current", when: todayET() });
+        } else {
+          p.consents.photo = "Not authorized";
+        }
+        toast(photoC.checked ? "Photo consent recorded" : "Photo consent cleared");
+      }
+      return;
+    }
+    const emnInfo = e.target.closest("[data-emn-info]");
+    if (emnInfo) { e.preventDefault(); openEmnInfo(emnInfo.getAttribute("data-pid"), emnInfo.getAttribute("data-emn-info")); return; }
+    const toggleEmn = e.target.closest("[data-toggle-emn]");
+    if (toggleEmn) {
+      e.preventDefault();
+      const id = toggleEmn.getAttribute("data-toggle-emn");
+      state.expandedEmn = state.expandedEmn === id ? null : id;
+      render();
+      return;
+    }
+    const quickSign = e.target.closest("[data-quick-sign]");
+    if (quickSign) {
+      e.preventDefault();
+      openNoteComposer(quickSign.getAttribute("data-pid"), null, null, quickSign.getAttribute("data-quick-sign"));
+      return;
+    }
+    const openConsents = e.target.closest("[data-open-consents]");
+    if (openConsents) {
+      e.preventDefault();
+      const ap = appt(openConsents.getAttribute("data-open-consents"));
+      if (ap) openAppointment(ap.id, { pane: "consents" });
+      else toast("Open the appointment to complete consents");
+      return;
+    }
     const expandPrep = e.target.closest("[data-expand-prep]");
     if (expandPrep) {
       e.preventDefault();
@@ -8930,6 +9354,11 @@
     else if (e.target.id === "notesTo") { state.notesTo = e.target.value; render(); }
     else if (e.target.id === "notesProvider") { state.notesProvider = e.target.value; render(); }
     else if (e.target.id === "notesGroup") { state.notesGroup = e.target.value; render(); }
+    else if (e.target.id === "myDayDate") {
+      state.myDayDate = e.target.value || todayET();
+      state.myDayTab = "patients";
+      go({ page: "emr", myDayTab: "patients", myDayDate: state.myDayDate });
+    }
     else if (e.target.id === "sched-search") {
       state.scheduleSearch = e.target.value;
       const hold = e.target.selectionStart;
@@ -9015,7 +9444,7 @@
       if (!raw) setAppointmentSuite(e.target.dataset.suiteRole, null);
       else {
         const parts = raw.split("|");
-        setAppointmentSuite(e.target.dataset.suiteRole, parts[0], parts[1] || "With clinical");
+        setAppointmentSuite(e.target.dataset.suiteRole, parts[0], parts[1] || null);
       }
     }
     else if (e.target.id === "patient-search") {
@@ -9056,7 +9485,7 @@
     state.contrast = checkContrast();
     if (state.contrast.failed) console.warn("Contrast check failures", state.contrast);
     else console.info("Theme contrast: all configured text/background pairs meet their WCAG targets.");
-    if (!location.hash) history.replaceState(null, "", hashFor({ page: "emr", todayTab: "today" }));
+    if (!location.hash) history.replaceState(null, "", hashFor({ page: "emr", myDayTab: "patients", myDayDate: todayET() }));
     window.addEventListener("hashchange", applyRoute);
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", function (e) {

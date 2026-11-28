@@ -107,6 +107,10 @@ Revoking this authorization does not affect your treatment consent or your clini
 - I can decline any channel, decline to show my face, or decline this authorization entirely.
 - Marketing staff may use only photographs that are authorized for the relevant marketing purpose.
 
+## Urgent contact
+
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
+
 ## Questions
 
 I have had a chance to ask questions about how my photographs could be used, which channels I am approving, whether my face will be shown, when this authorization expires, and how to revoke it. My questions have been answered in a way I understand.

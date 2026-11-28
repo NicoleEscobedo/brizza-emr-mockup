@@ -117,6 +117,8 @@ I will receive verbal and written aftercare instructions that are specific to th
 
 A provider-approved clinic instruction sheet, when one is issued, replaces this sample list.
 
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
+
 ## Clinical photographs
 
 Clinical photographs are optional. They are used only for treatment planning and your medical record, and only if you sign a **separate** clinical photography consent. This treatment consent does **not** allow the clinic to use your photos for marketing. Marketing use requires a separate marketing photo authorization. One permission does not authorize the others.

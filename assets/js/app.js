@@ -1585,6 +1585,7 @@
             '<input id="posSearch" type="search" placeholder="Search ' + ((state.posCatalogTab || "services") === "products" ? "products" : "services") + '" value="' + esc(q) + '" autocomplete="off">' +
             '<input id="posQty" class="qty" type="hidden" value="1" aria-hidden="true">' +
             ((isCoordinatorRole() || state.actingRole === "Clinic Manager" || isOwnerRole()) ? '<button type="button" class="btn tiny" data-add-note-charges="' + esc(inv.id) + '">Add charges from note</button>' : "") +
+            posPatientQuotesHtml(inv) +
             '<div id="posCatalogResults" class="pos-catalog-list">' + posCatalogListHtml(inv, q) + "</div>") +
         "</div>" +
         '<div class="pos-cart-pane">' +
@@ -1601,7 +1602,8 @@
             (credit > 0 && !inv.finalized ? '<button class="btn small" type="button" data-apply-credit="' + esc(inv.id) + '">Apply</button>' : "") + "</div>" +
             '<div class="grand">Balance ' + esc(balLabel) + "</div></div>" +
           (inv.finalized
-            ? ('<div class="actions" style="margin-top:10px">' +
+            ? ('<div class="bill-complete">Bill complete · receipt locked</div>' +
+               '<div class="actions" style="margin-top:10px">' +
                '<button class="btn small" type="button" data-print-receipt="' + esc(inv.id) + '">Print receipt</button>' +
                '<button class="btn small" type="button" data-email-receipt="' + esc(inv.id) + '">Email receipt</button></div>')
             : ('<div class="pos-pay">' +
@@ -1641,7 +1643,7 @@
       "<h3>Receipt</h3>" + rows +
       '<div class="receipt-total">Total ' + esc(t.label) + "</div>" +
       '<div class="receipt-meta">Balance ' + esc(t.balance == null ? (t.tbd ? "TBD" : "—") : money(t.balance)) + "</div>" +
-      (locked ? badge(inv.status === "Paid" ? "Paid · Completed" : (inv.status || "Completed")) : badge(inv.status || "Draft")) +
+      (locked ? '<div class="bill-complete">Bill complete · ' + esc(inv.status === "Paid" ? "Paid" : (inv.status || "Completed")) + " · receipt locked</div>" : badge(inv.status || "Draft")) +
     "</aside>";
   }
   function printInvoiceReceipt(invId) {
@@ -2637,13 +2639,147 @@
     }).join("");
   }
 
+
+  function notePrintSheetCss() {
+    return "@page{size:letter;margin:16mm 16mm 18mm;@bottom-left{content:\"BRIZZA AESTHETICS  ·  Synthetic record\";font:9pt Georgia,\"Times New Roman\",serif;color:#5a4e46}@bottom-right{content:\"Page \" counter(page);font:9pt Georgia,\"Times New Roman\",serif;color:#5a4e46}}" +
+      ".note-print-sheet{font-family:Georgia,\"Times New Roman\",serif;color:#352820;background:#fff;max-width:760px;margin:0 auto;padding:8px 4px 24px}" +
+      ".note-print-head{border-bottom:1.5px solid #352820;padding-bottom:10px;margin-bottom:14px}" +
+      "h1,.clinic-logo-mark,.print-logo{font-size:20px;margin:0 0 4px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}" +
+      ".note-print-contact{font-size:11px;line-height:1.45;color:#5a4e46;margin:0}" +
+      ".note-print-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;border-bottom:1px solid #d8d0c8;padding:10px 0 12px;margin-bottom:16px;font-size:12.5px;line-height:1.45}" +
+      ".note-print-meta .k{display:block;color:#5a4e46;font-size:10px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:1px}" +
+      ".note-print-section{margin:0 0 14px}" +
+      ".note-print-section h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 6px;padding-bottom:3px;border-bottom:1px solid #e6e0da;font-weight:700}" +
+      ".note-print-section p,.note-print-kv{font-size:13px;line-height:1.5;margin:0 0 6px;white-space:pre-wrap}" +
+      ".note-print-empty{color:#8a7f76;font-style:italic}" +
+      ".note-print-sig{margin-top:28px;border-top:1px solid #352820;padding-top:12px;font-size:13px}" +
+      ".note-print-sig .sig-line{margin-top:4px;border-bottom:1px solid #352820;max-width:280px;height:22px}" +
+      ".note-print-foot{margin-top:28px;font-size:10px;color:#5a4e46;display:flex;justify-content:space-between;gap:12px;border-top:1px solid #d8d0c8;padding-top:8px}" +
+      "@media print{.note-print-sheet{max-width:none;padding:0}.no-print{display:none!important}}";
+  }
+  function labelizeField(key) {
+    return String(key || "").replace(/([A-Z])/g, " $1").replace(/[_-]+/g, " ").replace(/^\s+/, "").replace(/\b\w/g, function (c) { return c.toUpperCase(); }).trim();
+  }
+  function bucketNoteFields(n) {
+    const vals = (n && n.values) || {};
+    const buckets = { concern: [], history: [], assessment: [], plan: [], procedure: [], next: [], other: [] };
+    const rules = [
+      [/chief|concern|visit.?reason|reason.?for|presenting/i, "concern"],
+      [/histor|hpi|response.?since|areas.?discussed|allerg|medication|condition|background/i, "history"],
+      [/assess|impression|diagnos|finding/i, "assessment"],
+      [/plan|recommend|counsel|education|aftercare/i, "plan"],
+      [/procedur|treatment|product|lot|unit|inject|technique|device|performed/i, "procedure"],
+      [/next.?appt|next.?appointment|return.?date|follow.?up/i, "next"]
+    ];
+    Object.keys(vals).forEach(function (k) {
+      const v = vals[k];
+      if (v == null || String(v).trim() === "") return;
+      let bucket = "other";
+      const label = labelizeField(k);
+      for (let i = 0; i < rules.length; i++) {
+        if (rules[i][0].test(k) || rules[i][0].test(label)) { bucket = rules[i][1]; break; }
+      }
+      buckets[bucket].push({ key: k, label: label, value: String(v) });
+    });
+    return buckets;
+  }
+  function notePrintKv(items, sectionTitle) {
+    const title = String(sectionTitle || "").toLowerCase().replace(/[^a-z]+/g, "");
+    return (items || []).map(function (it) {
+      const lab = String(it.label || "").toLowerCase().replace(/[^a-z]+/g, "");
+      const hide = title && (lab === title || title.indexOf(lab) === 0);
+      return hide
+        ? ('<div class="note-print-kv">' + esc(it.value) + "</div>")
+        : ('<div class="note-print-kv"><strong>' + esc(it.label) + ".</strong> " + esc(it.value) + "</div>");
+    }).join("");
+  }
+  function notePrintSection(title, inner, emptyLabel) {
+    if (inner && String(inner).trim()) {
+      return '<section class="note-print-section"><h2>' + esc(title) + "</h2>" + inner + "</section>";
+    }
+    return '<section class="note-print-section"><h2>' + esc(title) + '</h2><p class="note-print-empty">' + esc(emptyLabel || "Not recorded") + "</p></section>";
+  }
+  function notePrintHtml(p, n) {
+    const contact = clinicContactLines();
+    const a = n.appointmentId ? appt(n.appointmentId) : null;
+    const loc = (a && locationName(a.locationId)) || n.location || locationName(BRIZZA.DEFAULT_LOCATION) || "";
+    const buckets = bucketNoteFields(n);
+    const snap = n.historySnapshot || {};
+    if ((snap.allergies || []).length) buckets.history.push({ label: "Allergies", value: snap.allergies.join("; ") });
+    if ((snap.meds || []).length) buckets.history.push({ label: "Medications", value: snap.meds.join("; ") });
+    if ((snap.conditions || []).length) buckets.history.push({ label: "History", value: snap.conditions.join("; ") });
+    if (n.nextAppointmentDate) buckets.next.push({ label: "Next appointment", value: fmtDob(n.nextAppointmentDate) });
+    const charges = (n.charges || []).map(function (c) {
+      const lot = c.lot || c.lotNumber || "";
+      const bits = [c.name || c.item, c.qty != null ? ("qty " + c.qty) : "", lot ? ("lot " + lot) : ""].filter(Boolean);
+      return bits.join(" · ");
+    }).filter(Boolean);
+    if (charges.length) buckets.procedure.push({ label: "Products / charges", value: charges.join("\n") });
+    const usedKeys = {};
+    ["concern", "history", "assessment", "plan", "procedure", "next"].forEach(function (b) {
+      (buckets[b] || []).forEach(function (it) { if (it.key) usedKeys[it.key] = true; });
+    });
+    let narrative = "";
+    if (n.text && String(n.text).trim() && !Object.keys(n.values || {}).length) {
+      narrative = "<p>" + esc(n.text) + "</p>";
+    }
+    const concernInner = notePrintKv(buckets.concern, "Chief concern") || narrative;
+    const otherInner = notePrintKv(buckets.other) + (narrative && concernInner !== narrative ? narrative : "");
+    const metaItem = function (k, v) {
+      return '<div><span class="k">' + esc(k) + "</span>" + esc(v || "—") + "</div>";
+    };
+    const sig = n.signedAt
+      ? ('<div class="note-print-sig"><div><strong>' + esc(n.provider || "") + "</strong></div><div>Signed " + esc(n.signedAt) + "</div></div>")
+      : ('<div class="note-print-sig"><div class="sig-line"></div><div><strong>' + esc(n.provider || "") + "</strong></div><p class=\"note-print-empty\">Draft — not signed</p></div>");
+    const omitEmpty = function (title, inner) {
+      return inner && String(inner).trim() ? notePrintSection(title, inner) : "";
+    };
+    const sections =
+      notePrintSection("Chief concern", concernInner) +
+      notePrintSection("History", notePrintKv(buckets.history, "History")) +
+      omitEmpty("Assessment", notePrintKv(buckets.assessment, "Assessment")) +
+      notePrintSection("Plan", notePrintKv(buckets.plan, "Plan")) +
+      omitEmpty("Procedure details and products", notePrintKv(buckets.procedure, "Procedure details and products")) +
+      omitEmpty("Next appointment", notePrintKv(buckets.next, "Next appointment")) +
+      omitEmpty("Visit details", otherInner && (buckets.concern.length || buckets.history.length) ? otherInner : (otherInner || "")) +
+      ((n.addenda || []).length
+        ? notePrintSection("Addenda", (n.addenda || []).map(function (ad) {
+            return "<p>" + esc(ad.text || "") + '</p><p class="note-print-contact">' + esc(ad.who || "") + (ad.role ? " · " + esc(ad.role) : "") + " · " + esc(ad.when || "") + "</p>";
+          }).join(""))
+        : "");
+    return '<article class="note-print-sheet">' +
+      '<header class="note-print-head">' + clinicLogoMark("print-logo") +
+      '<p class="note-print-contact">' + esc(contact.address) + "<br>" + esc(contact.phone) + "</p></header>" +
+      '<div class="note-print-meta">' +
+        metaItem("Patient", p ? p.name : "") +
+        metaItem("Date of birth", p && p.dob ? fmtDob(p.dob) : "—") +
+        metaItem("Chart ID", p ? displayId(p.id) : "—") +
+        metaItem("Date of service", n.date ? fmtDob(n.date) : "—") +
+        metaItem("Provider", n.provider || (a && a.provider) || "—") +
+        metaItem("Assistant", n.assistant || "—") +
+        (n.secondaryProvider ? metaItem("Secondary provider", n.secondaryProvider) : "") +
+        metaItem("Location", loc || "—") +
+        metaItem("Note", (n.type || "Note") + " · " + (n.status || "")) +
+      "</div>" +
+      sections + sig +
+      '<footer class="note-print-foot"><span>BRIZZA AESTHETICS · Synthetic record</span><span>Page numbers appear when printed</span></footer></article>';
+  }
+  function openPrintSheet(title, bodyHtml) {
+    const w = window.open("", "_blank", "width=860,height=1000");
+    if (!w) { toast("Allow pop-ups to view or print"); return; }
+    const html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + String(title).replace(/[<>]/g, "") + "</title>" +
+      "<style>" + notePrintSheetCss() + "</style></head>" +
+      '<body class="print-root">' + bodyHtml + "</body></html>";
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    setTimeout(function () { try { w.focus(); w.print(); } catch (e) {} }, 50);
+  }
+
   function printNote(pid, nid) {
     const p = patient(pid); if (!p) return;
     const n = (p.notes || []).find((x) => x.id === nid); if (!n) return;
-    const adds = (n.addenda || []).map(function (a) {
-      return "<h2>Addendum</h2><p>" + esc(a.text || "") + "</p><p>" + esc(a.who || "") + " · " + esc(a.when || "") + "</p>";
-    }).join("");
-    printView("Clinical note · " + p.name, "<p><strong>" + esc(n.type || "Note") + "</strong> · " + esc(n.status || "") + " · " + esc(fmtDate(n.date)) + " · " + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</p><p>" + esc(n.text || "") + "</p>" + adds);
+    openPrintSheet("Clinical note · " + p.name, notePrintHtml(p, n));
   }
   function printDoc(pid, did) {
     const p = patient(pid); if (!p) return;
@@ -8367,10 +8503,10 @@
     if (!inv && ap) inv = ensureInvoiceForAppt(ap);
     if (inv) state.invoiceId = inv.id;
     const p = inv ? patient(inv.patientId) : (ap ? patient(ap.patientId) : null);
-    const start = '<div class="actions pos-patient-tools" style="margin-bottom:12px">' +
-      '<label class="field" style="flex:1;min-width:220px"><span class="sr-only">Find a patient</span>' +
+    const start = '<div class="actions pos-patient-tools">' +
+      '<div class="pos-patient-search"><label class="field"><span class="sr-only">Find a patient</span>' +
       '<input id="posPatientSearch" type="search" placeholder="Search patients by name, #ID, or DOB" value="' + esc(state.posPatientQ || "") + '"></label>' +
-      '<div id="posPatientResults" class="patient-results"></div>' +
+      '<div id="posPatientResults" class="patient-results"></div></div>' +
       '<button type="button" class="btn" data-new-blank-invoice="1">＋ Blank invoice</button></div>';
     const head = pageHead("", "Point of Sale", p ? (patientLink(p) + " · " + esc(displayId(p.id)) + (inv ? " · " + esc(inv.id) : "")) : "", "");
     const main = inv ? invoicePopupHtml(inv, { embedded: true }) : '<div class="empty">Select a visit or start a blank invoice.</div>';
@@ -8428,6 +8564,93 @@
     render();
   }
 
+  function posPatientQuotesHtml(inv) {
+    if (!inv || inv.finalized) return "";
+    const list = (store.quotes || []).filter(function (q) {
+      return q.patientId === inv.patientId && ["Open", "Accepted", "Prepaid"].indexOf(q.status) >= 0;
+    });
+    if (!list.length) return "";
+    return '<div class="pos-open-quotes"><div class="row-sub">Open quotes for this patient — add lines only when you choose to. This does not post a sale.</div>' +
+      list.map(function (q) {
+        return '<div class="pos-quote-row"><span>' + esc(q.name) + " · " + esc(q.id) + " · " + esc(q.status) +
+          (q.depositAmount ? " · deposit " + money(q.depositAmount) : "") + "</span>" +
+          '<button type="button" class="btn tiny" data-add-from-quote="' + esc(inv.id) + '" data-quote="' + esc(q.id) + '">Add from quote</button></div>';
+      }).join("") + "</div>";
+  }
+  function quoteLineCopy(l) {
+    if (!l || l.kind === "prepayment") return null;
+    return { kind: l.kind, name: l.name, catalogId: l.catalogId, unit: l.unit, unitPrice: l.unitPrice, qty: l.qty, amount: l.amount, waived: l.waived };
+  }
+  function quoteStepperHtml(q) {
+    const inv = q.invoiceId ? invoice(q.invoiceId) : null;
+    const paid = !!(inv && (inv.status === "Paid" || (inv.finalized && (inv.balance === 0 || inv.balance === "0"))));
+    const hasDeposit = q.status === "Prepaid" || (q.depositAmount != null && q.depositAmount > 0);
+    const converted = q.status === "Converted";
+    const accepted = q.status === "Accepted" || hasDeposit || converted || !!q.acceptedAt;
+    const expired = q.status === "Expired";
+    const steps = [
+      { key: "Open", done: accepted || converted || expired, current: q.status === "Open" },
+      { key: "Accepted", done: hasDeposit || converted, current: q.status === "Accepted" },
+      { key: "Prepaid", done: converted && hasDeposit, current: q.status === "Prepaid" },
+      { key: "Converted", done: paid, current: converted && !paid },
+      { key: "Paid", done: paid, current: paid }
+    ];
+    if (expired) {
+      steps.forEach(function (s) { s.current = false; });
+    }
+    return '<div class="quote-stepper' + (expired ? " is-expired" : "") + '" aria-label="Quote path">' +
+      steps.map(function (s) {
+        const cls = "quote-step" + (s.done ? " is-done" : "") + (s.current ? " is-current" : "");
+        return '<div class="' + cls + '">' + esc(s.key) + "</div>";
+      }).join('<div class="quote-step-arrow" aria-hidden="true">→</div>') +
+      (expired ? '<div class="quote-step is-current">Expired</div>' : "") +
+      "</div>";
+  }
+  function acceptQuote(id) {
+    const q = quoteById(id); if (!q) return;
+    if (q.status !== "Open") { toast("Only an open quote can be marked accepted"); return; }
+    const before = q.status;
+    q.status = "Accepted";
+    q.acceptedAt = nowET();
+    q.acceptedBy = state.actingRole;
+    addAudit({ action: "Accepted quote", recordType: "Quote", recordId: id,
+      recordPath: { page: "quotes", quoteId: id },
+      changes: [{ field: "status", before: before, after: "Accepted" }] });
+    toast("Quote accepted · not yet a sale");
+    render();
+  }
+  function bookFromQuote(id) {
+    const q = quoteById(id); if (!q) return;
+    const p = patient(q.patientId);
+    if (!p) { toast("Patient not found"); return; }
+    q.bookedFromQuote = true;
+    addAudit({ action: "Booked from quote", recordType: "Quote", recordId: id,
+      recordPath: { page: "quotes", quoteId: id },
+      changes: [{ field: "booked", before: "No", after: "Yes" }] });
+    openBook(p.id, { date: defaultClinicDate(), lockPatient: true, type: "Treatment", provider: (q.appointmentId && appt(q.appointmentId) && appt(q.appointmentId).provider) || "" });
+  }
+  function addInvoiceLinesFromQuote(invId, qid) {
+    const inv = invoice(invId); const q = quoteById(qid);
+    if (!inv || !q || inv.finalized) return;
+    const copies = (q.lines || []).map(quoteLineCopy).filter(Boolean);
+    if (!copies.length) { toast("This quote has no lines to add"); return; }
+    inv.lines = inv.lines || [];
+    copies.forEach(function (l) { inv.lines.push(l); });
+    const before = q.status;
+    if (q.status !== "Converted") {
+      q.status = "Converted";
+      q.invoiceId = inv.id;
+      q.visitKind = q.visitKind || "added-to-invoice";
+    }
+    refreshInvoiceBalance(inv);
+    addAudit({ action: "Added quote lines to invoice", recordType: "Invoice", recordId: inv.id,
+      recordPath: { page: "pos", invoiceId: inv.id },
+      changes: [{ field: "quote", before: before, after: q.id }, { field: "lines added", before: "—", after: String(copies.length) }] });
+    const credit = patientCredit(inv.patientId);
+    toast("Added " + copies.length + " line" + (copies.length === 1 ? "" : "s") + " from " + q.id + (credit > 0 ? " · patient has " + money(credit) + " credit to apply" : ""));
+    refreshPosView();
+  }
+
   function quoteRowHtml(q, href) {
     const p = patient(q.patientId);
     const due = q.followUpDue ? ("Follow up " + fmtDate(q.followUpDue)) : "";
@@ -8436,7 +8659,7 @@
   function renderQuotes() {
     const qid = state.quoteId;
     if (qid) { renderQuoteDetail(qid); return; }
-    const head = pageHead("Point of Sale", "Quotes", "Statuses: Open, Prepaid, Converted, Expired.", "");
+    const head = pageHead("Point of Sale", "Quotes", "Statuses: Open, Accepted, Prepaid, Converted, Expired.", "");
     const rows = (store.quotes || []).map(function (q) {
       return quoteRowHtml(q, hashFor({ page: "pos", posTab: "quotes", quoteId: q.id }));
     }).join("") || '<div class="empty">No quotes</div>';
@@ -8445,16 +8668,21 @@
   function renderQuotesHome() {
     if (state.quoteId) { renderQuoteDetail(state.quoteId); return; }
     const all = store.quotes || [];
-    const open = all.filter(function (q) { return q.status === "Open" || q.status === "Prepaid"; });
+    const open = all.filter(function (q) { return q.status === "Open" || q.status === "Accepted" || q.status === "Prepaid"; });
     const follow = open.filter(function (q) { return q.followUpDue && q.followUpDue <= todayET(); });
-    const head = pageHead("Quotes", "Quotes", "Open quotes, follow-ups, and new quotes.",
+    const count = function (s) { return all.filter(function (q) { return q.status === s; }).length; };
+    const pipe = ["Open", "Accepted", "Prepaid", "Converted", "Expired"].map(function (s) {
+      return '<div class="quote-pipe-step"><div class="k">' + s + '</div><div class="n">' + count(s) + "</div></div>";
+    }).join('<div class="quote-step-arrow" aria-hidden="true">→</div>');
+    const head = pageHead("Quotes", "Quotes", "Quote → accepted → booked → charged → paid. Deposits become patient credit until applied at checkout.",
       '<button type="button" class="btn small primary" data-new-quote="1">＋ New quote</button>');
     const openRows = open.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No open quotes</div>';
     const followRows = follow.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quote follow-ups due today or earlier.</div>';
     const recent = all.slice().sort(function (x, y) { return String(y.created || "").localeCompare(String(x.created || "")); }).slice(0, 8)
       .map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quotes yet</div>';
-    const body = '<div class="grid quotes-dash">' +
-      '<div class="card"><div class="cardhead"><h2>Open quotes · ' + open.length + '</h2></div><div class="cardbody">' + openRows + '</div></div>' +
+    const body = '<div class="quote-pipeline card"><div class="cardbody"><div class="row-sub">Path</div><div class="quote-stepper quote-pipe">' + pipe + "</div></div></div>" +
+      '<div class="grid quotes-dash">' +
+      '<div class="card"><div class="cardhead"><h2>Active quotes · ' + open.length + '</h2></div><div class="cardbody">' + openRows + '</div></div>' +
       '<div class="card"><div class="cardhead"><h2>Follow-up worklist</h2></div><div class="cardbody">' + followRows + '</div></div>' +
       '<div class="card"><div class="cardhead"><h2>Recent</h2></div><div class="cardbody">' + recent + '</div></div></div>';
     renderChrome('<a href="' + hashFor({ page: "quotes" }) + '">Quotes</a>', head, body);
@@ -8480,23 +8708,31 @@
     if (!q) { renderChrome("Quotes", pageHead("", "Quote not found", "", ""), ""); return; }
     const p = patient(q.patientId);
     const a = q.appointmentId ? appt(q.appointmentId) : null;
+    const inv = q.invoiceId ? invoice(q.invoiceId) : null;
+    const active = q.status === "Open" || q.status === "Accepted" || q.status === "Prepaid";
     const head = pageHead("Quote", q.name, (p ? patientLink(p) : "") + " · " + esc(q.id), badge(q.status));
-    const body = posTabs("quotes") +
+    const credit = p ? patientCredit(p) : 0;
+    const body =
       '<div class="card"><div class="cardbody">' +
+      quoteStepperHtml(q) +
       (q.broughtToRoom ? '<div class="notice">Brought to the suite' + (q.broughtAt ? " · " + esc(q.broughtAt) : "") + ".</div>" : "") +
+      (q.depositAmount ? '<div class="notice">Deposit ' + money(q.depositAmount) + " is on patient credit" + (credit ? " (credit now " + money(credit) + ")" : "") + ". Apply it at checkout. This is not a completed sale.</div>" : "") +
+      (inv && inv.finalized ? '<div class="bill-complete">Bill complete on ' + esc(inv.id) + " · receipt locked</div>" : "") +
       q.lines.map(lineHtml).join("") +
       '<p class="row-sub">Prices are per unit or vial when known. Quantity stays blank until entered. Total: ' + esc(invoiceTotals({ lines: q.lines }).label) + '</p>' +
       (a ? '<div class="row"><span>From appointment</span><a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id }) + '">' + esc(a.id) + " · " + esc(fmtTime(a.time)) + "</a></div>" : "") +
-      (q.invoiceId ? '<div class="row"><span>Invoice</span><a href="' + hashFor({ page: "pos", invoiceId: q.invoiceId, posTab: "invoice" }) + '">' + esc(q.invoiceId) + "</a></div>" : "") +
+      (q.invoiceId ? '<div class="row"><span>Invoice</span><a href="' + hashFor({ page: "pos", invoiceId: q.invoiceId, posTab: "invoice" }) + '">' + esc(q.invoiceId) + (inv && inv.finalized ? " · bill complete" : "") + "</a></div>" : "") +
       '<div class="actions" style="margin-top:14px">' +
-      (!q.broughtToRoom && q.status === "Open" ? '<button class="btn" type="button" data-pos="bring" data-quote="' + q.id + '">Bring quote to suite</button>' : "") +
-      (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn" type="button" data-pos="prepay" data-quote="' + q.id + '">Collect prepayment</button>' : "") +
-      (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn primary" type="button" data-pos="treat-today" data-quote="' + q.id + '">Treat today</button>' : "") +
-      (q.status === "Open" || q.status === "Prepaid" ? '<button class="btn" type="button" data-pos="return" data-quote="' + q.id + '">Return</button>' : "") +
+      (q.status === "Open" ? '<button class="btn primary" type="button" data-pos="accept" data-quote="' + q.id + '">Accept quote</button>' : "") +
+      (!q.broughtToRoom && active ? '<button class="btn" type="button" data-pos="bring" data-quote="' + q.id + '">Bring quote to suite</button>' : "") +
+      (active ? '<button class="btn" type="button" data-pos="prepay" data-quote="' + q.id + '">Collect deposit</button>' : "") +
+      (active || q.status === "Converted" ? '<button class="btn" type="button" data-pos="book-quote" data-quote="' + q.id + '">Book from quote</button>' : "") +
+      (active ? '<button class="btn primary" type="button" data-pos="treat-today" data-quote="' + q.id + '">Treat today</button>' : "") +
+      (active ? '<button class="btn" type="button" data-pos="return" data-quote="' + q.id + '">Return</button>' : "") +
       "</div>" +
       openQ("Treat today converts the quote to a same-day invoice. Return books a return visit or leaves the quote open (Open question 20).") +
       "</div></div>";
-    renderChrome('<a href="' + hashFor({ page: "pos", posTab: "quotes" }) + '">Quotes</a> / ' + esc(q.id), head, body);
+    renderChrome('<a href="' + hashFor({ page: "quotes" }) + '">Quotes</a> / ' + esc(q.id), head, body);
   }
   function saveQuoteFromTemplate(pid, apptId, templateId) {
     const tpl = (BRIZZA.QUOTE_TEMPLATES || []).find((t) => t.id === templateId) || (BRIZZA.QUOTE_TEMPLATES || [])[0];
@@ -8511,7 +8747,7 @@
       recordPath: { page: "pos", posTab: "quotes", quoteId: id },
       changes: [{ field: "status", before: "—", after: "Open" }, { field: "template", before: "—", after: tpl.name }] });
     toast("Quote saved");
-    go({ page: "pos", posTab: "quotes", quoteId: id });
+    go({ page: "quotes", quoteId: id });
   }
   function quoteById(id) { return (store.quotes || []).find((q) => q.id === id); }
   function bringQuote(id) {
@@ -8525,24 +8761,44 @@
   }
   function prepayQuote(id) {
     const q = quoteById(id); if (!q) return;
-    const before = q.status;
-    q.status = "Prepaid";
-    q.lines.push({ kind: "prepayment", name: "Prepayment on quote " + q.id, amount: "TBD" });
-    addAudit({ action: "Collected prepayment on quote", recordType: "Quote", recordId: id,
-      recordPath: { page: "pos", posTab: "quotes", quoteId: id },
-      changes: [{ field: "status", before: before, after: "Prepaid" }, { field: "amount", before: "—", after: "TBD" }] });
-    toast("Prepayment recorded (amount TBD)");
-    render();
+    const p = patient(q.patientId);
+    showModal("Collect deposit",
+      "<p>Record a deposit on this quote. The amount is added to patient credit and can be applied when the invoice is opened. This does not complete the sale.</p>" +
+      '<div class="field"><label for="depositAmt">Deposit amount</label><input id="depositAmt" type="number" min="0" step="0.01" placeholder="Amount"' +
+      (q.depositAmount ? ' value="' + esc(String(q.depositAmount)) + '"' : "") + "></div>",
+      function () {
+        const raw = $("#depositAmt") && $("#depositAmt").value;
+        const amt = Number(raw);
+        if (!raw || !isFinite(amt) || amt <= 0) { toast("Enter a deposit amount"); return; }
+        const before = q.status;
+        q.status = "Prepaid";
+        q.depositAmount = Math.round(amt * 100) / 100;
+        q.depositAt = nowET();
+        if (p) {
+          const c0 = patientCredit(p);
+          p.credit = Math.round((c0 + amt) * 100) / 100;
+          p.ledgerPayments = p.ledgerPayments || [];
+          p.ledgerPayments.push({ id: nextId("LPAY-", p.ledgerPayments), method: "Quote deposit · " + q.id, amount: amt, recorded: todayET(), status: "Paid" });
+        }
+        addAudit({ action: "Collected deposit on quote", recordType: "Quote", recordId: id,
+          recordPath: { page: "quotes", quoteId: id },
+          changes: [{ field: "status", before: before, after: "Prepaid" }, { field: "deposit", before: "—", after: money(amt) }] });
+        closeModal();
+        toast("Deposit " + money(amt) + " added to patient credit");
+        render();
+      }, "Record deposit");
   }
   function convertQuoteToInvoice(id, visitKind) {
     const q = quoteById(id); if (!q) return;
     const before = q.status;
     const invId = nextId("INV-", store.invoices);
     const a = q.appointmentId ? appt(q.appointmentId) : null;
+    const copied = (q.lines || []).map(quoteLineCopy).filter(Boolean);
+    const credit = patientCredit(q.patientId);
     const inv = { id: invId, patientId: q.patientId, visitId: a ? a.visitId : null, appointmentIds: q.appointmentId ? [q.appointmentId] : [],
       status: "Issued", balance: "Outstanding (amount TBD)",
-      lines: q.lines.map((l) => ({ kind: l.kind, name: l.name, amount: "TBD" })),
-      payments: q.status === "Prepaid" ? [{ id: nextId("PAY-", [{id:"PAY-1000"}]), method: "Prepayment applied (amount TBD)", status: "Partially Paid", recorded: todayET() }] : [],
+      lines: copied,
+      payments: [],
       finalized: false, finalizedAt: null, movements: [], fromQuoteId: q.id, visitKind: visitKind };
     store.invoices.push(inv);
     if (a) a.invoiceId = invId;
@@ -8551,7 +8807,7 @@
       recordType: "Quote", recordId: id,
       recordPath: { page: "pos", invoiceId: invId, posTab: "invoice" },
       changes: [{ field: "status", before: before, after: "Converted" }, { field: "invoice", before: "—", after: invId }] });
-    toast("Quote converted · " + invId);
+    toast("Quote converted · " + invId + (credit > 0 ? " · " + money(credit) + " credit available to apply" : ""));
     go({ page: "pos", invoiceId: invId, posTab: "invoice" });
   }
   function returnQuote(id) {
@@ -8710,9 +8966,8 @@
     showModal(esc(n.type || "Note") + " · " + (p ? p.name : pid),
       (p ? alertsBanner(p) : "") +
       lock + " " + badge(n.status || "Open") +
-      '<div class="row-sub">' + esc(n.provider || "") + (n.signedAt ? " · Signed " + esc(n.signedAt) : "") + "</div>" +
-      "<p>" + esc(n.text || "") + "</p>" +
-      (adds ? '<div class="addenda"><h3 class="section-title">Addenda</h3>' + adds + "</div>" : "") +
+      '<div class="note-print-preview">' + notePrintHtml(p, n) + "</div>" +
+      (adds ? "" : "") +
       addForm + edit + proc + printBtn +
       historyDiffHtml(n.historySnapshot, p) +
       openQ("Draft templates – Open question. These six note templates are not taken from the SOPs or V1 documents (Open question 17)."),
@@ -8955,9 +9210,6 @@
     t = t.replace(/\[SAMPLE\]/g, '<span class="consent-sample">[SAMPLE]</span>');
     t = t.replace(/\[PLACEHOLDER[^\]]*\]/g, function (m) { return '<span class="consent-sample">' + m + "</span>"; });
     t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-    if (/after[-\s]hours/i.test(s)) {
-      t += '<span class="consent-open-q">After-hours phone: Open question</span>';
-    }
     return t;
   }
   function renderConsentMarkdown(md) {
@@ -9229,7 +9481,7 @@
     const edit = canEditNote(n) ? '<button type="button" class="btn tiny" data-edit-note="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Edit</button>' : "";
     const sign = (!isNoteSigned(n) && canFinalizeNote(n)) ? '<button type="button" class="btn tiny primary" data-quick-sign="' + esc(n.id) + '" data-pid="' + esc(p.id) + '">Sign</button>' : "";
     const openPreview = state.expandedEmn === n.id
-      ? '<div class="emn-preview"><p>' + esc(n.text || "No narrative yet.") + '</p>' + print + "</div>"
+      ? '<div class="emn-preview note-print-preview">' + notePrintHtml(p, n) + '<div class="emn-preview-actions no-print">' + print + "</div></div>"
       : "";
     const more = '<div class="emn-more"><button type="button" class="btn tiny" data-emn-more="' + esc(n.id) + '" aria-expanded="false" aria-haspopup="true" aria-label="More note actions">⋯</button><div class="emn-more-menu">' + info + preview + print + "</div></div>";
     return '<div class="emn-actions">' + noteStatusChip(n) + view + edit + sign + more + openPreview + "</div>";
@@ -9961,6 +10213,7 @@
       const inv = newBlankInvoice(pickPos.getAttribute("data-pos-pick-patient"));
       state.invoiceId = inv.id;
       state.posAppointmentId = null;
+      state.posPatientQ = "";
       render();
       return;
     }
@@ -9985,6 +10238,8 @@
     if (newQ) { e.preventDefault(); openNewQuoteModal(); return; }
     const cred = e.target.closest("[data-apply-credit]");
     if (cred) { e.preventDefault(); applyInvoiceCredit(cred.getAttribute("data-apply-credit")); return; }
+    const fromQ = e.target.closest("[data-add-from-quote]");
+    if (fromQ) { e.preventDefault(); addInvoiceLinesFromQuote(fromQ.getAttribute("data-add-from-quote"), fromQ.getAttribute("data-quote")); return; }
     const rem = e.target.closest("[data-add-remaining]");
     if (rem) { e.preventDefault(); addRemainingToBalance(rem.getAttribute("data-add-remaining")); return; }
     const leftUnpaid = e.target.closest("[data-left-unpaid]");
@@ -10224,8 +10479,10 @@
       const qid = posEl.dataset.quote;
       if (act === "add-line") addPosLine();
       else if (act === "new-quote") saveQuoteFromTemplate(posEl.dataset.pid, posEl.dataset.appt, ($("#quoteTpl") && $("#quoteTpl").value) || "");
+      else if (act === "accept") acceptQuote(qid);
       else if (act === "bring") bringQuote(qid);
       else if (act === "prepay") prepayQuote(qid);
+      else if (act === "book-quote") bookFromQuote(qid);
       else if (act === "treat-today") convertQuoteToInvoice(qid, "same-day");
       else if (act === "return") returnQuote(qid);
       else if (act === "keep-open") keepQuoteOpen(qid);

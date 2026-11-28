@@ -225,7 +225,7 @@ BRIZZA.INVENTORY_ROLES = ["MD / Clinic Owner", "Clinic Manager"];
 BRIZZA.VENDORS = ["Allergan (sample vendor)", "SkinMedica (sample vendor)", "Clinic supply (sample)"];
 
 BRIZZA.POS_LINE_KINDS = ["service", "product", "membership", "package", "prepayment", "quote"];
-BRIZZA.QUOTE_STATUSES = ["Open", "Prepaid", "Converted", "Expired"];
+BRIZZA.QUOTE_STATUSES = ["Open", "Accepted", "Prepaid", "Converted", "Expired"];
 
 /* Facial reasons Mini Facial / Facial / Hydrafacial now attach to the Facial appointment type. */
 
@@ -943,6 +943,7 @@ BRIZZA.CONSENT_FORMS = [
   { id: "consent-peel", title: "Chemical peel", kind: "treatment", placeholder: true, file: "chemical-peel-consent.md" },
   { id: "consent-microneedling", title: "Microneedling", kind: "treatment", placeholder: true, file: "microneedling-consent.md" },
   { id: "consent-facial", title: "Customized facial", kind: "treatment", placeholder: true, file: "customized-facial-consent.md" },
+  { id: "consent-waxing", title: "Waxing", kind: "treatment", placeholder: true, file: "waxing-consent.md" },
   { id: "consent-photo-clinical", title: "Clinical photography", kind: "clinical-photo", placeholder: true, file: "clinical-photography-consent.md" },
   { id: "consent-photo-marketing", title: "Marketing photography", kind: "marketing-photo", placeholder: true, voluntary: true, file: "marketing-photo-authorization.md" },
   { id: "consent-financial", title: "Financial and cancellation policy", kind: "financial", placeholder: true, file: "financial-cancellation-policy-acknowledgment.md" }

@@ -59,6 +59,10 @@ You may withdraw this consent at any time by telling the clinic in writing. With
 
 [confirm with attorney: patient rights to request copies or amendments of photographs in the medical record under applicable law, including New York and HIPAA-style access rights]
 
+## Urgent contact
+
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
+
 ## Questions
 
 I have had a chance to ask questions about clinical photography, how photos are stored, who can see them, and how this form is different from a marketing authorization. My questions have been answered in a way I understand.

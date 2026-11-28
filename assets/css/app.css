@@ -1288,3 +1288,41 @@ button.text-link, a.text-link { background: none; border: 0; padding: 0; font: i
 .consent-wording blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--line);background:#F7F1E8}
 .consent-sample{display:inline;background:#F7E0B0;color:#352820;font-weight:700;padding:0 3px;border-radius:3px}
 .consent-open-q{display:block;margin:6px 0;padding:6px 8px;border:1px dashed #815600;background:#F8EED8;color:#5A3510;font-weight:650}
+
+/* Round 18 Push 2 — note print preview (same sheet as Print) */
+.note-print-preview{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:10px 0 14px;overflow:auto;max-height:min(70vh,820px)}
+.note-print-sheet{font-family:Georgia,"Times New Roman",serif;color:#352820;background:#fff}
+.note-print-head{border-bottom:1.5px solid #352820;padding-bottom:10px;margin-bottom:14px}
+.note-print-preview .clinic-logo-mark{font-size:20px;margin:0 0 4px;letter-spacing:.14em}
+.note-print-contact{font-size:11px;line-height:1.45;color:#5a4e46;margin:0}
+.note-print-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;border-bottom:1px solid #d8d0c8;padding:10px 0 12px;margin-bottom:16px;font-size:12.5px;line-height:1.45}
+.note-print-meta .k{display:block;color:#5a4e46;font-size:10px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:1px}
+.note-print-section{margin:0 0 14px}
+.note-print-section h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 6px;padding-bottom:3px;border-bottom:1px solid #e6e0da;font-weight:700}
+.note-print-section p,.note-print-kv{font-size:13px;line-height:1.5;margin:0 0 6px;white-space:pre-wrap}
+.note-print-empty{color:#8a7f76;font-style:italic}
+.note-print-sig{margin-top:22px;border-top:1px solid #352820;padding-top:12px;font-size:13px}
+.note-print-sig .sig-line{margin-top:4px;border-bottom:1px solid #352820;max-width:280px;height:22px}
+.note-print-foot{margin-top:22px;font-size:10px;color:#5a4e46;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;border-top:1px solid #d8d0c8;padding-top:8px}
+.emn-preview.note-print-preview{max-height:min(64vh,720px)}
+.emn-preview-actions{margin-top:10px}
+
+/* Round 18 Push 2 — quote path and bill complete */
+.quote-pipeline{margin-bottom:16px}
+.quote-stepper,.quote-pipe{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:8px 0 12px}
+.quote-step,.quote-pipe-step{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#5A4A3A;background:#F7F1E8}
+.quote-pipe-step{display:flex;flex-direction:column;align-items:center;border-radius:8px;min-width:72px;padding:6px 10px}
+.quote-pipe-step .k{font-size:10px}
+.quote-pipe-step .n{font-size:16px;font-weight:650;color:#352820}
+.quote-step.is-done{background:#E7F0E4;border-color:#8AAA7A;color:#2A4A24}
+.quote-step.is-current{background:#352820;color:#F7F1E8;border-color:#352820;font-weight:650}
+.quote-step-arrow{color:#8a7f76;font-size:13px}
+.quote-stepper.is-expired .quote-step{opacity:.55}
+.pos-open-quotes{margin:10px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:6px;background:#FFFcf6}
+.pos-quote-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;font-size:12px}
+.bill-complete{margin:8px 0;padding:8px 10px;border-radius:6px;background:#E7F0E4;border:1px solid #8AAA7A;color:#2A4A24;font-weight:650;font-size:13px}
+
+/* Touch: POS patient search results sit under the field, not in the action row */
+.pos-patient-tools{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin-bottom:12px}
+.pos-patient-search{flex:1 1 260px;min-width:200px}
+.pos-patient-search .patient-results{margin-top:6px}

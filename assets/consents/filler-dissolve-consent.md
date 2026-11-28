@@ -97,10 +97,12 @@ I will receive verbal and written aftercare instructions that are specific to th
 - A cool compress may help if the Owner/MD says it is appropriate. Do not massage the area unless you are told to do so.
 - Avoid strenuous exercise, alcohol, saunas, and steam for about **24 to 48 hours** after a planned dissolve, if the Owner/MD agrees. [SAMPLE]
 - **Seek emergency care right away** for trouble breathing, swelling of the lips or tongue, widespread hives, or other signs of a severe allergic reaction.
-- If this visit was for a suspected vascular occlusion, also seek urgent help right away for worsening pain, pale, blotchy, gray, or dark skin color, a cool area of skin, or any vision change, and keep any follow-up the Owner/MD schedules.
-- During clinic hours, contact the clinic and ask for the Owner/MD. After hours, or immediately for those urgent symptoms, seek emergency care. A specific after-hours clinic phone number is not sourced in the SOPs and is not invented here.
+- **If you have any vision change or severe pain, call 911 or go to the emergency room right away.** If this visit was for a suspected vascular occlusion, also seek urgent help right away for pale, blotchy, gray, or dark skin color, or a cool area of skin, and keep any follow-up the Owner/MD schedules.
+- During clinic hours, contact the clinic and ask for the Owner/MD.
 
 A provider-approved clinic instruction sheet, when one is issued, replaces this sample list.
+
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
 
 ## Clinical photographs
 

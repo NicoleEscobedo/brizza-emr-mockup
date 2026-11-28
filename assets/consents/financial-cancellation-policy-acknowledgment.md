@@ -55,6 +55,10 @@ These fees are separate from charges for services you actually receive. Completi
 
 If the clinic must cancel or reschedule your appointment, that is recorded as a clinic-initiated change. This form does not charge you a late-cancel or no-show fee for a clinic-initiated cancellation.
 
+## Urgent contact
+
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
+
 ## Questions
 
 I have had a chance to ask questions about the 24-hour notice rule, the $50 late-cancel fee, and the $50 no-show fee. My questions have been answered in a way I understand.

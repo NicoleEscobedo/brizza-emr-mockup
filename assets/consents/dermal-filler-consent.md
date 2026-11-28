@@ -84,7 +84,7 @@ Rare but serious risks include, but are not limited to:
 - Any vision change, vision loss, or weakness on one side
 - Shortness of breath or signs of a severe allergic reaction
 
-**Sample contact pathway:** during clinic hours, contact the clinic and ask for your treating provider. After hours, or immediately for vision changes, severe pain, or a color-change in the skin, seek emergency care. A specific after-hours clinic phone number is not sourced in the SOPs and is not invented here. [SAMPLE]
+**Sample contact pathway:** during clinic hours, contact the clinic and ask for your treating provider. If you have any vision change or severe pain, call 911 or go to the emergency room right away. After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
 
 The combined rare-risk and urgent-symptom language above is a sample final list for this fictional project, pending Medical Director review. [SAMPLE]
 
@@ -135,9 +135,11 @@ I understand the clinic may send a brief post-treatment check-in message, and th
 - Avoid strenuous exercise, alcohol, saunas, and steam for about **24 to 48 hours**. [SAMPLE]
 - Do not massage or put pressure on the area, and avoid facials, massage, or other facial procedures for about **2 weeks**, unless your provider gives different instructions. [SAMPLE]
 - Sleep with your head slightly elevated the first night if you can. Avoid elective dental work for about **2 weeks** when possible. [SAMPLE]
-- **Seek urgent help right away** for severe or worsening pain; pale, blotchy, gray, or dark skin color; a cool or mottled area; any vision change; or signs of a severe allergic reaction. During clinic hours, contact the clinic and ask for your treating provider. After hours, or immediately for those symptoms, seek emergency care.
+- **If you have any vision change or severe pain, call 911 or go to the emergency room right away.** Also seek urgent help right away for pale, blotchy, gray, or dark skin color; a cool or mottled area; or signs of a severe allergic reaction. During clinic hours, contact the clinic and ask for your treating provider.
 
 A provider-approved clinic instruction sheet, when one is issued, replaces this sample list.
+
+After-hours urgent concerns: call (212) 555-0199 [SAMPLE]. For an emergency, call 911.
 
 ## Clinical photographs
 

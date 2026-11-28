@@ -179,9 +179,42 @@ BRIZZA.CATALOG = [
 ];
 
 BRIZZA.QUOTE_TEMPLATES = [
-  { id: "full-face-toxin", name: "Full-face toxin", lines: [{ kind: "product", catalogId: "botox", name: "Botox", unit: "unit", unitPrice: 21, qty: null }] },
-  { id: "lip-filler", name: "Lip filler", lines: [{ kind: "product", catalogId: "juvederm", name: "Juvederm", unit: "vial", unitPrice: 900, qty: null }] },
-  { id: "facial-series-3", name: "Facial series of 3", lines: [{ kind: "package", catalogId: "hydrafacial", name: "Hydrafacial", unit: "session", unitPrice: 375, qty: null }] }
+  {
+    id: "injector-quote",
+    name: "Injector quote",
+    role: "RN / NP Injector",
+    wording: "This injector quote outlines the recommended neuromodulator or filler plan for this visit. Treatment areas and unit or syringe counts are confirmed at the appointment.",
+    recommendedPlan: "A personalized injectable plan will be confirmed at the visit.",
+    treatmentArea: "",
+    depositRequired: false,
+    depositAmount: null,
+    disclaimer: "This is an estimate. The final price may vary.",
+    lines: [
+      { kind: "product", catalogId: "botox", name: "Botox", unit: "unit", unitPrice: 21, qty: null },
+      { kind: "product", catalogId: "juvederm", name: "Juvederm 1.0 cc", unit: "syringe", unitPrice: 900, qty: null },
+      { kind: "package", catalogId: "botox", name: "Package or series (optional)", unit: "package", unitPrice: null, qty: null },
+      { kind: "discount", name: "Discount (optional)", unit: "amount", unitPrice: null, qty: null }
+    ]
+  },
+  {
+    id: "aesthetician-quote",
+    name: "Aesthetician quote",
+    role: "Aesthetician",
+    wording: "This aesthetician quote outlines the recommended skin and facial care plan. The number of sessions and any package or series pricing are confirmed at the visit.",
+    recommendedPlan: "A personalized skin-care plan will be confirmed at the visit.",
+    treatmentArea: "",
+    depositRequired: false,
+    depositAmount: null,
+    disclaimer: "This is an estimate. The final price may vary.",
+    lines: [
+      { kind: "service", catalogId: "hydrafacial", name: "Hydrafacial", unit: "session", unitPrice: 375, qty: null },
+      { kind: "service", catalogId: "facial", name: "Facial", unit: "session", unitPrice: 325, qty: null },
+      { kind: "service", catalogId: "chemical-peel", name: "Chemical Peel", unit: "session", unitPrice: 425, qty: null },
+      { kind: "service", catalogId: "microneedling", name: "Microneedling", unit: "session", unitPrice: 550, qty: null },
+      { kind: "package", catalogId: "hydrafacial", name: "Hydrafacial series of 3", unit: "series", unitPrice: 1125, qty: null },
+      { kind: "discount", name: "Discount (optional)", unit: "amount", unitPrice: null, qty: null }
+    ]
+  }
 ];
 
 BRIZZA.ADJUST_REASONS = ["Waste", "Expired", "Damaged", "Count correction", "Return to vendor", "Other"];
@@ -191,7 +224,7 @@ BRIZZA.INVENTORY_ROLES = ["MD / Clinic Owner", "Clinic Manager"];
 BRIZZA.VENDORS = ["Allergan (sample vendor)", "SkinMedica (sample vendor)", "Clinic supply (sample)"];
 
 BRIZZA.POS_LINE_KINDS = ["service", "product", "membership", "package", "prepayment", "quote"];
-BRIZZA.QUOTE_STATUSES = ["Open", "Accepted", "Prepaid", "Converted", "Expired"];
+BRIZZA.QUOTE_STATUSES = ["Draft", "Sent", "Accepted", "Expired", "Converted"];
 
 /* Facial reasons Mini Facial / Facial / Hydrafacial now attach to the Facial appointment type. */
 
@@ -711,10 +744,23 @@ BRIZZA.seed = function () {
         payments:[],finalized:false,finalizedAt:null,movements:[]}
     ],
     quotes: [
-      {id:"Q-1001",patientId:"BZ0001",appointmentId:"A-6203",templateId:"full-face-toxin",name:"Full-face toxin",status:"Open",
-        lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"}],created:"2026-10-28",followUpDue:"2026-11-18",broughtToRoom:false,invoiceId:null,visitKind:null},
-      {id:"Q-1002",patientId:"BZ0003",appointmentId:"A-6207",templateId:"facial-series-3",name:"Facial series of 3",status:"Open",
-        lines:[{kind:"package",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:375,qty:null,amount:"TBD"}],created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
+      {id:"Q-1001",patientId:"BZ0001",appointmentId:"A-6203",templateId:"injector-quote",name:"Injector quote",status:"Sent",
+        wording:"This injector quote outlines the recommended neuromodulator or filler plan for this visit. Treatment areas and unit or syringe counts are confirmed at the appointment.",
+        treatmentArea:"Full face",recommendedPlan:"Full-face toxin plan to be confirmed at the visit.",disclaimer:"This is an estimate. The final price may vary.",
+        depositRequired:false,depositAmount:null,createdBy:"Serena Collins",createdByRole:"RN / NP Injector",
+        lines:[{kind:"product",catalogId:"botox",name:"Botox",unit:"unit",unitPrice:21,qty:null,amount:"TBD"},
+          {kind:"product",catalogId:"juvederm",name:"Juvederm 1.0 cc",unit:"syringe",unitPrice:900,qty:null,amount:"TBD"},
+          {kind:"package",catalogId:"botox",name:"Package or series (optional)",unit:"package",unitPrice:null,qty:null},
+          {kind:"discount",name:"Discount (optional)",unit:"amount",unitPrice:null,qty:null}],
+        created:"2026-10-01",followUpDue:"2026-11-18",broughtToRoom:false,invoiceId:null,visitKind:null},
+      {id:"Q-1002",patientId:"BZ0003",appointmentId:"A-6207",templateId:"aesthetician-quote",name:"Aesthetician quote",status:"Sent",
+        wording:"This aesthetician quote outlines the recommended skin and facial care plan. The number of sessions and any package or series pricing are confirmed at the visit.",
+        treatmentArea:"Face",recommendedPlan:"Hydrafacial series of 3, confirmed at the visit.",disclaimer:"This is an estimate. The final price may vary.",
+        depositRequired:false,depositAmount:null,createdBy:"Maya Hayes",createdByRole:"Aesthetician",
+        lines:[{kind:"service",catalogId:"hydrafacial",name:"Hydrafacial",unit:"session",unitPrice:375,qty:null,amount:"TBD"},
+          {kind:"package",catalogId:"hydrafacial",name:"Hydrafacial series of 3",unit:"series",unitPrice:1125,qty:null,amount:"TBD"},
+          {kind:"discount",name:"Discount (optional)",unit:"amount",unitPrice:null,qty:null}],
+        created:"2026-11-16",broughtToRoom:true,invoiceId:null,visitKind:null}
     ],
     lots: [
       {id:"LOT-BTX-031",productId:"botox",product:"Botox",lotNumber:"BTX-031",onHand:0,originalQty:1,expiry:"2026-10-20",status:"Used",released:true,receivedAt:"2026-08-01",poId:"PO-1000",

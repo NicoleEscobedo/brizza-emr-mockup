@@ -1366,3 +1366,21 @@ html, body, h1, h2, h3, .brand-name, .patient-name, #modalTitle, .pid, .display-
 .status-legend .status-filter-chip{border:0;background:transparent;padding:0;cursor:pointer;border-radius:999px}
 .status-legend .status-filter-chip.is-active{outline:2px solid var(--ink);outline-offset:2px}
 .modal-back.hist-mode #modalSave[hidden],#modalSave[hidden]{display:none !important}
+
+.myday-consents{margin-top:12px}
+.myday-consents h3,.consent-list h3{font-size:13px;margin:0 0 6px}
+.consent-list .consent-row.compact{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px 12px;align-items:center}
+.consent-resign-flag{color:var(--danger, #7F000F)}
+.consent-form-body .consent-wording-open{max-height:48vh;overflow:auto;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:10px 0}
+.consent-form-status{font-weight:650;margin:0 0 6px}
+.consent-form-acts{margin-top:10px}
+.quote-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.quote-row > a{flex:1;min-width:0}
+.quote-sheet-head{margin-bottom:12px}
+.quote-logo,.quote-sheet-head .clinic-logo-mark{letter-spacing:.14em;text-transform:uppercase;font-weight:650}
+.quote-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 16px;margin:0 0 14px;font-size:13px}
+.quote-meta .k{display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.quote-line-row{display:grid;grid-template-columns:minmax(0,1.4fr) 90px minmax(120px,1fr);gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.quote-disclaimer{font-style:italic}
+.quote-accept-line{margin:16px 0;padding-top:12px;border-top:1px solid var(--line)}
+.quote-accept-line .sig-line{border-bottom:1px solid var(--ink);max-width:280px;height:22px;margin-bottom:6px}

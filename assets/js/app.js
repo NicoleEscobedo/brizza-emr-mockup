@@ -561,6 +561,7 @@
   };
   reconcileSampleSchedule();
   seedBusyClinicTraffic();
+  expireQuotes();
   state.date = defaultClinicDate();
   if (isClinicClosedDay(todayET()) && !state.myDayDate) state.myDayDate = defaultClinicDate();
   if (isClinicClosedDay(todayET()) && !state.roomingDate) state.roomingDate = defaultClinicDate();
@@ -1064,7 +1065,7 @@
     const missing = items.some((it) => !it.ok && (it.key === "idUploaded" || it.key === "formsCompleted"));
     const bal = patientBalanceValue(a.patientId);
     const unpaid = (bal.sum > 0) || bal.tbd;
-    const openQuotes = (store.quotes || []).some((q) => q.patientId === a.patientId && (q.status === "Open" || q.status === "Prepaid"));
+    const openQuotes = (store.quotes || []).some((q) => q.patientId === a.patientId && quoteIsActive(q));
     return {
       confirm: a.status === "Scheduled",
       missing: missing,
@@ -1442,7 +1443,7 @@
       clinicalNoteCell(a) +
       '<div class="wl-notes"><label class="sr-only" for="prep-' + esc(a.id) + '">Appointment notes</label>' + tip + "</div>" +
       '<div class="wl-money">' + balanceBadge(patientBalanceValue(a.patientId)) + "</div>" +
-      '<div class="wl-checkout-btns"><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button></div>' +
+      (canCreateInvoice() ? '<div class="wl-checkout-btns"><button type="button" class="btn small wl-invoice" data-open-pos="' + esc(a.id) + '">Invoice</button></div>' : '<div class="wl-checkout-btns"></div>') +
       (open ? '<div class="reg-expand">' + registrationPanel(a) + "</div>" : "") +
       "</div>";
   }
@@ -1491,7 +1492,7 @@
         "</div>";
     }).join("") || '<div class="empty">No lines yet.</div>';
     const catOpts = (store.catalog || BRIZZA.CATALOG || []).map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.price != null ? " · " + money(c.price) + "/" + esc(c.unit) : " · TBD") + "</option>").join("");
-    const quotes = (store.quotes || []).filter((q) => q.patientId === inv.patientId && (q.status === "Open" || q.status === "Prepaid"));
+    const quotes = (store.quotes || []).filter((q) => q.patientId === inv.patientId && quoteIsActive(q));
     const qOpts = quotes.map((q) => '<option value="' + esc(q.id) + '">' + esc(q.name) + " · " + esc(q.status) + "</option>").join("");
     return lines +
       '<div class="pos-total">Total ' + esc(t.label) + (t.balance == null ? "" : " · Balance " + (t.tbd && t.balance === 0 ? "TBD" : money(t.balance))) + "</div>" +
@@ -2653,6 +2654,9 @@
       ".note-print-sig{margin-top:28px;border-top:1px solid #352820;padding-top:12px;font-size:13px}" +
       ".note-print-sig .sig-line{margin-top:4px;border-bottom:1px solid #352820;max-width:280px;height:22px}" +
       ".note-print-foot{margin-top:28px;font-size:10px;color:#5a4e46;display:flex;justify-content:space-between;gap:12px;border-top:1px solid #d8d0c8;padding-top:8px}" +
+      ".quote-print-lines{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:12.5px}" +
+      ".quote-print-lines th,.quote-print-lines td{border-bottom:1px solid #d8d0c8;text-align:left;padding:6px 8px 6px 0;vertical-align:top}" +
+      ".quote-print-lines th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:#5a4e46}" +
       "@media print{.note-print-sheet{max-width:none;padding:0}.no-print{display:none!important}}";
   }
   function labelizeField(key) {
@@ -2873,7 +2877,7 @@
       return ["emr", "schedule", "rooming", "patients", "queue", "pos", "quotes"].indexOf(key) >= 0;
     }
     if (role === "RN / NP Injector" || role === "Aesthetician") {
-      return ["emr", "notes", "schedule", "patients", "queue", "inventory", "availability"].indexOf(key) >= 0;
+      return ["emr", "notes", "schedule", "rooming", "patients", "queue", "quotes", "inventory", "availability"].indexOf(key) >= 0;
     }
     if (role === "MD / Clinic Owner") {
       return ["emr", "notes", "notes-mine", "schedule", "rooming", "patients", "queue", "pos", "quotes", "admin", "inventory", "availability"].indexOf(key) >= 0;
@@ -2900,7 +2904,7 @@
     if (isMarketingRole()) main = sched + pats;
     else if (role === "Medical Assistant") main = today + flow + sched + pats + tasks;
     else if (role === "Clinical Coordinator") main = today + sched + flow + pats + tasks + pos + quotes;
-    else if (role === "RN / NP Injector" || role === "Aesthetician") main = today + sched + pats + tasks;
+    else if (role === "RN / NP Injector" || role === "Aesthetician") main = today + sched + flow + pats + quotes + tasks;
     else if (role === "MD / Clinic Owner") {
       main = today + sched + flow + pats + tasks + pos + quotes;
     }
@@ -3225,7 +3229,7 @@
         esc(typeof inv.balance === "number" ? money(inv.balance) : inv.balance) + "</div></div>" + badge(inv.status) + "</a>").join("") || '<div class="empty">No invoices</div>';
       body = '<h3 class="section-title">Patient ledger</h3>' +
         '<div class="ledger-actions">' +
-        '<button class="btn small primary" type="button" data-ledger-invoice="' + esc(p.id) + '">Create invoice</button>' +
+        (canCreateInvoice() ? '<button class="btn small primary" type="button" data-ledger-invoice="' + esc(p.id) + '">Create invoice</button>' : "") +
         '<button class="btn small" type="button" data-ledger-payment="' + esc(p.id) + '">Add payment</button></div>' +
         '<div class="ledger-credit">Available credit <strong>' + money(credit) + "</strong></div>" +
         '<p class="row-sub">Payment status is independent of appointment status. A blank payment, such as a prepayment, is added to patient credit.</p>' +
@@ -3267,7 +3271,7 @@
   }
   function quotesTeaserHtml(p) {
     const qs = (store.quotes || []).filter(function (q) { return q.patientId === p.id; });
-    const open = qs.filter(function (q) { return q.status === "Open" || q.status === "Prepaid"; });
+    const open = qs.filter(quoteIsActive);
     return '<h3 class="section-title" style="margin-top:16px">Quotes</h3>' +
       '<p class="row-sub">The full quotes dashboard lives under Workspace · Quotes, so this chart stays uncluttered.</p>' +
       (open.length ? open.map(function (q) {
@@ -8363,7 +8367,7 @@
     return list.slice(0, n || 3);
   }
   function openQuotesFor(pid) {
-    return (store.quotes || []).filter(function (q) { return q.patientId === pid && (q.status === "Open" || q.status === "Prepaid"); });
+    return (store.quotes || []).filter(function (q) { return q.patientId === pid && quoteIsActive(q); });
   }
   function openAppointment(id, opts) { return openAppointmentModal(id, opts); }
   function openAppointmentModal(id, opts) {
@@ -8449,7 +8453,7 @@
             "<div>Credit <strong>" + money(credit) + "</strong></div>" +
             '<div style="margin-top:8px"><span class="row-sub">Open quotes</span>' + quoteRows + "</div>" +
             '<div style="margin-top:8px"><span class="row-sub">Last payments</span>' + payRows + "</div>" +
-            '<button type="button" class="btn primary btn-invoice-lg" data-open-pos="' + esc(a.id) + '">Create invoice</button>' +
+            (canCreateInvoice() ? '<button type="button" class="btn primary btn-invoice-lg" data-open-pos="' + esc(a.id) + '">Create invoice</button>' : "") +
             checkoutActionsHtml(a) +
           "</section>" +
         "</div>")) +
@@ -8906,12 +8910,15 @@
     if (inv) state.invoiceId = inv.id;
     const p = inv ? patient(inv.patientId) : (ap ? patient(ap.patientId) : null);
     const start = '<div class="actions pos-patient-tools">' +
-      '<div class="pos-patient-search"><label class="field"><span class="sr-only">Find a patient</span>' +
+      (canCreateInvoice() ? ('<div class="pos-patient-search"><label class="field"><span class="sr-only">Find a patient</span>' +
       '<input id="posPatientSearch" type="search" placeholder="Search patients by name, #ID, or DOB" value="' + esc(state.posPatientQ || "") + '"></label>' +
       '<div id="posPatientResults" class="patient-results"></div></div>' +
-      '<button type="button" class="btn" data-new-blank-invoice="1">＋ Blank invoice</button></div>';
+      '<button type="button" class="btn primary" data-new-blank-invoice="1">Create invoice</button>') : "") +
+      "</div>";
     const head = pageHead("", "Point of Sale", p ? (patientLink(p) + " · " + esc(displayId(p.id)) + (inv ? " · " + esc(inv.id) : "")) : "", "");
-    const main = inv ? invoicePopupHtml(inv, { embedded: true }) : '<div class="empty">Select a visit or start a blank invoice.</div>';
+    const main = inv ? invoicePopupHtml(inv, { embedded: true }) : (canCreateInvoice()
+      ? '<div class="empty">Search for a patient and choose Create invoice, or open a visit.</div>'
+      : '<div class="empty">Invoices are created by the Clinical Coordinator, Clinic Manager, or Owner.</div>');
     const body = posTabs("invoice") +
       concept("Nicole-given prices are used when a quantity is entered. Other items stay TBD. Invoice and payment statuses stay independent of appointment status.") +
       start +
@@ -8979,7 +8986,7 @@
   function posPatientQuotesHtml(inv) {
     if (!inv || inv.finalized) return "";
     const list = (store.quotes || []).filter(function (q) {
-      return q.patientId === inv.patientId && ["Open", "Accepted", "Prepaid"].indexOf(q.status) >= 0;
+      return q.patientId === inv.patientId && quoteIsActive(q);
     });
     if (!list.length) return "";
     return '<div class="pos-open-quotes"><div class="row-sub">Open quotes for this patient — add lines only when you choose to. This does not post a sale.</div>' +
@@ -8993,174 +9000,406 @@
     if (!l || l.kind === "prepayment") return null;
     return { kind: l.kind, name: l.name, catalogId: l.catalogId, unit: l.unit, unitPrice: l.unitPrice, qty: l.qty, amount: l.amount, waived: l.waived };
   }
+  function quoteCreatedOn(q) {
+    return String((q && (q.created || q.createdAt)) || "").slice(0, 10);
+  }
+  function quoteExpiryDate(q) {
+    if (!q) return "";
+    if (q.expiresOn) return String(q.expiresOn).slice(0, 10);
+    const c = quoteCreatedOn(q);
+    return c ? addDays(c, 30) : "";
+  }
+  function quoteIsActive(q) {
+    if (!q) return false;
+    normalizeQuote(q);
+    return q.status === "Draft" || q.status === "Sent" || q.status === "Accepted" || q.status === "Prepaid";
+  }
+  function normalizeQuote(q) {
+    if (!q) return q;
+    if (!q.expiresOn) q.expiresOn = quoteExpiryDate(q);
+    if (!q.disclaimer) q.disclaimer = "This is an estimate. The final price may vary.";
+    if (q.status === "Open") q.status = "Sent";
+    if (q.status === "Prepaid") {
+      q.status = "Accepted";
+      q.depositCollected = true;
+    }
+    const expirable = q.status === "Draft" || q.status === "Sent";
+    if (expirable && q.expiresOn && todayET() >= q.expiresOn) {
+      q.status = "Expired";
+      q.expiredAt = q.expiredAt || todayET();
+    }
+    return q;
+  }
+  function expireQuotes() {
+    (store.quotes || []).forEach(normalizeQuote);
+  }
+  function canAcceptQuote() {
+    return canManageQuotes() && !isMarketingRole();
+  }
+  function quotePatientApptOptions(pid, selected) {
+    return (store.appointments || []).filter(function (a) { return a.patientId === pid; })
+      .sort(function (a, b) { return (b.date + b.time).localeCompare(a.date + a.time); })
+      .map(function (a) {
+        return '<option value="' + esc(a.id) + '"' + (a.id === selected ? " selected" : "") + ">" +
+          esc(fmtDate(a.date) + " · " + fmtTime(a.time) + " · " + (a.type || "") + " · " + a.id) + "</option>";
+      }).join("");
+  }
+  function quoteLineFromTpl(l) {
+    return Object.assign({}, l, { qty: (l.qty != null && l.qty !== "") ? l.qty : null, amount: l.amount != null ? l.amount : "TBD" });
+  }
+  function sendQuote(id) {
+    const q = quoteById(id); if (!q) return;
+    normalizeQuote(q);
+    if (q.status !== "Draft") { toast("Only a draft quote can be sent"); return; }
+    const before = q.status;
+    q.status = "Sent";
+    q.sentAt = nowET();
+    q.sentBy = actingName();
+    if (!q.expiresOn) q.expiresOn = addDays(todayET(), 30);
+    addAudit({ action: "Sent quote", recordType: "Quote", recordId: id,
+      recordPath: { page: "quotes", quoteId: id },
+      changes: [{ field: "status", before: before, after: "Sent" }] });
+    toast("Quote sent · expires " + fmtDate(q.expiresOn));
+    render();
+  }
+  function reissueQuote(id) {
+    const old = quoteById(id); if (!old) return;
+    normalizeQuote(old);
+    if (old.status !== "Expired") { toast("Only an expired quote can be re-issued"); return; }
+    store.quotes = store.quotes || [];
+    const rec = {
+      id: nextId("Q-", store.quotes),
+      patientId: old.patientId,
+      appointmentId: old.appointmentId || null,
+      templateId: old.templateId,
+      name: old.name,
+      status: "Sent",
+      wording: old.wording || "",
+      treatmentArea: old.treatmentArea || "",
+      recommendedPlan: old.recommendedPlan || "",
+      sessions: old.sessions || "",
+      disclaimer: old.disclaimer || "This is an estimate. The final price may vary.",
+      depositRequired: !!old.depositRequired,
+      depositAmount: old.depositAmount || null,
+      lines: (old.lines || []).map(function (l) { return Object.assign({}, l, { qty: (l.qty != null && l.qty !== "") ? l.qty : null }); }),
+      created: todayET(),
+      createdBy: actingName(),
+      createdByRole: state.actingRole,
+      expiresOn: addDays(todayET(), 30),
+      sentAt: nowET(),
+      sentBy: actingName(),
+      reissuedFrom: old.id,
+      broughtToRoom: false,
+      invoiceId: null,
+      followUpDue: old.followUpDue || null
+    };
+    store.quotes.push(rec);
+    addDocument(rec.patientId, { category: "Quotes", title: "Quote · " + rec.name + " · " + rec.id, date: rec.created, relatedId: rec.id, kind: "quote" });
+    addAudit({ action: "Re-issued quote", recordType: "Quote", recordId: rec.id,
+      recordPath: { page: "quotes", quoteId: rec.id },
+      changes: [{ field: "status", before: "—", after: "Sent" }, { field: "reissuedFrom", before: "—", after: old.id }] });
+    toast("Quote re-issued as " + rec.id + " · expires " + fmtDate(rec.expiresOn));
+    go({ page: "quotes", quoteId: rec.id });
+  }
+  function printQuote(id) {
+    const q = quoteById(id); if (!q) return;
+    normalizeQuote(q);
+    const p = patient(q.patientId);
+    openPrintSheet("Quote · " + (p ? p.name : q.id), quotePrintHtml(q));
+  }
+  function quotePrintHtml(q) {
+    const p = patient(q.patientId);
+    const contact = clinicContactLines();
+    const a = q.appointmentId ? appt(q.appointmentId) : null;
+    const metaItem = function (k, v) {
+      return '<div><span class="k">' + esc(k) + "</span>" + esc(v || "—") + "</div>";
+    };
+    const lines = (q.lines || []).map(function (l) {
+      const qty = (l.qty != null && l.qty !== "") ? String(l.qty) : "—";
+      const unit = l.unit ? " " + l.unit + (Number(l.qty) === 1 ? "" : "s") : "";
+      const price = l.unitPrice != null && l.unitPrice !== "" ? money(l.unitPrice) : "TBD";
+      const amt = (l.qty != null && l.qty !== "" && l.unitPrice != null && l.unitPrice !== "") ? money(Number(l.qty) * Number(l.unitPrice)) : "TBD";
+      return "<tr><td>" + esc(l.name || "") + "</td><td>" + esc(qty) + (l.unit ? " " + esc(l.unit) : "") + "</td><td>" + esc(price) + "</td><td>" + esc(amt) + "</td></tr>";
+    }).join("");
+    const totals = invoiceTotals({ lines: q.lines || [] });
+    return '<article class="note-print-sheet quote-print-sheet">' +
+      '<header class="note-print-head">' + clinicLogoMark("print-logo") +
+      '<p class="note-print-contact">' + esc(contact.address) + "<br>" + esc(contact.phone) + "</p></header>" +
+      "<h1>Quote</h1>" +
+      '<div class="note-print-meta">' +
+        metaItem("Patient", p ? p.name : "") +
+        metaItem("Date of birth", p ? fmtDob(p.dob) : "") +
+        metaItem("Chart #", p ? displayId(p.id) : "") +
+        metaItem("Quote", q.id) +
+        metaItem("Status", q.status) +
+        metaItem("Created", (q.created ? fmtDate(q.created) : "") + (q.createdBy ? " · " + q.createdBy : "") + (q.createdByRole ? " · " + q.createdByRole : "")) +
+        metaItem("Expires", q.expiresOn ? fmtDate(q.expiresOn) : "") +
+        metaItem("Appointment", a ? (fmtDate(a.date) + " · " + fmtTime(a.time) + " · " + (a.type || "")) : "Not attached") +
+        metaItem("Treatment area", q.treatmentArea || "") +
+        metaItem("Recommended plan / sessions", q.recommendedPlan || q.sessions || "") +
+        metaItem("Deposit required", q.depositRequired ? ("Yes" + (q.depositAmount ? " · " + money(q.depositAmount) : "")) : "No") +
+      "</div>" +
+      (q.wording ? "<p>" + esc(q.wording) + "</p>" : "") +
+      '<table class="quote-print-lines"><thead><tr><th>Item</th><th>Qty / units</th><th>Price</th><th>Line total</th></tr></thead><tbody>' +
+      (lines || '<tr><td colspan="4">No lines</td></tr>') + "</tbody></table>" +
+      "<p><strong>Estimate total: " + esc(totals.label) + "</strong></p>" +
+      "<p>" + esc(q.disclaimer || "This is an estimate. The final price may vary.") + "</p>" +
+      '<div class="note-print-sig"><div class="sig-line"></div><div><strong>Patient acceptance</strong></div>' +
+      "<p>Signature _________________________________ Date ______________</p>" +
+      '<p class="note-print-empty">Staff records acceptance in the clinic. This line is for the printed copy.</p></div>' +
+      "</article>";
+  }
+  function quoteSheetHtml(q) {
+    const p = patient(q.patientId);
+    const a = q.appointmentId ? appt(q.appointmentId) : null;
+    const totals = invoiceTotals({ lines: q.lines || [] });
+    const lineRows = (q.lines || []).map(function (l, i) {
+      const qtyBlank = l.qty == null || l.qty === "";
+      const price = l.unitPrice != null && l.unitPrice !== "" ? money(l.unitPrice) : "TBD";
+      const amt = (!qtyBlank && l.unitPrice != null && l.unitPrice !== "") ? money(Number(l.qty) * Number(l.unitPrice)) : "TBD";
+      return '<div class="quote-line-row">' +
+        "<div><strong>" + esc(l.name || "Line") + "</strong>" + (l.kind ? '<div class="row-sub">' + esc(l.kind) + (l.unit ? " · " + esc(l.unit) : "") + "</div>" : "") + "</div>" +
+        '<div class="quote-line-qty"><label class="sr-only" for="qQty-' + i + '">Quantity</label>' +
+        '<input id="qQty-' + i + '" data-quote-qty="' + i + '" type="number" min="0" step="1" value="' + esc(qtyBlank ? "" : String(l.qty)) + '" placeholder="Qty"></div>' +
+        "<div>" + esc(price) + ' each · ' + esc(amt) + "</div></div>";
+    }).join("");
+    return '<div class="quote-sheet card"><div class="cardbody">' +
+      '<header class="quote-sheet-head">' + clinicLogoMark("quote-logo") + "</header>" +
+      '<div class="quote-meta">' +
+        '<div><span class="k">Patient</span> ' + (p ? patientLink(p) : "—") + "</div>" +
+        '<div><span class="k">Date of birth</span> ' + esc(p ? fmtDob(p.dob) : "—") + "</div>" +
+        '<div><span class="k">Chart #</span> ' + esc(p ? displayId(p.id) : "—") + "</div>" +
+        '<div><span class="k">Created by</span> ' + esc((q.createdBy || "—") + (q.createdByRole ? " · " + q.createdByRole : "")) + "</div>" +
+        '<div><span class="k">Created</span> ' + esc(q.created ? fmtDate(q.created) : "—") + "</div>" +
+        '<div><span class="k">Expires</span> ' + esc(q.expiresOn ? fmtDate(q.expiresOn) : "—") + (q.status === "Expired" ? " · Expired" : "") + "</div>" +
+      "</div>" +
+      (q.wording ? '<p class="quote-wording">' + esc(q.wording) + "</p>" : "") +
+      '<div class="formgrid quote-sheet-fields">' +
+        '<div class="field full"><label for="quoteArea">Treatment area</label><input id="quoteArea" value="' + esc(q.treatmentArea || "") + '"></div>' +
+        '<div class="field full"><label for="quotePlan">Recommended plan / sessions</label><textarea id="quotePlan" rows="2">' + esc(q.recommendedPlan || "") + "</textarea></div>" +
+        '<div class="field"><label for="quoteAppt">Attach to appointment</label><select id="quoteAppt"><option value="">Not attached</option>' + quotePatientApptOptions(q.patientId, q.appointmentId) + "</select></div>" +
+        '<div class="field"><label class="choice"><input id="quoteDepositReq" type="checkbox"' + (q.depositRequired ? " checked" : "") + "> Deposit required</label>" +
+          '<input id="quoteDepositAmt" type="number" min="0" step="0.01" placeholder="Deposit amount" value="' + esc(q.depositAmount != null ? String(q.depositAmount) : "") + '"></div>' +
+      "</div>" +
+      "<h3>Itemized lines</h3>" +
+      '<p class="row-sub">Approved prices only. Quantity stays blank until entered.</p>' +
+      '<div id="quoteLines">' + (lineRows || '<div class="empty">No lines</div>') + "</div>" +
+      "<p>Estimate total: <strong>" + esc(totals.label) + "</strong></p>" +
+      '<p class="quote-disclaimer">' + esc(q.disclaimer || "This is an estimate. The final price may vary.") + "</p>" +
+      '<div class="quote-accept-line"><div class="sig-line"></div><div class="row-sub">Patient acceptance signature / date (printed copy). Staff records acceptance in the clinic. There is no patient-facing accept.</div></div>' +
+      '<div class="actions"><button type="button" class="btn tiny primary" data-save-quote-fields="' + esc(q.id) + '">Save quote fields</button></div>' +
+      "</div></div>";
+  }
+  function saveQuoteFields(id) {
+    const q = quoteById(id); if (!q) return;
+    q.treatmentArea = ($("#quoteArea") && $("#quoteArea").value) || "";
+    q.recommendedPlan = ($("#quotePlan") && $("#quotePlan").value) || "";
+    const ap = $("#quoteAppt") && $("#quoteAppt").value;
+    q.appointmentId = ap || null;
+    q.depositRequired = !!($("#quoteDepositReq") && $("#quoteDepositReq").checked);
+    const raw = $("#quoteDepositAmt") && $("#quoteDepositAmt").value;
+    q.depositAmount = (raw && isFinite(Number(raw))) ? Number(raw) : null;
+    (q.lines || []).forEach(function (l, i) {
+      const el = document.getElementById("qQty-" + i);
+      if (!el) return;
+      const v = el.value;
+      l.qty = (v === "" || v == null) ? null : Number(v);
+      if (l.qty != null && l.unitPrice != null && l.unitPrice !== "" && !isNaN(l.qty)) l.amount = Number(l.qty) * Number(l.unitPrice);
+      else l.amount = "TBD";
+    });
+    toast("Quote saved");
+    render();
+  }
   function quoteStepperHtml(q) {
+    normalizeQuote(q);
     const inv = q.invoiceId ? invoice(q.invoiceId) : null;
-    const paid = !!(inv && (inv.status === "Paid" || (inv.finalized && (inv.balance === 0 || inv.balance === "0"))));
-    const hasDeposit = q.status === "Prepaid" || (q.depositAmount != null && q.depositAmount > 0);
     const converted = q.status === "Converted";
-    const accepted = q.status === "Accepted" || hasDeposit || converted || !!q.acceptedAt;
+    const accepted = q.status === "Accepted" || converted || !!q.acceptedAt;
+    const sent = q.status === "Sent" || accepted || converted;
     const expired = q.status === "Expired";
     const steps = [
-      { key: "Open", done: accepted || converted || expired, current: q.status === "Open" },
-      { key: "Accepted", done: hasDeposit || converted, current: q.status === "Accepted" },
-      { key: "Prepaid", done: converted && hasDeposit, current: q.status === "Prepaid" },
-      { key: "Converted", done: paid, current: converted && !paid },
-      { key: "Paid", done: paid, current: paid }
+      { key: "Draft", done: sent || expired || converted, current: q.status === "Draft" },
+      { key: "Sent", done: accepted || converted, current: q.status === "Sent" },
+      { key: "Accepted", done: converted, current: q.status === "Accepted" },
+      { key: "Converted", done: converted, current: converted }
     ];
-    if (expired) {
-      steps.forEach(function (s) { s.current = false; });
-    }
+    if (expired) steps.forEach(function (s) { s.current = false; });
     return '<div class="quote-stepper' + (expired ? " is-expired" : "") + '" aria-label="Quote path">' +
       steps.map(function (s) {
         const cls = "quote-step" + (s.done ? " is-done" : "") + (s.current ? " is-current" : "");
         return '<div class="' + cls + '">' + esc(s.key) + "</div>";
       }).join('<div class="quote-step-arrow" aria-hidden="true">→</div>') +
-      (expired ? '<div class="quote-step is-current">Expired</div>' : "") +
+      (expired ? '<div class="quote-step-arrow" aria-hidden="true">→</div><div class="quote-step is-current">Expired</div>' : "") +
       "</div>";
   }
   function acceptQuote(id) {
     const q = quoteById(id); if (!q) return;
-    if (q.status !== "Open") { toast("Only an open quote can be marked accepted"); return; }
+    if (!canAcceptQuote()) { toast("Only clinic staff can accept a quote"); return; }
+    normalizeQuote(q);
+    if (q.status !== "Draft" && q.status !== "Sent") { toast("Only a draft or sent quote can be marked accepted"); return; }
     const before = q.status;
     q.status = "Accepted";
     q.acceptedAt = nowET();
-    q.acceptedBy = state.actingRole;
+    q.acceptedBy = actingName();
+    q.acceptedByRole = state.actingRole;
     addAudit({ action: "Accepted quote", recordType: "Quote", recordId: id,
       recordPath: { page: "quotes", quoteId: id },
       changes: [{ field: "status", before: before, after: "Accepted" }] });
-    toast("Quote accepted · not yet a sale");
+    toast("Quote accepted by staff · not yet a sale");
     render();
   }
-  function bookFromQuote(id) {
-    const q = quoteById(id); if (!q) return;
-    const p = patient(q.patientId);
-    if (!p) { toast("Patient not found"); return; }
-    q.bookedFromQuote = true;
-    addAudit({ action: "Booked from quote", recordType: "Quote", recordId: id,
-      recordPath: { page: "quotes", quoteId: id },
-      changes: [{ field: "booked", before: "No", after: "Yes" }] });
-    openBook(p.id, { date: defaultClinicDate(), lockPatient: true, type: "Treatment", provider: (q.appointmentId && appt(q.appointmentId) && appt(q.appointmentId).provider) || "" });
-  }
-  function addInvoiceLinesFromQuote(invId, qid) {
-    const inv = invoice(invId); const q = quoteById(qid);
-    if (!inv || !q || inv.finalized) return;
-    const copies = (q.lines || []).map(quoteLineCopy).filter(Boolean);
-    if (!copies.length) { toast("This quote has no lines to add"); return; }
-    inv.lines = inv.lines || [];
-    copies.forEach(function (l) { inv.lines.push(l); });
-    const before = q.status;
-    if (q.status !== "Converted") {
-      q.status = "Converted";
-      q.invoiceId = inv.id;
-      q.visitKind = q.visitKind || "added-to-invoice";
-    }
-    refreshInvoiceBalance(inv);
-    addAudit({ action: "Added quote lines to invoice", recordType: "Invoice", recordId: inv.id,
-      recordPath: { page: "pos", invoiceId: inv.id },
-      changes: [{ field: "quote", before: before, after: q.id }, { field: "lines added", before: "—", after: String(copies.length) }] });
-    const credit = patientCredit(inv.patientId);
-    toast("Added " + copies.length + " line" + (copies.length === 1 ? "" : "s") + " from " + q.id + (credit > 0 ? " · patient has " + money(credit) + " credit to apply" : ""));
-    refreshPosView();
-  }
-
   function quoteRowHtml(q, href) {
+    normalizeQuote(q);
     const p = patient(q.patientId);
     const due = q.followUpDue ? ("Follow up " + fmtDate(q.followUpDue)) : "";
-    return '<a class="row" href="' + href + '"><div><div class="row-title">' + esc(q.name) + " · " + (p ? p.name : q.patientId) + '</div><div class="row-sub">' + esc(q.id) + " · " + esc(q.created) + (due ? " · " + due : "") + '</div></div>' + badge(q.status) + "</a>";
+    const exp = quoteExpiryDate(q);
+    const expBit = exp ? ((q.status === "Expired" ? "Expired " : "Expires ") + fmtDate(exp)) : "";
+    const reissue = q.status === "Expired" ? '<button type="button" class="btn tiny" data-pos="reissue" data-quote="' + esc(q.id) + '">Re-issue</button>' : "";
+    return '<div class="row quote-row"><a href="' + href + '"><div><div class="row-title">' + esc(q.name) + " · " + (p ? p.name : q.patientId) + '</div><div class="row-sub">' +
+      esc(q.id) + " · " + esc(q.created || "") + (expBit ? " · " + expBit : "") + (due ? " · " + due : "") +
+      (q.createdBy ? " · " + esc(q.createdBy) : "") +
+      '</div></div></a>' + badge(q.status) + reissue + "</div>";
   }
   function renderQuotes() {
     const qid = state.quoteId;
     if (qid) { renderQuoteDetail(qid); return; }
-    const head = pageHead("Point of Sale", "Quotes", "Statuses: Open, Accepted, Prepaid, Converted, Expired.", "");
+    expireQuotes();
+    const head = pageHead("Point of Sale", "Quotes", "Statuses: Draft, Sent, Accepted, Expired, Converted.", "");
     const rows = (store.quotes || []).map(function (q) {
       return quoteRowHtml(q, hashFor({ page: "pos", posTab: "quotes", quoteId: q.id }));
     }).join("") || '<div class="empty">No quotes</div>';
     renderChrome('<a href="' + hashFor({ page: "pos", posTab: "quotes" }) + '">Quotes</a>', head, posTabs("quotes") + '<div class="card"><div class="cardbody">' + rows + "</div></div>");
   }
   function renderQuotesHome() {
+    expireQuotes();
     if (state.quoteId) { renderQuoteDetail(state.quoteId); return; }
     const all = store.quotes || [];
-    const open = all.filter(function (q) { return q.status === "Open" || q.status === "Accepted" || q.status === "Prepaid"; });
+    const open = all.filter(quoteIsActive);
     const follow = open.filter(function (q) { return q.followUpDue && q.followUpDue <= todayET(); });
     const count = function (s) { return all.filter(function (q) { return q.status === s; }).length; };
-    const pipe = ["Open", "Accepted", "Prepaid", "Converted", "Expired"].map(function (s) {
+    const pipe = ["Draft", "Sent", "Accepted", "Expired", "Converted"].map(function (s) {
       return '<div class="quote-pipe-step"><div class="k">' + s + '</div><div class="n">' + count(s) + "</div></div>";
     }).join('<div class="quote-step-arrow" aria-hidden="true">→</div>');
-    const head = pageHead("Quotes", "Quotes", "Quote → accepted → booked → charged → paid. Deposits become patient credit until applied at checkout.",
+    const head = pageHead("Quotes", "Quotes", "Draft → sent → accepted by staff → converted. Quotes expire 30 days after they are created. There is no patient-facing accept.",
       '<button type="button" class="btn small primary" data-new-quote="1">＋ New quote</button>');
-    const openRows = open.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No open quotes</div>';
+    const openRows = open.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No active quotes</div>';
+    const expiredRows = all.filter(function (q) { return q.status === "Expired"; }).map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No expired quotes</div>';
     const followRows = follow.map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quote follow-ups due today or earlier.</div>';
     const recent = all.slice().sort(function (x, y) { return String(y.created || "").localeCompare(String(x.created || "")); }).slice(0, 8)
       .map(function (q) { return quoteRowHtml(q, hashFor({ page: "quotes", quoteId: q.id })); }).join("") || '<div class="empty">No quotes yet</div>';
     const body = '<div class="quote-pipeline card"><div class="cardbody"><div class="row-sub">Path</div><div class="quote-stepper quote-pipe">' + pipe + "</div></div></div>" +
       '<div class="grid quotes-dash">' +
       '<div class="card"><div class="cardhead"><h2>Active quotes · ' + open.length + '</h2></div><div class="cardbody">' + openRows + '</div></div>' +
+      '<div class="card"><div class="cardhead"><h2>Expired</h2></div><div class="cardbody">' + expiredRows + '</div></div>' +
       '<div class="card"><div class="cardhead"><h2>Follow-up worklist</h2></div><div class="cardbody">' + followRows + '</div></div>' +
       '<div class="card"><div class="cardhead"><h2>Recent</h2></div><div class="cardbody">' + recent + '</div></div></div>';
     renderChrome('<a href="' + hashFor({ page: "quotes" }) + '">Quotes</a>', head, body);
   }
   function openNewQuoteModal() {
+    if (!canManageQuotes()) { toast("Marketing cannot create quotes"); return; }
     const pats = (store.patients || []).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>"; }).join("");
     const tpls = (BRIZZA.QUOTE_TEMPLATES || []).map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.name) + "</option>"; }).join("");
+    const firstPid = (store.patients || [])[0] && (store.patients || [])[0].id;
     showModal("New quote",
       '<div class="formgrid"><div class="field"><label for="quotePatient">Patient</label><select id="quotePatient">' + pats + "</select></div>" +
       '<div class="field"><label for="quoteTpl">Template</label><select id="quoteTpl">' + tpls + "</select></div>" +
+      '<div class="field"><label for="quoteApptNew">Attach to appointment <span class="row-sub">(optional)</span></label><select id="quoteApptNew"><option value="">Not attached</option></select></div>' +
+      '<div class="field full"><label for="quoteAreaNew">Treatment area</label><input id="quoteAreaNew" placeholder="Optional"></div>' +
+      '<div class="field full"><label for="quotePlanNew">Recommended plan / sessions</label><textarea id="quotePlanNew" rows="2" placeholder="Optional"></textarea></div>' +
+      '<div class="field"><label class="choice"><input id="quoteDepositReqNew" type="checkbox"> Deposit required</label>' +
+        '<input id="quoteDepositAmtNew" type="number" min="0" step="0.01" placeholder="Deposit amount"></div>' +
       '<div class="field"><label for="quoteFollow">Follow-up date <span class="row-sub">(optional)</span></label><input id="quoteFollow" type="date"></div></div>',
       function () {
         const pid = $("#quotePatient") && $("#quotePatient").value;
         const tid = $("#quoteTpl") && $("#quoteTpl").value;
-        saveQuoteFromTemplate(pid, null, tid);
-        const q = (store.quotes || []).find(function (x) { return x.patientId === pid; });
-        if (q && $("#quoteFollow") && $("#quoteFollow").value) q.followUpDue = $("#quoteFollow").value;
-        if (q) go({ page: "quotes", quoteId: q.id });
+        const apptId = ($("#quoteApptNew") && $("#quoteApptNew").value) || null;
+        const extras = {
+          treatmentArea: ($("#quoteAreaNew") && $("#quoteAreaNew").value) || "",
+          recommendedPlan: ($("#quotePlanNew") && $("#quotePlanNew").value) || "",
+          depositRequired: !!($("#quoteDepositReqNew") && $("#quoteDepositReqNew").checked),
+          depositAmount: (function () { const raw = $("#quoteDepositAmtNew") && $("#quoteDepositAmtNew").value; return raw && isFinite(Number(raw)) ? Number(raw) : null; })(),
+          followUpDue: ($("#quoteFollow") && $("#quoteFollow").value) || null
+        };
+        const q = saveQuoteFromTemplate(pid, apptId, tid, extras);
+        if (q) { closeModal(); go({ page: "quotes", quoteId: q.id }); }
       }, "Save quote");
+    const refreshAppts = function () {
+      const sel = $("#quoteApptNew");
+      const pid = $("#quotePatient") && $("#quotePatient").value;
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Not attached</option>' + (pid ? quotePatientApptOptions(pid, "") : "");
+    };
+    if ($("#quotePatient")) $("#quotePatient").addEventListener("change", refreshAppts);
+    refreshAppts();
   }
   function renderQuoteDetail(id) {
     const q = (store.quotes || []).find((x) => x.id === id);
     if (!q) { renderChrome("Quotes", pageHead("", "Quote not found", "", ""), ""); return; }
+    normalizeQuote(q);
     const p = patient(q.patientId);
     const a = q.appointmentId ? appt(q.appointmentId) : null;
     const inv = q.invoiceId ? invoice(q.invoiceId) : null;
-    const active = q.status === "Open" || q.status === "Accepted" || q.status === "Prepaid";
-    const head = pageHead("Quote", q.name, (p ? patientLink(p) : "") + " · " + esc(q.id), badge(q.status));
+    const active = quoteIsActive(q);
+    const head = pageHead("Quote", q.name, (p ? patientLink(p) : "") + " · " + esc(q.id) + (q.reissuedFrom ? " · Re-issued from " + esc(q.reissuedFrom) : ""), badge(q.status));
     const credit = p ? patientCredit(p) : 0;
     const body =
       '<div class="card"><div class="cardbody">' +
       quoteStepperHtml(q) +
+      (q.status === "Expired" ? '<div class="notice">This quote expired on ' + esc(fmtDate(q.expiresOn || q.expiredAt)) + ". Staff can re-issue a new 30-day quote.</div>" : "") +
       (q.broughtToRoom ? '<div class="notice">Brought to the suite' + (q.broughtAt ? " · " + esc(q.broughtAt) : "") + ".</div>" : "") +
       (q.depositAmount ? '<div class="notice">Deposit ' + money(q.depositAmount) + " is on patient credit" + (credit ? " (credit now " + money(credit) + ")" : "") + ". Apply it at checkout. This is not a completed sale.</div>" : "") +
       (inv && inv.finalized ? '<div class="bill-complete">Bill complete on ' + esc(inv.id) + " · receipt locked</div>" : "") +
-      q.lines.map(lineHtml).join("") +
-      '<p class="row-sub">Prices are per unit or vial when known. Quantity stays blank until entered. Total: ' + esc(invoiceTotals({ lines: q.lines }).label) + '</p>' +
-      (a ? '<div class="row"><span>From appointment</span><a href="' + hashFor({ page: "schedule", date: a.date, appointmentId: a.id }) + '">' + esc(a.id) + " · " + esc(fmtTime(a.time)) + "</a></div>" : "") +
-      (q.invoiceId ? '<div class="row"><span>Invoice</span><a href="' + hashFor({ page: "pos", invoiceId: q.invoiceId, posTab: "invoice" }) + '">' + esc(q.invoiceId) + (inv && inv.finalized ? " · bill complete" : "") + "</a></div>" : "") +
-      '<div class="actions" style="margin-top:14px">' +
-      (q.status === "Open" ? '<button class="btn primary" type="button" data-pos="accept" data-quote="' + q.id + '">Accept quote</button>' : "") +
+      "</div></div>" +
+      quoteSheetHtml(q) +
+      '<div class="card"><div class="cardbody"><div class="actions" style="margin-top:4px">' +
+      (q.status === "Draft" ? '<button class="btn" type="button" data-pos="send" data-quote="' + q.id + '">Send quote</button>' : "") +
+      ((q.status === "Draft" || q.status === "Sent") && canAcceptQuote() ? '<button class="btn primary" type="button" data-pos="accept" data-quote="' + q.id + '">Accept quote</button>' : "") +
+      (q.status === "Expired" ? '<button class="btn primary" type="button" data-pos="reissue" data-quote="' + q.id + '">Re-issue quote</button>' : "") +
+      '<button class="btn" type="button" data-pos="print" data-quote="' + q.id + '">Print / PDF</button>' +
       (!q.broughtToRoom && active ? '<button class="btn" type="button" data-pos="bring" data-quote="' + q.id + '">Bring quote to suite</button>' : "") +
       (active ? '<button class="btn" type="button" data-pos="prepay" data-quote="' + q.id + '">Collect deposit</button>' : "") +
       (active || q.status === "Converted" ? '<button class="btn" type="button" data-pos="book-quote" data-quote="' + q.id + '">Book from quote</button>' : "") +
       (active ? '<button class="btn primary" type="button" data-pos="treat-today" data-quote="' + q.id + '">Treat today</button>' : "") +
       (active ? '<button class="btn" type="button" data-pos="return" data-quote="' + q.id + '">Return</button>' : "") +
       "</div>" +
+      '<p class="row-sub">Only clinic staff can accept a quote. There is no patient-facing accept.</p>' +
       openQ("Treat today converts the quote to a same-day invoice. Return books a return visit or leaves the quote open (Open question 20).") +
       "</div></div>";
     renderChrome('<a href="' + hashFor({ page: "quotes" }) + '">Quotes</a> / ' + esc(q.id), head, body);
   }
-  function saveQuoteFromTemplate(pid, apptId, templateId) {
+  function saveQuoteFromTemplate(pid, apptId, templateId, extras) {
+    extras = extras || {};
     const tpl = (BRIZZA.QUOTE_TEMPLATES || []).find((t) => t.id === templateId) || (BRIZZA.QUOTE_TEMPLATES || [])[0];
-    if (!tpl || !pid) { toast("Select a patient and a template"); return; }
+    if (!tpl || !pid) { toast("Select a patient and a template"); return null; }
     store.quotes = store.quotes || [];
     const id = nextId("Q-", store.quotes);
-    const rec = { id: id, patientId: pid, appointmentId: apptId || null, templateId: tpl.id, name: tpl.name, status: "Open",
-      lines: tpl.lines.map((l) => Object.assign({}, l, { amount: "TBD" })), created: todayET(), broughtToRoom: false, invoiceId: null };
+    const created = todayET();
+    const rec = {
+      id: id, patientId: pid, appointmentId: apptId || null, templateId: tpl.id, name: tpl.name, status: "Draft",
+      wording: tpl.wording || "",
+      treatmentArea: extras.treatmentArea != null ? extras.treatmentArea : (tpl.treatmentArea || ""),
+      recommendedPlan: extras.recommendedPlan != null ? extras.recommendedPlan : (tpl.recommendedPlan || ""),
+      disclaimer: tpl.disclaimer || "This is an estimate. The final price may vary.",
+      depositRequired: extras.depositRequired != null ? !!extras.depositRequired : !!tpl.depositRequired,
+      depositAmount: extras.depositAmount != null ? extras.depositAmount : (tpl.depositAmount || null),
+      followUpDue: extras.followUpDue || null,
+      lines: (tpl.lines || []).map(quoteLineFromTpl),
+      created: created,
+      createdBy: actingName(),
+      createdByRole: state.actingRole,
+      expiresOn: addDays(created, 30),
+      broughtToRoom: false,
+      invoiceId: null
+    };
     store.quotes.push(rec);
     addDocument(pid, { category: "Quotes", title: "Quote · " + rec.name + " · " + rec.id, date: rec.created, relatedId: rec.id, kind: "quote" });
     addAudit({ action: "Saved quote", recordType: "Quote", recordId: id,
-      recordPath: { page: "pos", posTab: "quotes", quoteId: id },
-      changes: [{ field: "status", before: "—", after: "Open" }, { field: "template", before: "—", after: tpl.name }] });
-    toast("Quote saved");
-    go({ page: "quotes", quoteId: id });
+      recordPath: { page: "quotes", quoteId: id },
+      changes: [{ field: "status", before: "—", after: "Draft" }, { field: "template", before: "—", after: tpl.name }] });
+    toast("Quote saved as draft · expires " + fmtDate(rec.expiresOn));
+    return rec;
   }
+
   function quoteById(id) { return (store.quotes || []).find((q) => q.id === id); }
   function bringQuote(id) {
     const q = quoteById(id); if (!q) return;
@@ -9183,7 +9422,8 @@
         const amt = Number(raw);
         if (!raw || !isFinite(amt) || amt <= 0) { toast("Enter a deposit amount"); return; }
         const before = q.status;
-        q.status = "Prepaid";
+        if (q.status === "Draft" || q.status === "Sent") q.status = "Accepted";
+        q.depositCollected = true;
         q.depositAmount = Math.round(amt * 100) / 100;
         q.depositAt = nowET();
         if (p) {
@@ -9194,7 +9434,7 @@
         }
         addAudit({ action: "Collected deposit on quote", recordType: "Quote", recordId: id,
           recordPath: { page: "quotes", quoteId: id },
-          changes: [{ field: "status", before: before, after: "Prepaid" }, { field: "deposit", before: "—", after: money(amt) }] });
+          changes: [{ field: "status", before: before, after: q.status }, { field: "deposit", before: "—", after: money(amt) }] });
         closeModal();
         toast("Deposit " + money(amt) + " added to patient credit");
         render();
@@ -9585,6 +9825,13 @@
     role = role || state.actingRole;
     return role === "Clinical Coordinator" || role === "Clinic Manager";
   }
+  function canCreateInvoice(role) {
+    role = role || state.actingRole;
+    return role === "Clinical Coordinator" || role === "Clinic Manager" || role === "MD / Clinic Owner";
+  }
+  function canManageQuotes(role) {
+    return !isMarketingRole(role);
+  }
   function canEditChartHistory(role) {
     return isMaRole(role);
   }
@@ -9687,47 +9934,105 @@
     if (rec.productChanged) return true;
     return false;
   }
-  function appointmentConsentsHtml(a, p) {
-    if (!p) return '<div class="appt-consents"><div class="empty">No patient on this appointment.</div></div>';
+  function consentRecordFor(p, formId) {
+    return ((p && p.consentRecords) || []).filter(function (r) { return r.formId === formId && !r.archived; }).slice(-1)[0] || null;
+  }
+  function consentStatusOf(rec) {
+    if (rec && rec.signedAt) return consentExpired(rec) ? "Re-sign due" : "Signed";
+    if (rec && rec.presentedAt) return "Presented";
+    return "Not started";
+  }
+  function canRecordConsentSignature() {
+    if (isMarketingRole()) return false;
+    if (isMaRole() && !isOwnerRole() && !isClinicalRole()) return false;
+    return true;
+  }
+  function consentListHtml(a, p, opts) {
+    opts = opts || {};
+    if (!p) return '<div class="consent-list"><div class="empty">No patient on this appointment.</div></div>';
     p.consentRecords = p.consentRecords || [];
     const forms = (BRIZZA.CONSENT_FORMS || []).filter(function (f) { return consentFormVisible(f, a); });
     const hiddenDissolve = (BRIZZA.CONSENT_FORMS || []).some(function (f) { return f.ownerMdOnly && !consentFormVisible(f, a); });
     const rows = forms.map(function (f) {
-      const rec = (p.consentRecords || []).filter(function (r) { return r.formId === f.id; }).slice(-1)[0];
+      const rec = consentRecordFor(p, f.id);
+      const status = consentStatusOf(rec);
       const expired = consentExpired(rec);
-      const status = rec && rec.signedAt ? (expired ? "Re-sign due" : "Signed") : (rec && rec.presentedAt ? "Presented" : "Not started");
       const when = rec && rec.signedAt ? rec.signedAt : (rec && rec.presentedAt ? rec.presentedAt : "");
       const vol = f.kind === "marketing-photo" ? '<div class="row-sub">Voluntary — never required to book or treat.</div>' : "";
-      const hold = f.ownerMdOnly && !canSeeDissolveConsent(a) ? " locked" : "";
-      const acts = (f.ownerMdOnly && !canSeeDissolveConsent(a))
-        ? '<span class="row-sub">Owner / MD only</span>'
-        : ('<button type="button" class="btn tiny" data-consent-act="present" data-consent-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">Present</button>' +
-           (isMaRole() && !isOwnerRole()
-             ? '<span class="row-sub">MA may present; the patient signs, not the MA as provider.</span>'
-             : '<button type="button" class="btn tiny primary" data-consent-act="sign" data-consent-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '">Patient signs</button>'));
-      return '<div class="consent-row" data-consent-kind="' + esc(f.kind) + '">' +
-        "<div><strong>" + esc(f.title) + "</strong>" + vol +
-        '<div class="row-sub">Re-sign at least once every 12 months, and whenever the service, product, or device changes.' + (expired ? " This record is flagged for re-sign." : "") + "</div>" +
-        consentWordingBlock(f) +
-        "</div>" +
+      const flag = expired ? '<div class="row-sub consent-resign-flag">This record is flagged for re-sign.</div>' : "";
+      const locked = f.ownerMdOnly && !canSeeDissolveConsent(a);
+      return '<div class="consent-row compact" data-consent-kind="' + esc(f.kind) + '">' +
+        "<div><strong>" + esc(f.title) + "</strong>" + vol + flag + "</div>" +
         '<div class="consent-sig">' + esc(status) + (when ? " · " + esc(when) : "") + (expired ? " · 12-month re-sign flag" : "") + "</div>" +
-        "<div>" + acts + "</div></div>";
+        "<div>" + (locked
+          ? '<span class="row-sub">Owner / MD only</span>'
+          : '<button type="button" class="btn tiny' + (status === "Not started" || expired ? " primary" : "") + '" data-open-consent-form="' + esc(f.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(a ? a.id : "") + '">Open</button>') +
+        "</div></div>";
     }).join("");
-    return '<div class="appt-consents">' +
-      "<h3>Consent notes</h3>" +
-      '<p class="row-sub">Each treatment has its own consent. Clinical photography and marketing photography are separate records. A financial policy acknowledgment is included. Consents are not clinical notes.</p>' +
+    return '<div class="consent-list">' +
+      (opts.heading === false ? "" : "<h3>Consents</h3>") +
+      '<p class="row-sub">Open one form at a time. Re-sign at least once every 12 months, and whenever the service, product, or device changes. Consents are not clinical notes. Marketing photography is voluntary.</p>' +
       rows +
       (hiddenDissolve ? '<p class="row-sub">Filler dissolve consent is available only when the provider or acting role is Owner / MD.</p>' : "") +
       '<p class="row-sub">Cancellation: 24-hour cutoff, $50 late-cancel fee and $50 no-show fee.</p></div>';
   }
-  function applyConsentAction(pid, apptId, formId, act) {
+  function myDayConsentsHtml(a, p) {
+    if (!p || isMarketingRole()) return "";
+    return '<div class="myday-consents">' + consentListHtml(a, p, { heading: true }) + "</div>";
+  }
+  function appointmentConsentsHtml(a, p) {
+    return '<div class="appt-consents">' + consentListHtml(a, p, { heading: true }) + "</div>";
+  }
+  function openConsentsPanel(apptId) {
+    const a = appt(apptId);
+    const p = a ? patient(a.patientId) : null;
+    if (!a || !p) { toast("Open the appointment to complete consents"); return; }
+    if (isMarketingRole()) { toast("Marketing does not complete consents"); return; }
+    showModal("Consents · " + p.name, consentListHtml(a, p, { heading: false }), null, "Close");
+  }
+  function openConsentForm(pid, apptId, formId) {
+    const p = patient(pid);
+    const a = apptId ? appt(apptId) : null;
+    const form = (BRIZZA.CONSENT_FORMS || []).find(function (f) { return f.id === formId; });
+    if (!p || !form) return;
+    if (form.ownerMdOnly && !canSeeDissolveConsent(a)) { toast("Filler dissolve consent is Owner / MD only"); return; }
+    const rec = consentRecordFor(p, formId);
+    const status = consentStatusOf(rec);
+    const expired = consentExpired(rec);
+    const vol = form.kind === "marketing-photo" ? '<p class="row-sub">Voluntary — never required to book or treat.</p>' : "";
+    const pack = (BRIZZA.CONSENT_WORDING || {})[form.id];
+    const wording = pack && pack.markdown
+      ? '<div class="consent-wording consent-wording-open">' + renderConsentMarkdown(pack.markdown) + "</div>"
+      : '<p class="row-sub">Wording is not loaded for this form.</p>';
+    const canSign = canRecordConsentSignature();
+    const maNote = (isMaRole() && !canSign) ? '<p class="row-sub">MA may present; the patient signs, not the MA as provider.</p>' : "";
+    const presentBtn = '<button type="button" class="btn" data-consent-act="present" data-consent-form="' + esc(form.id) + '" data-pid="' + esc(p.id) + '" data-appt="' + esc(apptId || "") + '">Present</button>';
+    const body =
+      '<div class="consent-form-body" data-consent-form-modal="' + esc(form.id) + '">' +
+      '<p class="consent-form-status">' + esc(status) + (expired ? " · 12-month re-sign flag" : "") + "</p>" +
+      vol +
+      '<p class="row-sub">Re-sign at least once every 12 months, and whenever the service, product, or device changes.' + (expired ? " This record is flagged for re-sign." : "") + "</p>" +
+      maNote +
+      wording +
+      '<div class="consent-form-acts">' + presentBtn + "</div></div>";
+    const saveLabel = canSign && (status !== "Signed" || expired) ? "Save" : null;
+    showModal(form.title, body, saveLabel ? function () {
+      applyConsentAction(pid, apptId, formId, "sign", { closeOnSave: true });
+    } : null, saveLabel || "Close");
+  }
+  function applyConsentAction(pid, apptId, formId, act, opts) {
+    opts = opts || {};
     const p = patient(pid);
     const form = (BRIZZA.CONSENT_FORMS || []).find(function (f) { return f.id === formId; });
     const a = appt(apptId);
     if (!p || !form) return;
     if (form.ownerMdOnly && !canSeeDissolveConsent(a)) { toast("Filler dissolve consent is Owner / MD only"); return; }
     p.consentRecords = p.consentRecords || [];
-    let rec = p.consentRecords.filter(function (r) { return r.formId === formId && !r.archived; }).slice(-1)[0];
+    let rec = consentRecordFor(p, formId);
+    if (act === "sign" && rec && rec.signedAt && consentExpired(rec)) {
+      rec.archived = true;
+      rec = null;
+    }
     if (!rec) {
       rec = { id: nextId("CN-", p.consentRecords), formId: formId, title: form.title, kind: form.kind, appointmentId: apptId };
       p.consentRecords.push(rec);
@@ -9736,12 +10041,18 @@
       rec.presentedAt = nowET();
       rec.presentedBy = actingName();
       toast("Consent presented to the patient");
-    } else if (act === "sign") {
-      if (isMaRole() && !isOwnerRole() && !isClinicalRole()) { toast("The medical assistant can present this form but cannot sign as the provider. The patient signs."); return; }
+      if (opts.closeOnSave) { closeModal(); render(); return; }
+      openConsentForm(pid, apptId, formId);
+      return;
+    }
+    if (act === "sign") {
+      if (!canRecordConsentSignature()) { toast("The medical assistant can present this form but cannot sign as the provider. The patient signs."); return; }
       rec.signedAt = nowET();
       rec.signedByPatient = p.name;
       rec.witnessedBy = actingName();
+      rec.productChanged = false;
       toast("Patient signature recorded · " + rec.signedAt);
+      if (opts.closeOnSave !== false) { closeModal(); render(); return; }
     }
     render();
   }
@@ -10051,7 +10362,7 @@
     const apptNote = a.prepNotes ? esc(a.prepNotes) : '<span class="muted">No appointment note</span>';
     const noteBtn = (canStartNote() && p) ? '<button class="btn tiny" type="button" data-open="note-composer" data-pid="' + esc(p.id) + '" data-appt="' + esc(a.id) + '"' + (a.visitId ? ' data-visit="' + esc(a.visitId) + '"' : "") + ">＋ New note</button>" : "";
     const hxBtn = (isMaRole() && p) ? '<a class="btn tiny" href="' + hashFor({ page: "patients", selected: p.id, tab: "clinical-profile" }) + '">Update history</a>' : "";
-    const consentBtn = ((isMaRole() || isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") && p) ? '<button type="button" class="btn tiny" data-open-consents="' + esc(a.id) + '">Complete consents</button>' : "";
+    const consentBtn = (!isMarketingRole() && p) ? '<button type="button" class="btn tiny" data-open-consents="' + esc(a.id) + '">Complete consents</button>' : "";
     const schedNextBtn = ((isCoordinatorRole() || isOwnerRole() || state.actingRole === "Clinic Manager") && p) ? '<button type="button" class="btn tiny" data-sched-next="' + esc(a.id) + '" data-pid="' + esc(p.id) + '">Schedule next appt</button>' : "";
     const emnBlock = p ? ('<div class="myday-emns"><div class="row-sub"><strong>Visit EMNs</strong></div>' +
       (visitNotes.map(function (n) {
@@ -10062,8 +10373,8 @@
       ? ('<div class="emr-snap"><strong>Alerts</strong> ' + (((p.alerts || []).map(function (al) { return esc(al.text || al); }).join(" · ")) || "None") + "</div>" +
          '<div class="emr-snap"><strong>Allergies</strong> ' + esc(allergyLabel(p)) + "</div>")
       : "";
-    const forms = (opts.forms && p)
-      ? ('<details class="forms-exp"' + (state.expandedForms === a.id ? " open" : "") + '><summary>Forms and ID</summary>' + formsChecklistHtml(p) + "</details>")
+    const forms = ((!isMarketingRole() || opts.forms) && p)
+      ? ('<details class="forms-exp"' + (state.expandedForms === a.id ? " open" : "") + '><summary>Forms and ID</summary>' + formsChecklistHtml(p) + "</details>" + myDayConsentsHtml(a, p))
       : "";
     const inner =
       '<div class="flow-head"><a class="patient-name room-name" href="' + href + '">' + esc(p ? p.name : a.patientId) + "</a> " + statusChipHtml(a, { variant: "tint" }) + "</div>" +
@@ -10168,7 +10479,7 @@
     } else if (fd || coord) {
       const list = clinicDayAppointments(day);
       main = '<div class="card"><div class="cardhead"><h2>' + (day === todayET() ? "Today's patients" : esc(fmtLong(day))) + '</h2></div><div class="cardbody">' +
-        (list.map(function (a) { return myDayVisitCard(a, { prep: true, forms: coord || isFrontDeskRole() }); }).join("") || '<div class="empty">No visits on the clinic schedule this day.</div>') +
+        (list.map(function (a) { return myDayVisitCard(a, { prep: true, forms: !isMarketingRole() }); }).join("") || '<div class="empty">No visits on the clinic schedule this day.</div>') +
         "</div></div>";
     } else if (ma) {
       const statuses = ["Checked in", "Ready for clinical", "With clinical", "Ready for provider"];
@@ -10298,6 +10609,7 @@
     renderChrome('<a href="' + hashFor({ page: "notes" }) + '">Notes</a>', head, '<div class="card"><div class="cardbody notes-dash">' + toggle + range + list + "</div></div>");
   }
   function render() {
+    expireQuotes();
     if (state.page !== "rooming") stopRoomingTick();
     if (state.page === "worklist") renderWorklist();
     else if (state.page === "schedule") renderSchedule();
@@ -10595,10 +10907,13 @@
     const blankInv = e.target.closest("[data-new-blank-invoice]");
     if (blankInv) {
       e.preventDefault();
-      const inv = newBlankInvoice(state.selected || null);
+      if (!canCreateInvoice()) { toast("Only the Clinical Coordinator, Clinic Manager, or Owner can create invoices"); return; }
+      const pid = state.selected || null;
+      if (!pid) { toast("Search for a patient, then create the invoice"); return; }
+      const inv = newBlankInvoice(pid);
       state.invoiceId = inv.id;
       state.posAppointmentId = null;
-      toast("Blank invoice " + inv.id);
+      toast("Invoice " + inv.id + " created");
       go({ page: "pos", posTab: "invoice", invoiceId: inv.id });
       return;
     }
@@ -10643,11 +10958,17 @@
     if (posOpen) {
       e.preventDefault();
       e.stopPropagation();
+      if (!canCreateInvoice()) { toast("Only the Clinical Coordinator, Clinic Manager, or Owner can create invoices"); return; }
       openPosPopup(posOpen.getAttribute("data-open-pos"));
       return;
     }
     const ledInv = e.target.closest("[data-ledger-invoice]");
-    if (ledInv) { e.preventDefault(); openLedgerInvoice(ledInv.getAttribute("data-ledger-invoice")); return; }
+    if (ledInv) {
+      e.preventDefault();
+      if (!canCreateInvoice()) { toast("Only the Clinical Coordinator, Clinic Manager, or Owner can create invoices"); return; }
+      openLedgerInvoice(ledInv.getAttribute("data-ledger-invoice"));
+      return;
+    }
     const ledPay = e.target.closest("[data-ledger-payment]");
     if (ledPay) { e.preventDefault(); openLedgerPayment(ledPay.getAttribute("data-ledger-payment")); return; }
     const nd = e.target.closest("[data-notes-dash]");
@@ -10763,11 +11084,13 @@
     const pickPos = e.target.closest("[data-pos-pick-patient]");
     if (pickPos) {
       e.preventDefault();
+      if (!canCreateInvoice()) { toast("Only the Clinical Coordinator, Clinic Manager, or Owner can create invoices"); return; }
       const inv = newBlankInvoice(pickPos.getAttribute("data-pos-pick-patient"));
       state.invoiceId = inv.id;
       state.posAppointmentId = null;
       state.posPatientQ = "";
-      render();
+      toast("Invoice " + inv.id + " created");
+      go({ page: "pos", posTab: "invoice", invoiceId: inv.id });
       return;
     }
     const rmLine = e.target.closest("[data-remove-line]");
@@ -10787,6 +11110,8 @@
       }
       return;
     }
+    const saveQf = e.target.closest("[data-save-quote-fields]");
+    if (saveQf) { e.preventDefault(); saveQuoteFields(saveQf.getAttribute("data-save-quote-fields")); return; }
     const newQ = e.target.closest("[data-new-quote]");
     if (newQ) { e.preventDefault(); openNewQuoteModal(); return; }
     const cred = e.target.closest("[data-apply-credit]");
@@ -10840,9 +11165,13 @@
     const openConsents = e.target.closest("[data-open-consents]");
     if (openConsents) {
       e.preventDefault();
-      const ap = appt(openConsents.getAttribute("data-open-consents"));
-      if (ap) openAppointment(ap.id, { pane: "consents" });
-      else toast("Open the appointment to complete consents");
+      openConsentsPanel(openConsents.getAttribute("data-open-consents"));
+      return;
+    }
+    const openConsentFormBtn = e.target.closest("[data-open-consent-form]");
+    if (openConsentFormBtn) {
+      e.preventDefault();
+      openConsentForm(openConsentFormBtn.getAttribute("data-pid"), openConsentFormBtn.getAttribute("data-appt"), openConsentFormBtn.getAttribute("data-open-consent-form"));
       return;
     }
     const consentAct = e.target.closest("[data-consent-act]");
@@ -11033,6 +11362,9 @@
       if (act === "add-line") addPosLine();
       else if (act === "new-quote") saveQuoteFromTemplate(posEl.dataset.pid, posEl.dataset.appt, ($("#quoteTpl") && $("#quoteTpl").value) || "");
       else if (act === "accept") acceptQuote(qid);
+      else if (act === "reissue") reissueQuote(qid);
+      else if (act === "print") printQuote(qid);
+      else if (act === "send") sendQuote(qid);
       else if (act === "bring") bringQuote(qid);
       else if (act === "prepay") prepayQuote(qid);
       else if (act === "book-quote") bookFromQuote(qid);
